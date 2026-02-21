@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CEPREUNA - Materiales</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="p-4 pb-20">
+    <!-- Header -->
+    <div class="max-w-2xl mx-auto mb-6">
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-2">
+                <button onclick="window.location.href='dashboard.html'" class="text-blue-600 hover:text-blue-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </button>
+                <h1 class="text-2xl font-bold text-gray-800">Materiales</h1>
+                <div class="w-6"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenido -->
+    <div class="max-w-2xl mx-auto">
+        <!-- Información -->
+        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Materiales de Estudio</h2>
+            <div class="space-y-3 text-gray-700">
+                <p><span class="font-semibold">Estudiante:</span> <span id="userName"></span></p>
+                <p><span class="font-semibold">Área:</span> <span id="userArea"></span></p>
+            </div>
+        </div>
+
+        <!-- Categorías de materiales -->
+        <div class="space-y-4">
+            <!-- Presentaciones -->
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                    <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center mr-3">
+                        <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                        </svg>
+                    </div>
+                    Presentaciones
+                </h3>
+                <div id="presentaciones" class="space-y-2"></div>
+            </div>
+
+            <!-- Documentos -->
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    Documentos
+                </h3>
+                <div id="documentos" class="space-y-2"></div>
+            </div>
+
+            <!-- PDFs -->
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                    <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center mr-3">
+                        <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
+                    Archivos PDF
+                </h3>
+                <div id="pdfs" class="space-y-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Verificar autenticación
+        const estudiante = JSON.parse(localStorage.getItem('estudiante'));
+        if (!estudiante) {
+            window.location.href = 'index.html';
+        }
+
+        // Mostrar información
+        document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
+        document.getElementById('userArea').textContent = estudiante.area || 'N/A';
+
+        // Materiales por área
+        const materialesPorArea = {
+            'Area 1': {
+                presentaciones: [
+                    { nombre: 'item_por_competencia.pptx', tamaño: '2.5 MB', url: 'https://docs.google.com/presentation/d/1ejemplo1/edit' },
+                    { nombre: 'Seminario_Taller_Matematicas_Parte_2.pptx', tamaño: '3.1 MB', url: 'https://docs.google.com/presentation/d/1ejemplo2/edit' }
+                ],
+                documentos: [
+                    { nombre: 'formato_item_puno.docx', tamaño: '156 KB', url: 'https://docs.google.com/document/d/1ejemplo3/edit' }
+                ],
+                pdfs: [
+                    { nombre: 'Guia_Matematicas_2026.pdf', tamaño: '1.8 MB', url: '#' }
+                ]
+            },
+            'Area 2': {
+                presentaciones: [
+                    { nombre: 'Material_Comunicacion_Parte1.pptx', tamaño: '2.2 MB', url: '#' }
+                ],
+                documentos: [
+                    { nombre: 'Ejercicios_Comunicacion.docx', tamaño: '320 KB', url: '#' }
+                ],
+                pdfs: [
+                    { nombre: 'Guia_Comunicacion.pdf', tamaño: '1.5 MB', url: '#' }
+                ]
+            },
+            'Area 3': {
+                presentaciones: [
+                    { nombre: 'Material_CTA_Parte1.pptx', tamaño: '2.8 MB', url: '#' }
+                ],
+                documentos: [],
+                pdfs: [
+                    { nombre: 'Laboratorio_CTA.pdf', tamaño: '2.1 MB', url: '#' }
+                ]
+            },
+            'Area 4': {
+                presentaciones: [
+                    { nombre: 'Material_Sociales_Parte1.pptx', tamaño: '2.4 MB', url: '#' }
+                ],
+                documentos: [],
+                pdfs: [
+                    { nombre: 'Guia_Historia.pdf', tamaño: '1.9 MB', url: '#' }
+                ]
+            }
+        };
+
+        // Función para crear item de material
+        function crearMaterialItem(material) {
+            const div = document.createElement('a');
+            div.href = material.url;
+            div.target = '_blank';
+            div.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition';
+
+            div.innerHTML = `
+                <div class="flex items-center flex-1">
+                    <svg class="w-5 h-5 text-gray-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-medium text-gray-800 truncate">${material.nombre}</p>
+                        <p class="text-sm text-gray-500">${material.tamaño}</p>
+                    </div>
+                </div>
+                <svg class="w-5 h-5 text-blue-600 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                </svg>
+            `;
+
+            return div;
+        }
+
+        // Renderizar materiales
+        const area = estudiante.area;
+        const materiales = materialesPorArea[area] || { presentaciones: [], documentos: [], pdfs: [] };
+
+        // Presentaciones
+        const presentacionesContainer = document.getElementById('presentaciones');
+        if (materiales.presentaciones.length === 0) {
+            presentacionesContainer.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">No hay presentaciones disponibles</p>';
+        } else {
+            materiales.presentaciones.forEach(mat => {
+                presentacionesContainer.appendChild(crearMaterialItem(mat));
+            });
+        }
+
+        // Documentos
+        const documentosContainer = document.getElementById('documentos');
+        if (materiales.documentos.length === 0) {
+            documentosContainer.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">No hay documentos disponibles</p>';
+        } else {
+            materiales.documentos.forEach(mat => {
+                documentosContainer.appendChild(crearMaterialItem(mat));
+            });
+        }
+
+        // PDFs
+        const pdfsContainer = document.getElementById('pdfs');
+        if (materiales.pdfs.length === 0) {
+            pdfsContainer.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">No hay PDFs disponibles</p>';
+        } else {
+            materiales.pdfs.forEach(mat => {
+                pdfsContainer.appendChild(crearMaterialItem(mat));
+            });
+        }
+    </script>
+</body>
+</html>

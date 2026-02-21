@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CEPREUNA - Curso</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="p-4 pb-20">
+    <!-- Header -->
+    <div class="max-w-2xl mx-auto mb-6">
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-2">
+                <button onclick="window.location.href='dashboard.html'" class="text-blue-600 hover:text-blue-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </button>
+                <h1 class="text-2xl font-bold text-gray-800">Curso</h1>
+                <div class="w-6"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenido -->
+    <div class="max-w-2xl mx-auto">
+        <!-- Información del Curso -->
+        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Información del Curso</h2>
+            <div class="space-y-3 text-gray-700">
+                <p><span class="font-semibold">Estudiante:</span> <span id="userName"></span></p>
+                <p><span class="font-semibold">Área:</span> <span id="userArea"></span></p>
+            </div>
+        </div>
+
+        <!-- Materiales del Curso -->
+        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                </svg>
+                Materiales del Curso
+            </h2>
+            <div id="cursoMateriales" class="space-y-3"></div>
+        </div>
+
+        <!-- Horarios de Clase -->
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Horarios de Clase
+            </h2>
+            <div class="space-y-2 text-gray-700">
+                <p class="flex items-center">
+                    <span class="font-semibold mr-2">Sábados:</span>
+                    <span>10:00 AM - 1:00 PM</span>
+                </p>
+                <p class="flex items-center">
+                    <span class="font-semibold mr-2">Receso:</span>
+                    <span>1:00 PM - 3:00 PM</span>
+                </p>
+                <p class="flex items-center">
+                    <span class="font-semibold mr-2">Tarde:</span>
+                    <span>3:00 PM - 6:00 PM</span>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Verificar autenticación
+        const estudiante = JSON.parse(localStorage.getItem('estudiante'));
+        if (!estudiante) {
+            window.location.href = 'index.html';
+        }
+
+        // Mostrar información
+        document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
+        document.getElementById('userArea').textContent = estudiante.area || 'N/A';
+
+        // Materiales por área
+        const materialesPorArea = {
+            'Area 1': [
+                { nombre: 'formato_item_puno.docx', tipo: 'docx', url: 'https://docs.google.com/document/d/1ejemplo1/edit' },
+                { nombre: 'item_por_competencia.pptx', tipo: 'pptx', url: 'https://docs.google.com/presentation/d/1ejemplo2/edit' },
+                { nombre: 'Seminario_Taller_por_areas_Matematicas_Parte_2.pptx', tipo: 'pptx', url: 'https://docs.google.com/presentation/d/1ejemplo3/edit' }
+            ],
+            'Area 2': [
+                { nombre: 'Material_Comunicacion_Parte1.pptx', tipo: 'pptx', url: '#' },
+                { nombre: 'Guia_Comunicacion.pdf', tipo: 'pdf', url: '#' }
+            ],
+            'Area 3': [
+                { nombre: 'Material_CTA_Parte1.pptx', tipo: 'pptx', url: '#' },
+                { nombre: 'Laboratorio_CTA.pdf', tipo: 'pdf', url: '#' }
+            ],
+            'Area 4': [
+                { nombre: 'Material_Sociales_Parte1.pptx', tipo: 'pptx', url: '#' },
+                { nombre: 'Guia_Historia.pdf', tipo: 'pdf', url: '#' }
+            ]
+        };
+
+        // Renderizar materiales
+        const materialesContainer = document.getElementById('cursoMateriales');
+        const area = estudiante.area;
+        const materiales = materialesPorArea[area] || [];
+
+        if (materiales.length === 0) {
+            materialesContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No hay materiales disponibles para tu área</p>';
+        } else {
+            materiales.forEach(material => {
+                const materialDiv = document.createElement('a');
+                materialDiv.href = material.url;
+                materialDiv.target = '_blank';
+                materialDiv.className = 'flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition';
+
+                const iconColor = material.tipo === 'pptx' ? 'text-orange-600' : material.tipo === 'docx' ? 'text-blue-600' : 'text-red-600';
+                const bgColor = material.tipo === 'pptx' ? 'bg-orange-100' : material.tipo === 'docx' ? 'bg-blue-100' : 'bg-red-100';
+
+                materialDiv.innerHTML = `
+                    <div class="flex items-center">
+                        <div class="${bgColor} p-3 rounded-lg mr-3">
+                            <svg class="w-6 h-6 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-800">${material.nombre}</p>
+                            <p class="text-sm text-gray-500">${material.tipo.toUpperCase()}</p>
+                        </div>
+                    </div>
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                `;
+
+                materialesContainer.appendChild(materialDiv);
+            });
+        }
+    </script>
+</body>
+</html>

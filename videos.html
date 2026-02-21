@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CEPREUNA - Videos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            min-height: 100vh;
+        }
+        .video-card {
+            transition: transform 0.2s;
+        }
+        .video-card:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body class="p-4 pb-20">
+    <!-- Header -->
+    <div class="max-w-2xl mx-auto mb-6">
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-2">
+                <button onclick="window.location.href='dashboard.html'" class="text-blue-600 hover:text-blue-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </button>
+                <h1 class="text-2xl font-bold text-gray-800">Videos</h1>
+                <div class="w-6"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenido -->
+    <div class="max-w-2xl mx-auto">
+        <!-- Información -->
+        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Grabaciones de Clases</h2>
+            <div class="space-y-3 text-gray-700">
+                <p><span class="font-semibold">Estudiante:</span> <span id="userName"></span></p>
+                <p><span class="font-semibold">Área:</span> <span id="userArea"></span></p>
+            </div>
+        </div>
+
+        <!-- Videos por área -->
+        <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Videos Disponibles
+            </h2>
+            <div id="videosContainer" class="space-y-4"></div>
+        </div>
+
+        <!-- Instrucciones -->
+        <div class="bg-blue-50 border border-blue-200 rounded-2xl shadow-lg p-6">
+            <h3 class="text-lg font-bold text-blue-900 mb-3 flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Instrucciones
+            </h3>
+            <ul class="space-y-2 text-sm text-blue-800">
+                <li class="flex items-start">
+                    <span class="mr-2">•</span>
+                    <span>Haz clic en cualquier video para verlo en Google Drive</span>
+                </li>
+                <li class="flex items-start">
+                    <span class="mr-2">•</span>
+                    <span>Las grabaciones estarán disponibles por 90 días</span>
+                </li>
+                <li class="flex items-start">
+                    <span class="mr-2">•</span>
+                    <span>Se recomienda tomar apuntes durante la visualización</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Verificar autenticación
+        const estudiante = JSON.parse(localStorage.getItem('estudiante'));
+        if (!estudiante) {
+            window.location.href = 'index.html';
+        }
+
+        // Mostrar información
+        document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
+        document.getElementById('userArea').textContent = estudiante.area || 'N/A';
+
+        // Videos por área (URLs de ejemplo - reemplazar con URLs reales de Google Drive)
+        const videosPorArea = {
+            'Area 1': [
+                {
+                    titulo: 'Sesión 1 - Introducción a Matemáticas',
+                    fecha: '2026-02-15',
+                    duracion: '3 horas',
+                    url: 'https://drive.google.com/file/d/1ejemplo1/view',
+                    thumbnail: 'https://via.placeholder.com/320x180/4F46E5/FFFFFF?text=Sesión+1'
+                },
+                {
+                    titulo: 'Sesión 2 - Álgebra y Ecuaciones',
+                    fecha: '2026-02-22',
+                    duracion: '3 horas',
+                    url: 'https://drive.google.com/file/d/1ejemplo2/view',
+                    thumbnail: 'https://via.placeholder.com/320x180/4F46E5/FFFFFF?text=Sesión+2'
+                }
+            ],
+            'Area 2': [
+                {
+                    titulo: 'Sesión 1 - Comprensión Lectora',
+                    fecha: '2026-02-15',
+                    duracion: '3 horas',
+                    url: '#',
+                    thumbnail: 'https://via.placeholder.com/320x180/EF4444/FFFFFF?text=Sesión+1'
+                },
+                {
+                    titulo: 'Sesión 2 - Redacción y Ortografía',
+                    fecha: '2026-02-22',
+                    duracion: '3 horas',
+                    url: '#',
+                    thumbnail: 'https://via.placeholder.com/320x180/EF4444/FFFFFF?text=Sesión+2'
+                }
+            ],
+            'Area 3': [
+                {
+                    titulo: 'Sesión 1 - Introducción a CTA',
+                    fecha: '2026-02-15',
+                    duracion: '3 horas',
+                    url: '#',
+                    thumbnail: 'https://via.placeholder.com/320x180/10B981/FFFFFF?text=Sesión+1'
+                }
+            ],
+            'Area 4': [
+                {
+                    titulo: 'Sesión 1 - Historia del Perú',
+                    fecha: '2026-02-15',
+                    duracion: '3 horas',
+                    url: '#',
+                    thumbnail: 'https://via.placeholder.com/320x180/F59E0B/FFFFFF?text=Sesión+1'
+                }
+            ]
+        };
+
+        // Renderizar videos
+        const videosContainer = document.getElementById('videosContainer');
+        const area = estudiante.area;
+        const videos = videosPorArea[area] || [];
+
+        if (videos.length === 0) {
+            videosContainer.innerHTML = `
+                <div class="text-center py-8">
+                    <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                    <p class="text-gray-500">No hay videos disponibles para tu área</p>
+                    <p class="text-sm text-gray-400 mt-2">Los videos se publicarán después de cada sesión</p>
+                </div>
+            `;
+        } else {
+            videos.forEach(video => {
+                const videoCard = document.createElement('a');
+                videoCard.href = video.url;
+                videoCard.target = '_blank';
+                videoCard.className = 'video-card block bg-gray-50 rounded-lg overflow-hidden hover:shadow-md';
+
+                videoCard.innerHTML = `
+                    <div class="flex flex-col sm:flex-row">
+                        <div class="sm:w-40 h-32 sm:h-auto bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                        </div>
+                        <div class="p-4 flex-1">
+                            <h3 class="font-bold text-gray-800 mb-2">${video.titulo}</h3>
+                            <div class="space-y-1 text-sm text-gray-600">
+                                <p class="flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    ${video.fecha}
+                                </p>
+                                <p class="flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    ${video.duracion}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                videosContainer.appendChild(videoCard);
+            });
+        }
+    </script>
+</body>
+</html>
