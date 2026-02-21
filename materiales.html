@@ -236,6 +236,57 @@
         }
         userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
 
+        // Obtener número de área del estudiante (1, 2, 3 o 4)
+        const areaNumMatch = areaLargo.match(/Área (\d)/);
+        const areaNum = areaNumMatch ? areaNumMatch[1] : '1';
+
+        // Cargar materiales dinámicamente desde el servidor
+        async function cargarMateriales() {
+            try {
+                const response = await fetch(`/api/materiales/area/${areaNum}`);
+                if (!response.ok) throw new Error('Error al cargar materiales');
+
+                const materiales = await response.json();
+
+                // Renderizar presentaciones
+                const presentacionesDiv = document.getElementById('presentaciones');
+                if (materiales.presentaciones && materiales.presentaciones.length > 0) {
+                    materiales.presentaciones.forEach(material => {
+                        presentacionesDiv.appendChild(crearMaterialItem(material));
+                    });
+                } else {
+                    presentacionesDiv.innerHTML = '<p class="text-gray-500 text-sm">No hay presentaciones disponibles</p>';
+                }
+
+                // Renderizar documentos
+                const documentosDiv = document.getElementById('documentos');
+                if (materiales.documentos && materiales.documentos.length > 0) {
+                    materiales.documentos.forEach(material => {
+                        documentosDiv.appendChild(crearMaterialItem(material));
+                    });
+                } else {
+                    documentosDiv.innerHTML = '<p class="text-gray-500 text-sm">No hay documentos disponibles</p>';
+                }
+
+                // Renderizar PDFs
+                const pdfsDiv = document.getElementById('pdfs');
+                if (materiales.pdfs && materiales.pdfs.length > 0) {
+                    materiales.pdfs.forEach(material => {
+                        pdfsDiv.appendChild(crearMaterialItem(material));
+                    });
+                } else {
+                    pdfsDiv.innerHTML = '<p class="text-gray-500 text-sm">No hay PDFs disponibles</p>';
+                }
+
+            } catch (error) {
+                console.error('Error al cargar materiales:', error);
+                ['presentaciones', 'documentos', 'pdfs'].forEach(id => {
+                    document.getElementById(id).innerHTML = '<p class="text-red-500 text-sm">Error al cargar materiales</p>';
+                });
+            }
+        }
+
+        // Datos de ejemplo (deprecated - ahora se carga dinámicamente)
         const materialesPorArea = {
             'Área 1: Razonamiento Matemático, Aritmética, Álgebra, Geometría y Trigonometría': {
                 presentaciones: [
@@ -304,38 +355,8 @@
             return div;
         }
 
-        const area = estudiante.area;
-        const materiales = materialesPorArea[area] || { presentaciones: [], documentos: [], pdfs: [] };
-
-        // Presentaciones
-        const presentacionesContainer = document.getElementById('presentaciones');
-        if (materiales.presentaciones.length === 0) {
-            presentacionesContainer.innerHTML = '<p class="text-gray-400 text-sm text-center py-4 bg-white rounded-xl border border-gray-200">No hay presentaciones disponibles</p>';
-        } else {
-            materiales.presentaciones.forEach(mat => {
-                presentacionesContainer.appendChild(crearMaterialItem(mat));
-            });
-        }
-
-        // Documentos
-        const documentosContainer = document.getElementById('documentos');
-        if (materiales.documentos.length === 0) {
-            documentosContainer.innerHTML = '<p class="text-gray-400 text-sm text-center py-4 bg-white rounded-xl border border-gray-200">No hay documentos disponibles</p>';
-        } else {
-            materiales.documentos.forEach(mat => {
-                documentosContainer.appendChild(crearMaterialItem(mat));
-            });
-        }
-
-        // PDFs
-        const pdfsContainer = document.getElementById('pdfs');
-        if (materiales.pdfs.length === 0) {
-            pdfsContainer.innerHTML = '<p class="text-gray-400 text-sm text-center py-4 bg-white rounded-xl border border-gray-200">No hay PDFs disponibles</p>';
-        } else {
-            materiales.pdfs.forEach(mat => {
-                pdfsContainer.appendChild(crearMaterialItem(mat));
-            });
-        }
+        // Cargar materiales al iniciar
+        cargarMateriales();
     </script>
 </body>
 </html>

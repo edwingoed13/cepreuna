@@ -1209,6 +1209,83 @@ app.post('/api/extemporaneo/inscripcion', async (req, res) => {
   }
 });
 
+// Endpoint para listar materiales por área
+app.get('/api/materiales/area/:areaNum', async (req, res) => {
+  try {
+    const { areaNum } = req.params;
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    // Validar que el área sea 1, 2, 3 o 4
+    if (!/^[1-4]$/.test(areaNum)) {
+      return res.status(400).json({ error: 'Área inválida. Debe ser 1, 2, 3 o 4' });
+    }
+
+    const dirPath = path.join(__dirname, 'materiales', `area-${areaNum}`);
+
+    try {
+      const files = await fs.readdir(dirPath);
+
+      // Filtrar solo archivos (no directorios) y obtener info
+      const filesInfo = await Promise.all(
+        files.map(async (file) => {
+          const filePath = path.join(dirPath, file);
+          const stats = await fs.stat(filePath);
+
+          if (!stats.isFile()) return null;
+
+          // Determinar tipo de archivo
+          const ext = path.extname(file).toLowerCase();
+          let tipo = 'otro';
+          if (['.pptx', '.ppt'].includes(ext)) tipo = 'presentacion';
+          else if (['.docx', '.doc'].includes(ext)) tipo = 'documento';
+          else if (['.pdf'].includes(ext)) tipo = 'pdf';
+
+          // Calcular tamaño en formato legible
+          const bytes = stats.size;
+          let tamañoFormateado;
+          if (bytes < 1024) tamañoFormateado = bytes + ' B';
+          else if (bytes < 1024 * 1024) tamañoFormateado = (bytes / 1024).toFixed(1) + ' KB';
+          else tamañoFormateado = (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+
+          return {
+            nombre: file,
+            tipo,
+            tamaño: tamañoFormateado,
+            url: `/materiales/area-${areaNum}/${encodeURIComponent(file)}`
+          };
+        })
+      );
+
+      // Filtrar nulls y agrupar por tipo
+      const archivos = filesInfo.filter(f => f !== null);
+
+      const resultado = {
+        presentaciones: archivos.filter(f => f.tipo === 'presentacion'),
+        documentos: archivos.filter(f => f.tipo === 'documento'),
+        pdfs: archivos.filter(f => f.tipo === 'pdf')
+      };
+
+      res.json(resultado);
+
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        // Carpeta no existe, devolver vacío
+        res.json({ presentaciones: [], documentos: [], pdfs: [] });
+      } else {
+        throw err;
+      }
+    }
+
+  } catch (error) {
+    console.error('Error al listar materiales:', error);
+    res.status(500).json({
+      error: 'Error al listar materiales',
+      message: error.message
+    });
+  }
+});
+
 // Endpoint de salud
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
