@@ -251,45 +251,42 @@
             </a>
         </div>
 
-        <!-- Categorías de materiales -->
+        <!-- Materiales organizados por día -->
         <div class="space-y-6">
-            <!-- Presentaciones -->
+            <!-- 20 Feb 2026 -->
             <div class="fade-in" style="animation-delay: 0.1s;">
-                <div class="flex items-center space-x-2 mb-3">
-                    <div class="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                        <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                        </svg>
+                <div class="bg-white rounded-2xl shadow-sm p-5 border border-gray-200">
+                    <div class="flex items-center space-x-2 mb-4">
+                        <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800">20 de Febrero 2026</h3>
+                            <p class="text-xs text-gray-500">Construcción de herramientas de evaluación preuniversitaria</p>
+                        </div>
                     </div>
-                    <h3 class="text-lg font-bold text-gray-800">Presentaciones</h3>
+                    <div id="materiales20Feb" class="space-y-2"></div>
                 </div>
-                <div id="presentaciones" class="space-y-2"></div>
             </div>
 
-            <!-- Documentos -->
+            <!-- 21 Feb 2026 -->
             <div class="fade-in" style="animation-delay: 0.15s;">
-                <div class="flex items-center space-x-2 mb-3">
-                    <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                        </svg>
+                <div class="bg-white rounded-2xl shadow-sm p-5 border border-gray-200">
+                    <div class="flex items-center space-x-2 mb-4">
+                        <div class="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                            <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800">21 de Febrero 2026</h3>
+                            <p class="text-xs text-gray-500">Estrategias de evaluación para la enseñanza–aprendizaje</p>
+                        </div>
                     </div>
-                    <h3 class="text-lg font-bold text-gray-800">Documentos</h3>
+                    <div id="materiales21Feb" class="space-y-2"></div>
                 </div>
-                <div id="documentos" class="space-y-2"></div>
-            </div>
-
-            <!-- PDFs -->
-            <div class="fade-in" style="animation-delay: 0.2s;">
-                <div class="flex items-center space-x-2 mb-3">
-                    <div class="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-                        <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
-                        </svg>
-                    </div>
-                    <h3 class="text-lg font-bold text-gray-800">Archivos PDF</h3>
-                </div>
-                <div id="pdfs" class="space-y-2"></div>
             </div>
         </div>
     </div>
@@ -375,41 +372,56 @@
 
                 const materiales = await response.json();
 
-                // Renderizar presentaciones
-                const presentacionesDiv = document.getElementById('presentaciones');
-                if (materiales.presentaciones && materiales.presentaciones.length > 0) {
-                    materiales.presentaciones.forEach(material => {
-                        presentacionesDiv.appendChild(crearMaterialItem(material));
+                // Archivos del 21 Feb 2026
+                const archivos21Feb = [
+                    'PPT. Métodos de enseñanza y apendizaje .pptx',
+                    'Q & A – Aprendizaje colaborativo .docx'
+                ];
+
+                // Separar materiales por fecha
+                const materiales20Feb = [];
+                const materiales21Feb = [];
+
+                // Combinar todos los tipos de archivos
+                const todosLosMateriales = [
+                    ...(materiales.presentaciones || []),
+                    ...(materiales.documentos || []),
+                    ...(materiales.pdfs || [])
+                ];
+
+                // Clasificar por fecha basándose en el nombre del archivo
+                todosLosMateriales.forEach(material => {
+                    if (archivos21Feb.includes(material.nombre)) {
+                        materiales21Feb.push(material);
+                    } else {
+                        materiales20Feb.push(material);
+                    }
+                });
+
+                // Renderizar materiales del 20 Feb
+                const div20Feb = document.getElementById('materiales20Feb');
+                if (materiales20Feb.length > 0) {
+                    materiales20Feb.forEach(material => {
+                        div20Feb.appendChild(crearMaterialItem(material));
                     });
                 } else {
-                    presentacionesDiv.innerHTML = '<p class="text-gray-500 text-sm">No hay presentaciones disponibles</p>';
+                    div20Feb.innerHTML = '<p class="text-gray-500 text-sm">No hay materiales disponibles</p>';
                 }
 
-                // Renderizar documentos
-                const documentosDiv = document.getElementById('documentos');
-                if (materiales.documentos && materiales.documentos.length > 0) {
-                    materiales.documentos.forEach(material => {
-                        documentosDiv.appendChild(crearMaterialItem(material));
+                // Renderizar materiales del 21 Feb
+                const div21Feb = document.getElementById('materiales21Feb');
+                if (materiales21Feb.length > 0) {
+                    materiales21Feb.forEach(material => {
+                        div21Feb.appendChild(crearMaterialItem(material));
                     });
                 } else {
-                    documentosDiv.innerHTML = '<p class="text-gray-500 text-sm">No hay documentos disponibles</p>';
-                }
-
-                // Renderizar PDFs
-                const pdfsDiv = document.getElementById('pdfs');
-                if (materiales.pdfs && materiales.pdfs.length > 0) {
-                    materiales.pdfs.forEach(material => {
-                        pdfsDiv.appendChild(crearMaterialItem(material));
-                    });
-                } else {
-                    pdfsDiv.innerHTML = '<p class="text-gray-500 text-sm">No hay PDFs disponibles</p>';
+                    div21Feb.innerHTML = '<p class="text-gray-500 text-sm">No hay materiales disponibles</p>';
                 }
 
             } catch (error) {
                 console.error('Error al cargar materiales:', error);
-                ['presentaciones', 'documentos', 'pdfs'].forEach(id => {
-                    document.getElementById(id).innerHTML = '<p class="text-red-500 text-sm">Error al cargar materiales</p>';
-                });
+                document.getElementById('materiales20Feb').innerHTML = '<p class="text-red-500 text-sm">Error al cargar materiales</p>';
+                document.getElementById('materiales21Feb').innerHTML = '<p class="text-red-500 text-sm">Error al cargar materiales</p>';
             }
         }
 
