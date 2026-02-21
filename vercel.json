@@ -1,35 +1,4 @@
 {
-  "buildCommand": "echo 'Static site - no build needed'",
-  "outputDirectory": ".",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/$1" }
-  ],
-  "routes": [
-    {
-      "src": "/",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/dashboard",
-      "dest": "/dashboard.html"
-    },
-    {
-      "src": "/curso",
-      "dest": "/curso.html"
-    },
-    {
-      "src": "/videos",
-      "dest": "/videos.html"
-    },
-    {
-      "src": "/materiales",
-      "dest": "/materiales.html"
-    },
-    {
-      "src": "/certificado",
-      "dest": "/certificado.html"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",
