@@ -29,17 +29,16 @@
         body {
             background: #F7F9FC;
             min-height: 100vh;
-            padding-bottom: 80px;
         }
 
-        .bottom-nav {
+        .top-nav {
             position: sticky;
-            bottom: 0;
+            top: 0;
             left: 0;
             right: 0;
             background: white;
-            border-top: 1px solid #E5E7EB;
-            box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+            border-bottom: 1px solid #E5E7EB;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
             z-index: 50;
         }
 
@@ -282,8 +281,8 @@
         document.getElementById('generarPDF')?.addEventListener('click', generarCertificadoPDF);
     </script>
 
-    <!-- Bottom Navigation -->
-    <div class="bottom-nav">
+    <!-- Top Navigation -->
+    <div class="top-nav">
         <div class="max-w-2xl mx-auto px-4">
             <div class="flex items-center justify-around py-3">
                 <a href="/dashboard" class="nav-item flex flex-col items-center space-y-1 py-2 px-3 text-gray-500">
