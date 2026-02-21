@@ -173,7 +173,7 @@
         <!-- Videos -->
         <div class="mb-6">
             <h2 class="text-xl font-bold text-gray-800 mb-4 fade-in">Clases Grabadas</h2>
-            <div id="videosContainer" class="space-y-3"></div>
+            <div id="videosContainer" class="space-y-4"></div>
         </div>
 
         <!-- Instrucciones -->
@@ -256,7 +256,7 @@
                     titulo: 'Construcción de herramientas de evaluación preuniversitaria - Parte 2',
                     fecha: '20 Feb 2026',
                     duracion: '2h 15min',
-                    url: 'https://youtu.be/mI8gt9kX-44'
+                    url: 'https://youtu.be/WVThGMwPOK8'
                 },
                 {
                     titulo: 'Estrategias de evaluación para la enseñanza–aprendizaje - Parte 1',
@@ -335,6 +335,18 @@
             return match ? match[1] : null;
         }
 
+        // Agrupar videos por fecha
+        const videosPorFecha = {};
+        videos.forEach(video => {
+            if (!videosPorFecha[video.fecha]) {
+                videosPorFecha[video.fecha] = [];
+            }
+            videosPorFecha[video.fecha].push(video);
+        });
+
+        // Ordenar fechas
+        const fechasOrdenadas = Object.keys(videosPorFecha).sort();
+
         if (videos.length === 0) {
             videosContainer.innerHTML = `
                 <div class="text-center py-12 bg-white rounded-2xl border border-gray-200">
@@ -346,7 +358,48 @@
                 </div>
             `;
         } else {
-            videos.forEach((video, index) => {
+            // Crear acordeón por fecha
+            fechasOrdenadas.forEach((fecha, fechaIndex) => {
+                const acordeon = document.createElement('div');
+                acordeon.className = 'bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden fade-in';
+                acordeon.style.animationDelay = `${fechaIndex * 0.1}s`;
+
+                // Determinar título según fecha
+                const tituloFecha = fecha === '20 Feb 2026'
+                    ? 'Construcción de herramientas de evaluación preuniversitaria'
+                    : 'Estrategias de evaluación para la enseñanza–aprendizaje';
+
+                // Header del acordeón (siempre abierto el primero)
+                const isOpen = fechaIndex === 0;
+                acordeon.innerHTML = `
+                    <button class="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition" onclick="toggleAcordeon('acordeon-${fechaIndex}')">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 ${fechaIndex === 0 ? 'bg-blue-100' : 'bg-green-100'} rounded-xl flex items-center justify-center">
+                                <svg class="w-6 h-6 ${fechaIndex === 0 ? 'text-blue-600' : 'text-green-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-bold text-gray-800">${fecha}</h3>
+                                <p class="text-xs text-gray-500">${tituloFecha}</p>
+                            </div>
+                        </div>
+                        <svg id="icon-acordeon-${fechaIndex}" class="w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div id="acordeon-${fechaIndex}" class="border-t border-gray-200 ${isOpen ? '' : 'hidden'}">
+                        <div class="p-4 space-y-3"></div>
+                    </div>
+                `;
+
+                videosContainer.appendChild(acordeon);
+
+                // Agregar videos a este acordeón
+                const videosDelDia = videosPorFecha[fecha];
+                const contenedorVideos = acordeon.querySelector('.space-y-3');
+
+                videosDelDia.forEach((video, index) => {
                 const videoCard = document.createElement('div');
                 videoCard.className = 'video-card bg-white rounded-2xl overflow-hidden fade-in';
                 videoCard.style.animationDelay = `${index * 0.1}s`;
@@ -446,9 +499,24 @@
                     videoCard.classList.add('flex');
                 }
 
-                videosContainer.appendChild(videoCard);
+                contenedorVideos.appendChild(videoCard);
+                });
             });
         }
+
+        // Función para toggle acordeón
+        window.toggleAcordeon = function(id) {
+            const contenido = document.getElementById(id);
+            const icono = document.getElementById('icon-' + id);
+
+            if (contenido.classList.contains('hidden')) {
+                contenido.classList.remove('hidden');
+                icono.classList.add('rotate-180');
+            } else {
+                contenido.classList.add('hidden');
+                icono.classList.remove('rotate-180');
+            }
+        };
     </script>
 </body>
 </html>
