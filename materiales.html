@@ -320,6 +320,18 @@
         const tareaLinkElement = document.getElementById('tareaLink');
         tareaLinkElement.href = tareasLinks[areaNum] || tareasLinks['1'];
 
+        // Verificar si las tareas siguen disponibles (hasta 23 Feb 2026 23:59)
+        const fechaLimite = new Date('2026-02-23T23:59:59');
+        const ahora = new Date();
+
+        if (ahora > fechaLimite) {
+            // Ocultar ambas tareas si ya pasó la fecha límite
+            const tarea1 = document.querySelector('.bg-gradient-to-br.from-purple-50');
+            const tarea2 = document.querySelector('.bg-gradient-to-br.from-indigo-50');
+            if (tarea1) tarea1.style.display = 'none';
+            if (tarea2) tarea2.style.display = 'none';
+        }
+
         // Cargar materiales dinámicamente desde el servidor
         async function cargarMateriales() {
             try {
