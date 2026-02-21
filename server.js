@@ -1218,6 +1218,27 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Servir archivos HTML explícitamente
+app.get('/dashboard.html', (req, res) => {
+  res.sendFile(__dirname + '/dashboard.html');
+});
+
+app.get('/curso.html', (req, res) => {
+  res.sendFile(__dirname + '/curso.html');
+});
+
+app.get('/videos.html', (req, res) => {
+  res.sendFile(__dirname + '/videos.html');
+});
+
+app.get('/materiales.html', (req, res) => {
+  res.sendFile(__dirname + '/materiales.html');
+});
+
+app.get('/certificado.html', (req, res) => {
+  res.sendFile(__dirname + '/certificado.html');
+});
+
 // Iniciar servidor (solo en desarrollo local)
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
