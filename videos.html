@@ -269,6 +269,12 @@
         const area = estudiante.area;
         const videos = videosPorArea[area] || [];
 
+        // Función para extraer video ID de YouTube
+        function getYouTubeID(url) {
+            const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([^?&]+)/);
+            return match ? match[1] : null;
+        }
+
         if (videos.length === 0) {
             videosContainer.innerHTML = `
                 <div class="text-center py-12 bg-white rounded-2xl border border-gray-200">
@@ -281,36 +287,76 @@
             `;
         } else {
             videos.forEach((video, index) => {
-                const videoCard = document.createElement('a');
-                videoCard.href = video.url;
-                videoCard.target = '_blank';
-                videoCard.className = 'video-card bg-white rounded-2xl overflow-hidden flex fade-in';
+                const videoCard = document.createElement('div');
+                videoCard.className = 'video-card bg-white rounded-2xl overflow-hidden fade-in';
                 videoCard.style.animationDelay = `${index * 0.1}s`;
 
-                videoCard.innerHTML = `
-                    <div class="w-24 h-24 bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
-                        </svg>
-                    </div>
-                    <div class="flex-1 p-4 min-w-0">
-                        <h3 class="font-bold text-gray-800 mb-2 text-sm truncate">${video.titulo}</h3>
-                        <div class="flex items-center space-x-4 text-xs text-gray-500">
-                            <div class="flex items-center">
-                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                                </svg>
-                                ${video.fecha}
+                // Detectar si es un video de YouTube
+                const youtubeID = getYouTubeID(video.url);
+
+                if (youtubeID) {
+                    // Video de YouTube con embed
+                    videoCard.innerHTML = `
+                        <div class="p-4">
+                            <h3 class="font-bold text-gray-800 mb-2 text-sm">${video.titulo}</h3>
+                            <div class="flex items-center space-x-4 text-xs text-gray-500 mb-3">
+                                <div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    ${video.fecha}
+                                </div>
+                                <div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    ${video.duracion}
+                                </div>
                             </div>
-                            <div class="flex items-center">
-                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                                ${video.duracion}
+                            <div class="relative" style="padding-bottom: 56.25%; height: 0;">
+                                <iframe
+                                    src="https://www.youtube-nocookie.com/embed/${youtubeID}"
+                                    frameborder="0"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowfullscreen
+                                    loading="lazy"
+                                    class="absolute top-0 left-0 w-full h-full rounded-xl"
+                                ></iframe>
                             </div>
                         </div>
-                    </div>
-                `;
+                    `;
+                } else {
+                    // Otro tipo de video (Google Drive, etc) - enlace tradicional
+                    const linkElement = document.createElement('a');
+                    linkElement.href = video.url;
+                    linkElement.target = '_blank';
+                    linkElement.innerHTML = `
+                        <div class="w-24 h-24 bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
+                            </svg>
+                        </div>
+                        <div class="flex-1 p-4 min-w-0">
+                            <h3 class="font-bold text-gray-800 mb-2 text-sm truncate">${video.titulo}</h3>
+                            <div class="flex items-center space-x-4 text-xs text-gray-500">
+                                <div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    ${video.fecha}
+                                </div>
+                                <div class="flex items-center">
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    ${video.duracion}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    videoCard.appendChild(linkElement);
+                    videoCard.classList.add('flex');
+                }
 
                 videosContainer.appendChild(videoCard);
             });
