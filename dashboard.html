@@ -90,6 +90,30 @@
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
+
+        @keyframes marquee {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        .marquee {
+            display: inline-block;
+            animation: marquee 15s linear infinite;
+        }
+
+        .marquee:hover {
+            animation-play-state: paused;
+        }
+
+        /* Solo aplicar marquee si el texto es largo */
+        @media (min-width: 768px) {
+            .marquee {
+                animation: none;
+                display: block;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
     </style>
 </head>
 <body>
@@ -123,10 +147,9 @@
                         <p class="text-white/70 text-xs mb-1">DNI</p>
                         <p class="font-semibold text-sm" id="userDNI">--------</p>
                     </div>
-                    <div>
+                    <div class="overflow-hidden">
                         <p class="text-white/70 text-xs mb-1">Área</p>
-                        <p class="font-semibold text-sm truncate" id="userArea">--------</p>
-                        <p class="font-semibold text-sm hidden" id="userAreaLargo">--------</p>
+                        <p class="font-semibold text-sm whitespace-nowrap marquee" id="userArea">--------</p>
                     </div>
                 </div>
             </div>
@@ -268,15 +291,16 @@
             document.getElementById('userName').textContent = nombreCorto;
             document.getElementById('userDNI').textContent = estudiante.dni || 'N/A';
 
-            // Mostrar área (responsivo: corto en mobile, largo en desktop)
+            // Mostrar área con efecto marquee en mobile
             const areaCorto = estudiante.areaCorto || 'N/A';
             const areaLargo = estudiante.area || 'N/A';
             const userAreaEl = document.getElementById('userArea');
 
-            // En mobile muestra versión corta, en desktop puede mostrar completo con truncate
             if (window.innerWidth < 768) {
-                userAreaEl.textContent = areaCorto;
+                // En mobile: duplicar texto para efecto marquee continuo
+                userAreaEl.textContent = areaLargo + ' • ' + areaLargo;
             } else {
+                // En desktop: texto con ellipsis
                 userAreaEl.textContent = areaLargo;
             }
             userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
