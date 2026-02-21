@@ -172,16 +172,22 @@
         </div>
 
         <!-- Tarea del día viernes 21 FEB -->
-        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl shadow-lg p-6 mb-6 border border-purple-100 fade-in">
-            <div class="flex items-center space-x-3 mb-4">
-                <div class="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center shadow-lg">
-                    <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
+        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl shadow-lg p-6 mb-6 border border-purple-100 fade-in" id="tarea1">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center shadow-lg">
+                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800">Tarea del día viernes</h3>
+                        <p class="text-sm text-gray-600">20 de febrero de 2026</p>
+                    </div>
                 </div>
-                <div>
-                    <h3 class="text-lg font-bold text-gray-800">Tarea del día viernes</h3>
-                    <p class="text-sm text-gray-600">20 de febrero de 2026</p>
+                <div class="text-right">
+                    <p class="text-xs text-gray-500 mb-1">Tiempo restante</p>
+                    <p class="text-sm font-bold text-purple-600" id="countdown">Calculando...</p>
                 </div>
             </div>
 
@@ -206,16 +212,22 @@
         </div>
 
         <!-- Tarea 2 del día viernes 21 FEB (todas las áreas) -->
-        <div class="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl shadow-lg p-6 mb-6 border border-indigo-100 fade-in" style="animation-delay: 0.1s;">
-            <div class="flex items-center space-x-3 mb-4">
-                <div class="w-12 h-12 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg">
-                    <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
-                    </svg>
+        <div class="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl shadow-lg p-6 mb-6 border border-indigo-100 fade-in" style="animation-delay: 0.1s;" id="tarea2">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg">
+                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800">Tarea 2 del día sábado</h3>
+                        <p class="text-sm text-gray-600">21 de febrero de 2026 - Todas las áreas</p>
+                    </div>
                 </div>
-                <div>
-                    <h3 class="text-lg font-bold text-gray-800">Tarea 2 del día sábado</h3>
-                    <p class="text-sm text-gray-600">21 de febrero de 2026 - Todas las áreas</p>
+                <div class="text-right">
+                    <p class="text-xs text-gray-500 mb-1">Tiempo restante</p>
+                    <p class="text-sm font-bold text-indigo-600" id="countdown2">Calculando...</p>
                 </div>
             </div>
 
@@ -322,15 +334,38 @@
 
         // Verificar si las tareas siguen disponibles (hasta 23 Feb 2026 23:59)
         const fechaLimite = new Date('2026-02-23T23:59:59');
-        const ahora = new Date();
 
-        if (ahora > fechaLimite) {
-            // Ocultar ambas tareas si ya pasó la fecha límite
-            const tarea1 = document.querySelector('.bg-gradient-to-br.from-purple-50');
-            const tarea2 = document.querySelector('.bg-gradient-to-br.from-indigo-50');
-            if (tarea1) tarea1.style.display = 'none';
-            if (tarea2) tarea2.style.display = 'none';
+        function actualizarCountdown() {
+            const ahora = new Date();
+            const diferencia = fechaLimite - ahora;
+
+            if (diferencia <= 0) {
+                // Ocultar ambas tareas si ya pasó la fecha límite
+                const tarea1 = document.getElementById('tarea1');
+                const tarea2 = document.getElementById('tarea2');
+                if (tarea1) tarea1.style.display = 'none';
+                if (tarea2) tarea2.style.display = 'none';
+                return;
+            }
+
+            // Calcular días, horas y minutos
+            const dias = Math.floor(diferencia / (1000 * 60 * 60 * 24));
+            const horas = Math.floor((diferencia % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutos = Math.floor((diferencia % (1000 * 60 * 60)) / (1000 * 60));
+
+            // Formato: 2D 23H 45M
+            const textoCountdown = `${dias}D ${horas}H ${minutos}M`;
+
+            // Actualizar ambos contadores
+            const countdown1 = document.getElementById('countdown');
+            const countdown2 = document.getElementById('countdown2');
+            if (countdown1) countdown1.textContent = textoCountdown;
+            if (countdown2) countdown2.textContent = textoCountdown;
         }
+
+        // Actualizar countdown inmediatamente y cada minuto
+        actualizarCountdown();
+        setInterval(actualizarCountdown, 60000); // Actualizar cada 60 segundos
 
         // Cargar materiales dinámicamente desde el servidor
         async function cargarMateriales() {
