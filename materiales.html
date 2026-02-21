@@ -171,6 +171,40 @@
             </div>
         </div>
 
+        <!-- Tarea del día viernes 21 FEB -->
+        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl shadow-lg p-6 mb-6 border border-purple-100 fade-in">
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center shadow-lg">
+                    <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800">📝 Tarea del día viernes</h3>
+                    <p class="text-sm text-gray-600">21 de febrero de 2026</p>
+                </div>
+            </div>
+
+            <a href="" id="tareaLink" target="_blank" class="block bg-white hover:bg-purple-50 rounded-xl p-4 transition-all duration-200 border-2 border-purple-200 hover:border-purple-400 hover:shadow-lg">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                            <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-gray-800">Completar formulario de tarea</p>
+                            <p class="text-sm text-gray-500">Google Forms</p>
+                        </div>
+                    </div>
+                    <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                    </svg>
+                </div>
+            </a>
+        </div>
+
         <!-- Categorías de materiales -->
         <div class="space-y-6">
             <!-- Presentaciones -->
@@ -239,6 +273,18 @@
         // Obtener número de área del estudiante (1, 2, 3 o 4)
         const areaNumMatch = areaLargo.match(/Área (\d)/);
         const areaNum = areaNumMatch ? areaNumMatch[1] : '1';
+
+        // Enlaces de tarea por área (Google Forms)
+        const tareasLinks = {
+            '1': 'https://forms.gle/ZMJWpmY71m2FHPkr8',
+            '2': 'https://forms.gle/AZsh34kxFvY8nc1A6',
+            '3': 'https://forms.gle/4ZHZtPv1kGmczMx39',
+            '4': 'https://forms.gle/5zw9TdURHCeEjFhTA'
+        };
+
+        // Asignar enlace de tarea según área
+        const tareaLinkElement = document.getElementById('tareaLink');
+        tareaLinkElement.href = tareasLinks[areaNum] || tareasLinks['1'];
 
         // Cargar materiales dinámicamente desde el servidor
         async function cargarMateriales() {
