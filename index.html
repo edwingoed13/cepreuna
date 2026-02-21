@@ -5,7 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CEPREUNA - Portal del Estudiante</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="config.js"></script>
+    <script>
+        const CONFIG = {
+            API_BASE: window.location.origin,
+            API_LISTADO_CURSO: `${window.location.origin}/api/listado-curso/inscritos`,
+            API_INSCRIPCIONES: 'https://prepagovalido.waready.org.pe/api/v1/inscripciones',
+            APP_NAME: 'CEPREUNA',
+            APP_YEAR: '2026',
+            CERTIFICADO_DISPONIBLE: false,
+            ASISTENCIA_MINIMA: 80,
+        };
+    </script>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1e3a8a">
     <style>
