@@ -72,8 +72,6 @@
     </div>
 
     <script>
-        
-
         const searchForm = document.getElementById('searchForm');
         const dniInput = document.getElementById('dni');
         const errorMessage = document.getElementById('errorMessage');
@@ -99,38 +97,53 @@
             showLoading();
 
             try {
-                // Buscar en ambos endpoints
+                // Buscar en ambos endpoints (igual que salas)
                 const [listadoRes, inscripcionRes] = await Promise.all([
-                    fetch(`${CONFIG.API_LISTADO_CURSO}?dni=${dni}`),
-                    fetch(`${CONFIG.API_INSCRIPCIONES}?dni=${dni}`)
+                    fetch(CONFIG.API_LISTADO_CURSO),
+                    fetch(CONFIG.API_INSCRIPCIONES)
                 ]);
 
-                let estudiante = null;
-
-                // Verificar en listado-curso
-                if (listadoRes.ok) {
-                    const listadoData = await listadoRes.json();
-                    if (listadoData && listadoData.length > 0) {
-                        estudiante = listadoData[0];
-                    }
+                if (!listadoRes.ok || !inscripcionRes.ok) {
+                    throw new Error('Error al consultar los datos');
                 }
 
-                // Verificar en inscripciones si no se encontró
-                if (!estudiante && inscripcionRes.ok) {
-                    const inscripcionData = await inscripcionRes.json();
-                    if (inscripcionData && inscripcionData.length > 0) {
-                        estudiante = inscripcionData[0];
-                    }
-                }
+                const dataListado = await listadoRes.json();
+                const dataInscripciones = await inscripcionRes.json();
 
-                if (estudiante) {
-                    // Guardar datos del estudiante
-                    localStorage.setItem('estudiante', JSON.stringify(estudiante));
-                    // Redirigir al dashboard
-                    window.location.href = 'dashboard.html';
-                } else {
+                // Buscar en listado de inscritos (estructura: {total, por_area, listado: [...]})
+                const inscrito = (dataListado.listado || []).find(
+                    item => item.nro_documento === dni
+                );
+
+                // Buscar en inscripciones
+                const inscripcion = (dataInscripciones || []).find(
+                    item => item.nro_documento === dni
+                );
+
+                // Verificar si existe en alguno de los dos
+                if (!inscrito && !inscripcion) {
                     showError('No se encontró ningún registro con este DNI');
+                    return;
                 }
+
+                // Usar datos combinados (prioridad a inscrito del listado)
+                const datos = inscrito || inscripcion;
+
+                // Formatear datos para el localStorage
+                const estudiante = {
+                    nombre: datos.nombres
+                        ? `${datos.paterno || ''} ${datos.materno || ''}, ${datos.nombres}`.trim()
+                        : datos.nombre || 'N/A',
+                    dni: datos.nro_documento,
+                    area: `Area ${datos.area || '1'}`
+                };
+
+                // Guardar datos del estudiante
+                localStorage.setItem('estudiante', JSON.stringify(estudiante));
+
+                // Redirigir al dashboard
+                window.location.href = 'dashboard.html';
+
             } catch (error) {
                 console.error('Error:', error);
                 showError('Error al conectar con el servidor. Por favor, intenta nuevamente.');
