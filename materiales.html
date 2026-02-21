@@ -73,6 +73,27 @@
         .fade-in {
             animation: fadeIn 0.4s ease-out forwards;
         }
+
+        @keyframes marquee {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        .marquee {
+            display: inline-block;
+            animation: marquee 15s linear infinite;
+        }
+
+        .marquee:hover {
+            animation-play-state: paused;
+        }
+
+        @media (min-width: 768px) {
+            .marquee {
+                animation: none;
+                display: block;
+            }
+        }
     </style>
 </head>
 <body>
@@ -87,7 +108,9 @@
                 </a>
                 <div class="flex-1 min-w-0">
                     <h1 class="text-2xl font-bold">Archivos y Documentos</h1>
-                    <p class="text-white/80 text-sm md:text-base truncate" id="userArea" title="">Área</p>
+                    <div class="overflow-hidden">
+                        <p class="text-white/80 text-sm md:text-base whitespace-nowrap marquee" id="userArea" title="">Área</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -200,15 +223,16 @@
 
         document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
 
-        // Mostrar área (responsivo: corto en mobile, largo en desktop)
-        const areaCorto = estudiante.areaCorto || estudiante.area || 'N/A';
+        // Mostrar área con efecto marquee en mobile
+        const areaCorto = estudiante.areaCorto || 'N/A';
         const areaLargo = estudiante.area || 'N/A';
         const userAreaEl = document.getElementById('userArea');
 
-        // En mobile muestra versión corta, en desktop puede mostrar completo con truncate
         if (window.innerWidth < 768) {
-            userAreaEl.textContent = areaCorto;
+            // En mobile: duplicar texto para efecto marquee continuo
+            userAreaEl.textContent = areaLargo + ' • ' + areaLargo;
         } else {
+            // En desktop: texto completo con truncate
             userAreaEl.textContent = areaLargo;
         }
         userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
