@@ -238,11 +238,30 @@
 
     <script>
         // Verificar si hay datos del estudiante
-        const estudiante = JSON.parse(localStorage.getItem('estudiante'));
+        let estudiante = JSON.parse(localStorage.getItem('estudiante'));
 
         if (!estudiante) {
             window.location.href = '/';
         } else {
+            // Migración automática para datos antiguos
+            if (!estudiante.areaCorto) {
+                const areaDescripciones = {
+                    'Area 1': { corto: 'Área 1', largo: 'Área 1: Razonamiento Matemático, Aritmética, Álgebra, Geometría y Trigonometría' },
+                    'Area 2': { corto: 'Área 2', largo: 'Área 2: Razonamiento Verbal, Comunicación y Literatura' },
+                    'Area 3': { corto: 'Área 3', largo: 'Área 3: Física, Química, Biología y Anatomía' },
+                    'Area 4': { corto: 'Área 4', largo: 'Área 4: Geografía, Historia, Educación Cívica, Economía, Psicología y Filosofía' },
+                    'Área 1': { corto: 'Área 1', largo: 'Área 1: Razonamiento Matemático, Aritmética, Álgebra, Geometría y Trigonometría' },
+                    'Área 2': { corto: 'Área 2', largo: 'Área 2: Razonamiento Verbal, Comunicación y Literatura' },
+                    'Área 3': { corto: 'Área 3', largo: 'Área 3: Física, Química, Biología y Anatomía' },
+                    'Área 4': { corto: 'Área 4', largo: 'Área 4: Geografía, Historia, Educación Cívica, Economía, Psicología y Filosofía' }
+                };
+
+                const areaInfo = areaDescripciones[estudiante.area] || { corto: estudiante.area, largo: estudiante.area };
+                estudiante.areaCorto = areaInfo.corto;
+                estudiante.area = areaInfo.largo;
+                localStorage.setItem('estudiante', JSON.stringify(estudiante));
+            }
+
             // Mostrar información del estudiante
             const nombreCompleto = estudiante.nombre || 'N/A';
             const nombreCorto = nombreCompleto.split(',')[0] || nombreCompleto;
