@@ -2,7 +2,7 @@
 const CONFIG = {
     // URL del API Backend - Usa el mismo dominio para evitar CORS
     API_BASE: window.location.origin,
-    API_LISTADO_CURSO: `${window.location.origin}/api/listado-curso`,
+    API_LISTADO_CURSO: `${window.location.origin}/api/listado-curso/inscritos`,
     API_INSCRIPCIONES: 'https://prepagovalido.waready.org.pe/api/v1/inscripciones',
 
     // Otras configuraciones
