@@ -1,7 +1,9 @@
 // Configuración de la aplicación
 const CONFIG = {
-    // URL del API Backend - Cambiar según el entorno
-    API_URL: 'https://backend-cepreuna-2025-production.up.railway.app/api',
+    // URL del API Backend - Usa el mismo dominio para evitar CORS
+    API_BASE: window.location.origin,
+    API_LISTADO_CURSO: `${window.location.origin}/api/listado-curso`,
+    API_INSCRIPCIONES: 'https://prepagovalido.waready.org.pe/api/v1/inscripciones',
 
     // Otras configuraciones
     APP_NAME: 'CEPREUNA',

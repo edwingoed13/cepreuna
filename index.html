@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CEPREUNA - Portal del Estudiante</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="config.js"></script>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1e3a8a">
     <style>
@@ -71,7 +72,7 @@
     </div>
 
     <script>
-        const API_URL = 'https://backend-cepreuna-2025-production.up.railway.app/api';
+        
 
         const searchForm = document.getElementById('searchForm');
         const dniInput = document.getElementById('dni');
@@ -100,8 +101,8 @@
             try {
                 // Buscar en ambos endpoints
                 const [listadoRes, inscripcionRes] = await Promise.all([
-                    fetch(`${API_URL}/listado-curso?dni=${dni}`),
-                    fetch(`${API_URL}/inscripciones?dni=${dni}`)
+                    fetch(`${CONFIG.API_LISTADO_CURSO}?dni=${dni}`),
+                    fetch(`${CONFIG.API_INSCRIPCIONES}?dni=${dni}`)
                 ]);
 
                 let estudiante = null;

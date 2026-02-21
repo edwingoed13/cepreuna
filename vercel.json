@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://backend-cepreuna-2025-production.up.railway.app/api/:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
