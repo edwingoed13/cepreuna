@@ -93,7 +93,7 @@
             <div class="space-y-3 text-gray-700">
                 <p><span class="font-semibold">Nombre:</span> <span id="userName"></span></p>
                 <p><span class="font-semibold">DNI:</span> <span id="userDNI"></span></p>
-                <p><span class="font-semibold">Área:</span> <span id="userArea"></span></p>
+                <p><span class="font-semibold">Área:</span> <span id="userArea" class="inline-block"></span></p>
             </div>
         </div>
 
@@ -189,7 +189,10 @@
         // Mostrar información
         document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
         document.getElementById('userDNI').textContent = estudiante.dni || 'N/A';
-        document.getElementById('userArea').textContent = estudiante.area || 'N/A';
+
+        // Mostrar área completa (se ajusta con wrap en certificado)
+        const areaLargo = estudiante.area || 'N/A';
+        document.getElementById('userArea').textContent = areaLargo;
 
         // Verificar si el certificado está disponible (simulado)
         // En producción, esto debería venir de la base de datos

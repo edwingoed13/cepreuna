@@ -125,7 +125,8 @@
                     </div>
                     <div>
                         <p class="text-white/70 text-xs mb-1">Área</p>
-                        <p class="font-semibold text-sm" id="userArea">--------</p>
+                        <p class="font-semibold text-sm truncate" id="userArea">--------</p>
+                        <p class="font-semibold text-sm hidden" id="userAreaLargo">--------</p>
                     </div>
                 </div>
             </div>
@@ -247,7 +248,12 @@
             const nombreCorto = nombreCompleto.split(',')[0] || nombreCompleto;
             document.getElementById('userName').textContent = nombreCorto;
             document.getElementById('userDNI').textContent = estudiante.dni || 'N/A';
-            document.getElementById('userArea').textContent = estudiante.area || 'N/A';
+
+            // Mostrar área (corto en mobile, se puede extender con tooltip)
+            const areaCorto = estudiante.areaCorto || estudiante.area || 'N/A';
+            const areaLargo = estudiante.area || 'N/A';
+            document.getElementById('userArea').textContent = areaCorto;
+            document.getElementById('userArea').title = areaLargo; // Tooltip con nombre completo
         }
 
         // Logout

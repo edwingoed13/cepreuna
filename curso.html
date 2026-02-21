@@ -86,9 +86,9 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
                         </svg>
                     </a>
-                    <div>
+                    <div class="flex-1 min-w-0">
                         <h1 class="text-2xl font-bold">Materiales del Curso</h1>
-                        <p class="text-white/80 text-sm" id="userArea">Área</p>
+                        <p class="text-white/80 text-sm md:text-base truncate" id="userArea" title="">Área</p>
                     </div>
                 </div>
             </div>
@@ -167,24 +167,36 @@
 
         // Mostrar información
         document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
-        document.getElementById('userArea').textContent = estudiante.area || 'N/A';
+
+        // Mostrar área (responsivo: corto en mobile, largo en desktop)
+        const areaCorto = estudiante.areaCorto || estudiante.area || 'N/A';
+        const areaLargo = estudiante.area || 'N/A';
+        const userAreaEl = document.getElementById('userArea');
+
+        // En mobile muestra versión corta, en desktop puede mostrar completo con truncate
+        if (window.innerWidth < 768) {
+            userAreaEl.textContent = areaCorto;
+        } else {
+            userAreaEl.textContent = areaLargo;
+        }
+        userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
 
         // Materiales por área
         const materialesPorArea = {
-            'Area 1': [
+            'Área 1: Razonamiento Matemático, Aritmética, Álgebra, Geometría y Trigonometría': [
                 { nombre: 'Formato ítems por competencia', tipo: 'docx', url: 'https://docs.google.com/document/d/1ejemplo1/edit' },
                 { nombre: 'Ítems por competencia (Presentación)', tipo: 'pptx', url: 'https://docs.google.com/presentation/d/1ejemplo2/edit' },
                 { nombre: 'Seminario Taller Matemáticas - Parte 2', tipo: 'pptx', url: 'https://docs.google.com/presentation/d/1ejemplo3/edit' }
             ],
-            'Area 2': [
+            'Área 2: Razonamiento Verbal, Comunicación y Literatura': [
                 { nombre: 'Material Comunicación Parte 1', tipo: 'pptx', url: '#' },
                 { nombre: 'Guía de Comunicación', tipo: 'pdf', url: '#' }
             ],
-            'Area 3': [
+            'Área 3: Física, Química, Biología y Anatomía': [
                 { nombre: 'Material CTA Parte 1', tipo: 'pptx', url: '#' },
                 { nombre: 'Laboratorio CTA', tipo: 'pdf', url: '#' }
             ],
-            'Area 4': [
+            'Área 4: Geografía, Historia, Educación Cívica, Economía, Psicología y Filosofía': [
                 { nombre: 'Material Sociales Parte 1', tipo: 'pptx', url: '#' },
                 { nombre: 'Guía de Historia', tipo: 'pdf', url: '#' }
             ]

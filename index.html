@@ -233,13 +233,37 @@
                 // Usar datos combinados
                 const datos = inscrito || inscripcion;
 
+                // Mapeo de áreas
+                const areaDescripciones = {
+                    '1': {
+                        corto: 'Área 1',
+                        largo: 'Área 1: Razonamiento Matemático, Aritmética, Álgebra, Geometría y Trigonometría'
+                    },
+                    '2': {
+                        corto: 'Área 2',
+                        largo: 'Área 2: Razonamiento Verbal, Comunicación y Literatura'
+                    },
+                    '3': {
+                        corto: 'Área 3',
+                        largo: 'Área 3: Física, Química, Biología y Anatomía'
+                    },
+                    '4': {
+                        corto: 'Área 4',
+                        largo: 'Área 4: Geografía, Historia, Educación Cívica, Economía, Psicología y Filosofía'
+                    }
+                };
+
+                const areaNum = datos.area || '1';
+                const areaInfo = areaDescripciones[areaNum] || areaDescripciones['1'];
+
                 // Formatear datos para el localStorage
                 const estudiante = {
                     nombre: datos.nombres
                         ? `${datos.paterno || ''} ${datos.materno || ''}, ${datos.nombres}`.trim()
                         : datos.nombre || 'N/A',
                     dni: datos.nro_documento,
-                    area: `Area ${datos.area || '1'}`
+                    area: areaInfo.largo,
+                    areaCorto: areaInfo.corto
                 };
 
                 // Guardar datos del estudiante

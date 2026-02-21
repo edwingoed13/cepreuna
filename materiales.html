@@ -86,9 +86,9 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
                         </svg>
                     </a>
-                    <div>
+                    <div class="flex-1 min-w-0">
                         <h1 class="text-2xl font-bold">Archivos y Documentos</h1>
-                        <p class="text-white/80 text-sm" id="userArea">Área</p>
+                        <p class="text-white/80 text-sm md:text-base truncate" id="userArea" title="">Área</p>
                     </div>
                 </div>
             </div>
@@ -201,10 +201,22 @@
         }
 
         document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
-        document.getElementById('userArea').textContent = estudiante.area || 'N/A';
+
+        // Mostrar área (responsivo: corto en mobile, largo en desktop)
+        const areaCorto = estudiante.areaCorto || estudiante.area || 'N/A';
+        const areaLargo = estudiante.area || 'N/A';
+        const userAreaEl = document.getElementById('userArea');
+
+        // En mobile muestra versión corta, en desktop puede mostrar completo con truncate
+        if (window.innerWidth < 768) {
+            userAreaEl.textContent = areaCorto;
+        } else {
+            userAreaEl.textContent = areaLargo;
+        }
+        userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
 
         const materialesPorArea = {
-            'Area 1': {
+            'Área 1: Razonamiento Matemático, Aritmética, Álgebra, Geometría y Trigonometría': {
                 presentaciones: [
                     { nombre: 'item_por_competencia.pptx', tamaño: '2.5 MB', url: 'https://docs.google.com/presentation/d/1ejemplo1/edit' },
                     { nombre: 'Seminario_Taller_Matematicas_Parte_2.pptx', tamaño: '3.1 MB', url: 'https://docs.google.com/presentation/d/1ejemplo2/edit' }
@@ -216,7 +228,7 @@
                     { nombre: 'Guia_Matematicas_2026.pdf', tamaño: '1.8 MB', url: '#' }
                 ]
             },
-            'Area 2': {
+            'Área 2: Razonamiento Verbal, Comunicación y Literatura': {
                 presentaciones: [
                     { nombre: 'Material_Comunicacion_Parte1.pptx', tamaño: '2.2 MB', url: '#' }
                 ],
@@ -227,7 +239,7 @@
                     { nombre: 'Guia_Comunicacion.pdf', tamaño: '1.5 MB', url: '#' }
                 ]
             },
-            'Area 3': {
+            'Área 3: Física, Química, Biología y Anatomía': {
                 presentaciones: [
                     { nombre: 'Material_CTA_Parte1.pptx', tamaño: '2.8 MB', url: '#' }
                 ],
@@ -236,7 +248,7 @@
                     { nombre: 'Laboratorio_CTA.pdf', tamaño: '2.1 MB', url: '#' }
                 ]
             },
-            'Area 4': {
+            'Área 4: Geografía, Historia, Educación Cívica, Economía, Psicología y Filosofía': {
                 presentaciones: [
                     { nombre: 'Material_Sociales_Parte1.pptx', tamaño: '2.4 MB', url: '#' }
                 ],
