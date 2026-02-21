@@ -1210,33 +1210,55 @@ app.post('/api/extemporaneo/inscripcion', async (req, res) => {
 });
 
 // Endpoint de salud
-// Servir index.html en la raíz
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/index.html');
-});
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Servir archivos HTML explícitamente
-app.get('/dashboard.html', (req, res) => {
+// Servir index.html en la raíz
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/index.html');
+});
+
+// Rutas sin .html (URLs limpias)
+app.get('/dashboard', (req, res) => {
   res.sendFile(__dirname + '/dashboard.html');
 });
 
-app.get('/curso.html', (req, res) => {
+app.get('/curso', (req, res) => {
   res.sendFile(__dirname + '/curso.html');
 });
 
-app.get('/videos.html', (req, res) => {
+app.get('/videos', (req, res) => {
   res.sendFile(__dirname + '/videos.html');
 });
 
-app.get('/materiales.html', (req, res) => {
+app.get('/materiales', (req, res) => {
   res.sendFile(__dirname + '/materiales.html');
 });
 
-app.get('/certificado.html', (req, res) => {
+app.get('/certificado', (req, res) => {
   res.sendFile(__dirname + '/certificado.html');
+});
+
+// Mantener compatibilidad con URLs antiguas (redireccionar)
+app.get('/dashboard.html', (req, res) => {
+  res.redirect(301, '/dashboard');
+});
+
+app.get('/curso.html', (req, res) => {
+  res.redirect(301, '/curso');
+});
+
+app.get('/videos.html', (req, res) => {
+  res.redirect(301, '/videos');
+});
+
+app.get('/materiales.html', (req, res) => {
+  res.redirect(301, '/materiales');
+});
+
+app.get('/certificado.html', (req, res) => {
+  res.redirect(301, '/certificado');
 });
 
 // Iniciar servidor (solo en desarrollo local)
