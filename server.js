@@ -1210,6 +1210,10 @@ app.post('/api/extemporaneo/inscripcion', async (req, res) => {
 });
 
 // Endpoint de salud
+// Servir index.html en la raíz
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/index.html');
+});
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
