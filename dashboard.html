@@ -47,7 +47,7 @@
         }
 
         .bottom-nav {
-            position: fixed;
+            position: sticky;
             bottom: 0;
             left: 0;
             right: 0;
@@ -249,11 +249,18 @@
             document.getElementById('userName').textContent = nombreCorto;
             document.getElementById('userDNI').textContent = estudiante.dni || 'N/A';
 
-            // Mostrar área (corto en mobile, se puede extender con tooltip)
-            const areaCorto = estudiante.areaCorto || estudiante.area || 'N/A';
+            // Mostrar área (responsivo: corto en mobile, largo en desktop)
+            const areaCorto = estudiante.areaCorto || 'N/A';
             const areaLargo = estudiante.area || 'N/A';
-            document.getElementById('userArea').textContent = areaCorto;
-            document.getElementById('userArea').title = areaLargo; // Tooltip con nombre completo
+            const userAreaEl = document.getElementById('userArea');
+
+            // En mobile muestra versión corta, en desktop puede mostrar completo con truncate
+            if (window.innerWidth < 768) {
+                userAreaEl.textContent = areaCorto;
+            } else {
+                userAreaEl.textContent = areaLargo;
+            }
+            userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
         }
 
         // Logout

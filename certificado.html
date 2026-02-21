@@ -33,7 +33,7 @@
         }
 
         .bottom-nav {
-            position: fixed;
+            position: sticky;
             bottom: 0;
             left: 0;
             right: 0;
@@ -69,17 +69,15 @@
     <!-- Header -->
     <div class="bg-gradient-to-br from-primary via-secondary to-accent text-white p-6 pb-8">
         <div class="max-w-2xl mx-auto">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center space-x-3">
-                    <a href="/dashboard" class="p-2 bg-white/10 backdrop-blur-md rounded-xl hover:bg-white/20 transition">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-                        </svg>
-                    </a>
-                    <div>
-                        <h1 class="text-2xl font-bold">Tu Certificado</h1>
-                        <p class="text-white/80 text-sm">CEPREUNA 2026</p>
-                    </div>
+            <div class="flex items-center space-x-3">
+                <a href="/dashboard" class="p-2 bg-white/10 backdrop-blur-md rounded-xl hover:bg-white/20 transition flex-shrink-0">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </a>
+                <div class="flex-1 min-w-0">
+                    <h1 class="text-2xl font-bold">Tu Certificado</h1>
+                    <p class="text-white/80 text-sm">CEPREUNA 2026</p>
                 </div>
             </div>
         </div>
