@@ -1326,8 +1326,11 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({
       success: true,
       data: {
+        nombres: inscrito.nombres,
+        paterno: inscrito.paterno,
+        materno: inscrito.materno,
         nombre: inscrito.nombre,
-        dni: inscrito.nro_documento,
+        nro_documento: inscrito.nro_documento,
         area: inscrito.area,
         email: inscrito.email,
         telefono: inscrito.telefono
