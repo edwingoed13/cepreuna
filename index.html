@@ -8,7 +8,7 @@
     <script>
         const CONFIG = {
             API_BASE: window.location.origin,
-            API_LISTADO_CURSO: 'https://cepreuna.info/api/listado-curso/inscritos',
+            API_AUTH_LOGIN: `${window.location.origin}/api/auth/login`,
             APP_NAME: 'CEPREUNA',
             APP_YEAR: '2026',
             CERTIFICADO_DISPONIBLE: false,
@@ -200,28 +200,24 @@
             showLoading();
 
             try {
-                // Buscar solo en el endpoint de cepreuna.info
-                const listadoRes = await fetch(CONFIG.API_LISTADO_CURSO);
+                // Autenticar mediante el backend
+                const response = await fetch(CONFIG.API_AUTH_LOGIN, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ dni })
+                });
 
-                if (!listadoRes.ok) {
-                    throw new Error('Error al consultar los datos');
-                }
+                const result = await response.json();
 
-                const dataListado = await listadoRes.json();
-
-                // Buscar en listado de inscritos
-                const inscrito = (dataListado.listado || []).find(
-                    item => item.nro_documento === dni
-                );
-
-                // Verificar si existe
-                if (!inscrito) {
-                    showError('No se encontró ningún registro con este DNI');
+                if (!response.ok || !result.success) {
+                    showError(result.error || 'No se encontró ningún registro con este DNI');
                     return;
                 }
 
                 // Usar datos del inscrito
-                const datos = inscrito;
+                const datos = result.data;
 
                 // Mapeo de áreas
                 const areaDescripciones = {

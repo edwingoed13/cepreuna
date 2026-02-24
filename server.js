@@ -1286,6 +1286,64 @@ app.get('/api/materiales/area/:areaNum', async (req, res) => {
   }
 });
 
+// ============ ENDPOINT DE AUTENTICACIÓN ============
+
+// Endpoint para autenticar participantes
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { dni } = req.body;
+
+    // Validar DNI
+    if (!dni || !/^\d{8}$/.test(dni)) {
+      return res.status(400).json({
+        success: false,
+        error: 'DNI inválido. Debe tener 8 dígitos'
+      });
+    }
+
+    // Consultar API de cepreuna.info internamente
+    const response = await fetch('https://cepreuna.info/api/listado-curso/inscritos');
+
+    if (!response.ok) {
+      throw new Error('Error al consultar el servicio de inscripciones');
+    }
+
+    const data = await response.json();
+
+    // Buscar inscrito por DNI
+    const inscrito = (data.listado || []).find(
+      item => item.nro_documento === dni
+    );
+
+    if (!inscrito) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontró ningún registro con este DNI'
+      });
+    }
+
+    // Devolver datos del inscrito (sin exponer el endpoint externo)
+    res.json({
+      success: true,
+      data: {
+        nombre: inscrito.nombre,
+        dni: inscrito.nro_documento,
+        area: inscrito.area,
+        email: inscrito.email,
+        telefono: inscrito.telefono
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en autenticación:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al procesar la solicitud',
+      message: error.message
+    });
+  }
+});
+
 // Endpoint de salud
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
