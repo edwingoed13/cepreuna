@@ -8,8 +8,7 @@
     <script>
         const CONFIG = {
             API_BASE: window.location.origin,
-            API_LISTADO_CURSO: `${window.location.origin}/api/listado-curso/inscritos`,
-            API_INSCRIPCIONES: 'https://prepagovalido.waready.org.pe/api/v1/inscripciones',
+            API_LISTADO_CURSO: 'https://cepreuna.info/api/listado-curso/inscritos',
             APP_NAME: 'CEPREUNA',
             APP_YEAR: '2026',
             CERTIFICADO_DISPONIBLE: false,
@@ -201,37 +200,28 @@
             showLoading();
 
             try {
-                // Buscar en ambos endpoints
-                const [listadoRes, inscripcionRes] = await Promise.all([
-                    fetch(CONFIG.API_LISTADO_CURSO),
-                    fetch(CONFIG.API_INSCRIPCIONES)
-                ]);
+                // Buscar solo en el endpoint de cepreuna.info
+                const listadoRes = await fetch(CONFIG.API_LISTADO_CURSO);
 
-                if (!listadoRes.ok || !inscripcionRes.ok) {
+                if (!listadoRes.ok) {
                     throw new Error('Error al consultar los datos');
                 }
 
                 const dataListado = await listadoRes.json();
-                const dataInscripciones = await inscripcionRes.json();
 
                 // Buscar en listado de inscritos
                 const inscrito = (dataListado.listado || []).find(
                     item => item.nro_documento === dni
                 );
 
-                // Buscar en inscripciones
-                const inscripcion = (dataInscripciones || []).find(
-                    item => item.nro_documento === dni
-                );
-
-                // Verificar si existe en alguno de los dos
-                if (!inscrito && !inscripcion) {
+                // Verificar si existe
+                if (!inscrito) {
                     showError('No se encontró ningún registro con este DNI');
                     return;
                 }
 
-                // Usar datos combinados
-                const datos = inscrito || inscripcion;
+                // Usar datos del inscrito
+                const datos = inscrito;
 
                 // Mapeo de áreas
                 const areaDescripciones = {
