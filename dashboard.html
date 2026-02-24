@@ -113,6 +113,29 @@
                 text-overflow: ellipsis;
             }
         }
+
+        /* Estilos para el modal */
+        #logoutModal {
+            backdrop-filter: blur(4px);
+        }
+
+        #logoutModal > div {
+            transform: scale(0.95);
+            transition: transform 0.2s ease-out;
+        }
+
+        #logoutModal.show > div {
+            transform: scale(1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        #logoutModal {
+            animation: fadeIn 0.2s ease-out;
+        }
     </style>
 </head>
 <body>
@@ -268,6 +291,34 @@
         </div>
     </div>
 
+    <!-- Modal de confirmación de logout -->
+    <div id="logoutModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" style="display: none;">
+        <div class="bg-white rounded-2xl p-6 max-w-sm mx-4 shadow-2xl transform transition-all">
+            <div class="text-center">
+                <!-- Icono -->
+                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                    </svg>
+                </div>
+
+                <!-- Título -->
+                <h3 class="text-xl font-bold text-gray-800 mb-2">¿Cerrar sesión?</h3>
+                <p class="text-gray-600 mb-6">Tu sesión actual se cerrará y deberás volver a iniciar sesión</p>
+
+                <!-- Botones -->
+                <div class="flex gap-3">
+                    <button id="cancelLogout" class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition">
+                        Cancelar
+                    </button>
+                    <button id="confirmLogout" class="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition">
+                        Cerrar Sesión
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Verificar si hay datos del estudiante
         let estudiante = JSON.parse(localStorage.getItem('estudiante'));
@@ -315,13 +366,48 @@
             userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
         }
 
+        // Modal de logout
+        const logoutModal = document.getElementById('logoutModal');
+
+        // Función para mostrar el modal
+        const showLogoutModal = () => {
+            logoutModal.style.display = 'flex';
+            logoutModal.classList.remove('hidden');
+            // Animación de entrada
+            setTimeout(() => {
+                logoutModal.querySelector('div').style.transform = 'scale(1)';
+            }, 10);
+        };
+
+        // Función para ocultar el modal
+        const hideLogoutModal = () => {
+            logoutModal.querySelector('div').style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                logoutModal.style.display = 'none';
+                logoutModal.classList.add('hidden');
+            }, 200);
+        };
+
         // Función de logout
         const handleLogout = () => {
-            if (confirm('¿Estás seguro que deseas cerrar sesión?')) {
-                localStorage.removeItem('estudiante');
-                window.location.href = '/';
-            }
+            showLogoutModal();
         };
+
+        // Confirmar logout
+        document.getElementById('confirmLogout').addEventListener('click', () => {
+            localStorage.removeItem('estudiante');
+            window.location.href = '/';
+        });
+
+        // Cancelar logout
+        document.getElementById('cancelLogout').addEventListener('click', hideLogoutModal);
+
+        // Cerrar modal al hacer click fuera
+        logoutModal.addEventListener('click', (e) => {
+            if (e.target === logoutModal) {
+                hideLogoutModal();
+            }
+        });
 
         // Logout - botón superior
         document.getElementById('logoutBtn').addEventListener('click', handleLogout);
