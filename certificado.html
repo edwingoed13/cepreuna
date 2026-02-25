@@ -235,12 +235,23 @@
                     img.onerror = reject;
                 });
 
-                // Establecer dimensiones del canvas (mismas que la imagen)
-                canvas.width = img.width;
-                canvas.height = img.height;
+                // Establecer dimensiones del canvas con resolución optimizada
+                // Reducir a máximo 1920px de ancho manteniendo proporción
+                const maxWidth = 1920;
+                let canvasWidth = img.width;
+                let canvasHeight = img.height;
 
-                // Dibujar la imagen base
-                ctx.drawImage(img, 0, 0);
+                if (canvasWidth > maxWidth) {
+                    const scale = maxWidth / canvasWidth;
+                    canvasWidth = maxWidth;
+                    canvasHeight = img.height * scale;
+                }
+
+                canvas.width = canvasWidth;
+                canvas.height = canvasHeight;
+
+                // Dibujar la imagen base con el tamaño optimizado
+                ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
 
                 // Configurar el texto para el nombre
                 ctx.fillStyle = '#1e3a8a'; // Color azul oscuro
@@ -249,33 +260,34 @@
 
                 // Calcular tamaño de fuente que se ajuste al ancho disponible
                 const nombreTexto = estudiante.nombre || 'N/A';
-                const maxWidth = canvas.width * 0.75; // 75% del ancho del canvas
-                let fontSize = canvas.height * 0.08; // Tamaño inicial: 8% de la altura
+                const maxTextWidth = canvasWidth * 0.75; // 75% del ancho del canvas
+                let fontSize = canvasHeight * 0.08; // Tamaño inicial: 8% de la altura
 
                 // Ajustar tamaño de fuente para que el texto quepa en el ancho máximo
                 ctx.font = `bold ${fontSize}px "Times New Roman", serif`;
                 let textWidth = ctx.measureText(nombreTexto).width;
 
                 // Si el texto es muy largo, reducir el tamaño de la fuente
-                if (textWidth > maxWidth) {
-                    fontSize = (fontSize * maxWidth) / textWidth;
+                if (textWidth > maxTextWidth) {
+                    fontSize = (fontSize * maxTextWidth) / textWidth;
                     ctx.font = `bold ${fontSize}px "Times New Roman", serif`;
                 }
 
                 // Dibujar el nombre del participante
                 // Posición aproximada: 54% desde arriba, centrado horizontalmente (sobre la línea dorada)
-                const nombreX = canvas.width / 2;
-                const nombreY = canvas.height * 0.54;
+                const nombreX = canvasWidth / 2;
+                const nombreY = canvasHeight * 0.54;
                 ctx.fillText(nombreTexto, nombreX, nombreY);
 
-                // Convertir canvas a imagen
-                const imgData = canvas.toDataURL('image/png');
+                // Convertir canvas a imagen con compresión JPEG
+                const imgData = canvas.toDataURL('image/jpeg', 0.8); // Usar JPEG con 80% de calidad
 
-                // Crear PDF con jsPDF en formato A4 horizontal
+                // Crear PDF con jsPDF en formato A4 horizontal con compresión
                 const doc = new jsPDF({
                     orientation: 'landscape',
                     unit: 'mm',
-                    format: 'a4'
+                    format: 'a4',
+                    compress: true // Habilitar compresión del PDF
                 });
 
                 // Dimensiones A4 horizontal: 297mm x 210mm
