@@ -6,6 +6,7 @@
     <title>CEPREUNA - Certificado</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -153,16 +154,6 @@
                     </svg>
                     Descargar Certificado PDF
                 </button>
-
-                <button
-                    id="generarPDF"
-                    class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition duration-200 shadow-lg hover:shadow-xl inline-flex items-center justify-center mt-3"
-                >
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                    Generar Certificado
-                </button>
             </div>
         </div>
 
@@ -179,11 +170,21 @@
         </div>
 
         <!-- Vista previa del certificado -->
-        <div id="vistaPrevia" class="bg-white rounded-2xl shadow-lg p-6 hidden">
-            <h3 class="text-lg font-bold text-gray-800 mb-4">Vista Previa</h3>
-            <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50">
-                <p class="text-gray-500">El certificado se generará con tu información personal</p>
-                <p class="text-sm text-gray-400 mt-2">CEPREUNA 2026</p>
+        <div id="vistaPrevia" class="bg-white rounded-2xl shadow-lg p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">Vista Previa del Certificado</h3>
+            <div class="relative max-w-4xl mx-auto">
+                <!-- Canvas oculto para generar el PDF -->
+                <canvas id="certificadoCanvas" style="display: none;"></canvas>
+
+                <!-- Vista previa visible -->
+                <div id="certificadoPreview" class="relative border-2 border-gray-300 rounded-lg overflow-hidden shadow-xl">
+                    <img src="certificado-2026-curso.png" alt="Certificado" class="w-full h-auto">
+                    <div class="absolute" style="top: 54%; left: 50%; transform: translate(-50%, -50%); width: 90%; text-align: center;">
+                        <p id="nombreCertificado" class="font-bold" style="color: #1e3a8a; font-family: 'Times New Roman', serif; font-size: clamp(12px, 1.5vw, 28px); line-height: 1.2;">
+                            <!-- El nombre se insertará aquí -->
+                        </p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -205,94 +206,127 @@
         const areaLargo = estudiante.area || 'N/A';
         document.getElementById('userArea').textContent = areaLargo;
 
+        // Mostrar el nombre en la vista previa
+        document.getElementById('nombreCertificado').textContent = estudiante.nombre || 'N/A';
+
         // Verificar si el certificado está disponible (simulado)
         // En producción, esto debería venir de la base de datos
-        const certificadoDisponibleFlag = false; // Cambiar a true cuando esté disponible
+        const certificadoDisponibleFlag = true; // Habilitado para prueba local
 
         if (certificadoDisponibleFlag) {
             document.getElementById('certificadoDisponible').classList.remove('hidden');
             document.getElementById('certificadoNoDisponible').classList.add('hidden');
         }
 
-        // Función para generar PDF con jsPDF
-        function generarCertificadoPDF() {
-            const doc = new jsPDF({
-                orientation: 'landscape',
-                unit: 'mm',
-                format: 'a4'
-            });
+        // Función para generar PDF basado en la imagen del certificado
+        async function generarCertificadoPDF() {
+            try {
+                // Crear un canvas temporal para dibujar el certificado
+                const canvas = document.getElementById('certificadoCanvas');
+                const ctx = canvas.getContext('2d');
 
-            // Fondo del certificado (aquí puedes agregar una imagen de fondo)
-            // Si tienes un diseño de fondo, puedes usar: doc.addImage(imagenBase64, 'PNG', 0, 0, 297, 210);
+                // Cargar la imagen del certificado
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.src = 'certificado-2026-curso.png';
 
-            // Agregar gradiente de fondo (simulado con rectángulo)
-            doc.setFillColor(30, 58, 138);
-            doc.rect(0, 0, 297, 210, 'F');
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                });
 
-            // Marco decorativo
-            doc.setDrawColor(255, 255, 255);
-            doc.setLineWidth(2);
-            doc.rect(10, 10, 277, 190);
-            doc.setLineWidth(1);
-            doc.rect(15, 15, 267, 180);
+                // Establecer dimensiones del canvas con resolución optimizada
+                // Reducir a máximo 1920px de ancho manteniendo proporción
+                const maxWidth = 1920;
+                let canvasWidth = img.width;
+                let canvasHeight = img.height;
 
-            // Título
-            doc.setTextColor(255, 255, 255);
-            doc.setFontSize(40);
-            doc.setFont(undefined, 'bold');
-            doc.text('CERTIFICADO', 148.5, 50, { align: 'center' });
+                if (canvasWidth > maxWidth) {
+                    const scale = maxWidth / canvasWidth;
+                    canvasWidth = maxWidth;
+                    canvasHeight = img.height * scale;
+                }
 
-            // Subtítulo
-            doc.setFontSize(16);
-            doc.setFont(undefined, 'normal');
-            doc.text('Se otorga el presente certificado a:', 148.5, 70, { align: 'center' });
+                canvas.width = canvasWidth;
+                canvas.height = canvasHeight;
 
-            // Nombre del estudiante
-            doc.setFontSize(32);
-            doc.setFont(undefined, 'bold');
-            doc.text(estudiante.nombre || 'N/A', 148.5, 95, { align: 'center' });
+                // Dibujar la imagen base con el tamaño optimizado
+                ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
 
-            // Línea decorativa
-            doc.setDrawColor(255, 255, 255);
-            doc.setLineWidth(0.5);
-            doc.line(60, 100, 237, 100);
+                // Configurar el texto para el nombre
+                ctx.fillStyle = '#1e3a8a'; // Color azul oscuro
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
 
-            // Descripción
-            doc.setFontSize(14);
-            doc.setFont(undefined, 'normal');
-            doc.text('Por haber completado satisfactoriamente el', 148.5, 115, { align: 'center' });
-            doc.text('CURSO PREPARATORIO PARA LA UNIVERSIDAD', 148.5, 125, { align: 'center' });
-            doc.text(`${estudiante.area || 'N/A'}`, 148.5, 135, { align: 'center' });
+                // Calcular tamaño de fuente que se ajuste al ancho disponible
+                const nombreTexto = estudiante.nombre || 'N/A';
+                const maxTextWidth = canvasWidth * 0.75; // 75% del ancho del canvas
+                let fontSize = canvasHeight * 0.08; // Tamaño inicial: 8% de la altura
 
-            // Fecha
-            doc.setFontSize(12);
-            const fecha = new Date().toLocaleDateString('es-PE', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            });
-            doc.text(`Puno, ${fecha}`, 148.5, 155, { align: 'center' });
+                // Ajustar tamaño de fuente para que el texto quepa en el ancho máximo
+                ctx.font = `bold ${fontSize}px "Times New Roman", serif`;
+                let textWidth = ctx.measureText(nombreTexto).width;
 
-            // Firmas (placeholders)
-            doc.setFontSize(10);
-            doc.text('_______________________', 70, 180, { align: 'center' });
-            doc.text('Director CEPREUNA', 70, 187, { align: 'center' });
+                // Si el texto es muy largo, reducir el tamaño de la fuente
+                if (textWidth > maxTextWidth) {
+                    fontSize = (fontSize * maxTextWidth) / textWidth;
+                    ctx.font = `bold ${fontSize}px "Times New Roman", serif`;
+                }
 
-            doc.text('_______________________', 227, 180, { align: 'center' });
-            doc.text('Coordinador Académico', 227, 187, { align: 'center' });
+                // Dibujar el nombre del participante
+                // Posición aproximada: 54% desde arriba, centrado horizontalmente (sobre la línea dorada)
+                const nombreX = canvasWidth / 2;
+                const nombreY = canvasHeight * 0.54;
+                ctx.fillText(nombreTexto, nombreX, nombreY);
 
-            // Logo o marca de agua (texto)
-            doc.setFontSize(8);
-            doc.setTextColor(200, 200, 200);
-            doc.text('CEPREUNA - 2026', 148.5, 200, { align: 'center' });
+                // Convertir canvas a imagen con compresión JPEG
+                const imgData = canvas.toDataURL('image/jpeg', 0.8); // Usar JPEG con 80% de calidad
 
-            // Descargar el PDF
-            doc.save(`Certificado_${estudiante.dni}_CEPREUNA_2026.pdf`);
+                // Crear PDF con jsPDF en formato A4 horizontal con compresión
+                const doc = new jsPDF({
+                    orientation: 'landscape',
+                    unit: 'mm',
+                    format: 'a4',
+                    compress: true // Habilitar compresión del PDF
+                });
+
+                // Dimensiones A4 horizontal: 297mm x 210mm
+                const pdfWidth = 297;
+                const pdfHeight = 210;
+
+                // Calcular escala para ajustar la imagen al PDF manteniendo proporción
+                const imgRatio = canvas.width / canvas.height;
+                const pdfRatio = pdfWidth / pdfHeight;
+
+                let finalWidth, finalHeight, offsetX, offsetY;
+
+                if (imgRatio > pdfRatio) {
+                    // La imagen es más ancha proporcionalmente
+                    finalWidth = pdfWidth;
+                    finalHeight = pdfWidth / imgRatio;
+                    offsetX = 0;
+                    offsetY = (pdfHeight - finalHeight) / 2;
+                } else {
+                    // La imagen es más alta proporcionalmente
+                    finalHeight = pdfHeight;
+                    finalWidth = pdfHeight * imgRatio;
+                    offsetX = (pdfWidth - finalWidth) / 2;
+                    offsetY = 0;
+                }
+
+                // Agregar la imagen al PDF centrada
+                doc.addImage(imgData, 'PNG', offsetX, offsetY, finalWidth, finalHeight);
+
+                // Descargar el PDF
+                doc.save(`Certificado_${estudiante.nombre.replace(/\s+/g, '_')}_CEPREUNA_2026.pdf`);
+            } catch (error) {
+                console.error('Error al generar el PDF:', error);
+                alert('Hubo un error al generar el certificado. Por favor, intenta de nuevo.');
+            }
         }
 
-        // Event listeners para los botones
+        // Event listener para el botón de descarga
         document.getElementById('descargarPDF')?.addEventListener('click', generarCertificadoPDF);
-        document.getElementById('generarPDF')?.addEventListener('click', generarCertificadoPDF);
     </script>
 </body>
 </html>

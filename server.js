@@ -1378,6 +1378,13 @@ app.get('/certificado', (req, res) => {
   res.sendFile(__dirname + '/certificado.html');
 });
 
+// Endpoint para servir la imagen del certificado
+app.get('/certificado-2026-curso.png', (req, res) => {
+  const path = require('path');
+  const imagePath = path.join(__dirname, 'certificado-2026-curso.png');
+  res.sendFile(imagePath);
+});
+
 // Mantener compatibilidad con URLs antiguas (redireccionar)
 app.get('/dashboard.html', (req, res) => {
   res.redirect(301, '/dashboard');
