@@ -425,10 +425,14 @@ function validarDNI(dni) {
         
         // Definir callback global
         window[callbackName] = function(result) {
-            // Limpiar
-            document.head.removeChild(script);
-            delete window[callbackName];
-            
+            // Limpiar después de un pequeño delay
+            setTimeout(() => {
+                if (document.head.contains(script)) {
+                    document.head.removeChild(script);
+                }
+                delete window[callbackName];
+            }, 100);
+
             if (!result.success && result.error === 'DNI_ALREADY_EXISTS') {
                 statusElement.innerHTML = `
                     <div>${result.message}</div>
@@ -1349,24 +1353,32 @@ function verificarDNIInicial(dni) {
         
         // Definir callback global
         window[callbackName] = function(result) {
-            // Limpiar
-            document.head.removeChild(script);
-            delete window[callbackName];
-            
+            // Limpiar después de un pequeño delay para asegurar que se ejecute
+            setTimeout(() => {
+                if (document.head.contains(script)) {
+                    document.head.removeChild(script);
+                }
+                delete window[callbackName];
+            }, 100);
+
             statusElement.innerHTML = '';
             resolve(result);
         };
-        
+
         // Crear script tag para JSONP
         const script = document.createElement('script');
         script.src = `${SCRIPT_URL}?dni=${dni}&callback=${callbackName}`;
         script.onerror = function() {
             statusElement.innerHTML = '<div style="color: #e74c3c;">Error al verificar DNI</div>';
-            document.head.removeChild(script);
-            delete window[callbackName];
+            setTimeout(() => {
+                if (document.head.contains(script)) {
+                    document.head.removeChild(script);
+                }
+                delete window[callbackName];
+            }, 100);
             resolve(null);
         };
-        
+
         document.head.appendChild(script);
         
         // Timeout de seguridad
