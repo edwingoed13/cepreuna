@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro Personal Administrativo 2026 - CEPREUNA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Animaciones personalizadas */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+
+        /* Estilos para preview de imagen */
+        .preview-container {
+            @apply relative overflow-hidden rounded-lg border-2 border-dashed border-gray-300 hover:border-blue-500 transition-colors;
+        }
+
+        .preview-container.has-image {
+            @apply border-solid border-blue-500;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-4xl">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <img src="/formulario-admins/logo-cepreuna.png" alt="Logo CEPREUNA" class="h-16 w-auto">
+                <div class="text-center sm:text-left">
+                    <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">Formulario de Registro</h1>
+                    <h2 class="text-lg sm:text-xl text-gray-600">Personal Administrativo 2026</h2>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pantalla inicial de verificación de DNI -->
+        <div id="dni-verification-screen" class="slide-in">
+            <div class="bg-white rounded-lg shadow-lg p-6 sm:p-8">
+                <div class="flex items-center gap-3 mb-4">
+                    <!-- Icono de identificación -->
+                    <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"></path>
+                    </svg>
+                    <h3 class="text-xl font-semibold text-gray-900">Verificación de Identidad</h3>
+                </div>
+
+                <p class="text-gray-600 mb-6">Ingrese su número de DNI para verificar si ya está registrado en el sistema:</p>
+
+                <div class="space-y-4">
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <input type="text"
+                               id="dni-verificacion"
+                               placeholder="Ingrese 8 dígitos de DNI"
+                               pattern="\d{8}"
+                               maxlength="8"
+                               class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-lg">
+                        <button type="button"
+                                id="btn-verificar-dni"
+                                class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all flex items-center gap-2 justify-center">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                            <span>Verificar DNI</span>
+                        </button>
+                    </div>
+
+                    <div id="verification-status" class="verification-status"></div>
+
+                    <!-- Resultado para usuario existente -->
+                    <div id="verification-result" class="hidden space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <div class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <div class="flex-1">
+                                <h4 class="font-semibold text-gray-900 mb-2">Usuario encontrado:</h4>
+                                <div id="user-details" class="text-gray-700"></div>
+                                <div class="user-photo mt-3">
+                                    <img id="existing-photo" src="" alt="Foto del usuario" class="hidden rounded-lg shadow-md max-w-xs">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row gap-3 pt-3">
+                            <button type="button"
+                                    id="btn-actualizar-datos"
+                                    class="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all flex items-center justify-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                </svg>
+                                <span>Actualizar mis Datos</span>
+                            </button>
+                            <button type="button"
+                                    id="btn-ver-datos"
+                                    class="flex-1 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 focus:ring-4 focus:ring-gray-200 transition-all flex items-center justify-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                </svg>
+                                <span>Solo Ver mis Datos</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Resultado para nuevo usuario -->
+                    <div id="new-user-result" class="hidden space-y-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                        <div class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-green-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <div class="flex-1">
+                                <h4 class="font-semibold text-gray-900">DNI disponible</h4>
+                                <p class="text-gray-700">Su DNI no está registrado en el sistema. Puede proceder con el registro.</p>
+                            </div>
+                        </div>
+
+                        <button type="button"
+                                id="btn-nuevo-registro"
+                                class="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:ring-4 focus:ring-green-200 transition-all flex items-center justify-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            <span>Proceder con Registro</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Formulario principal (oculto inicialmente) -->
+        <form id="registroForm" class="hidden space-y-6">
+            <!-- Datos Personales -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                    Datos Personales
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="dni" class="block text-sm font-medium text-gray-700 mb-1">
+                            Número de DNI <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text"
+                               id="dni"
+                               name="dni"
+                               required
+                               pattern="\d{8}"
+                               maxlength="8"
+                               placeholder="Ingrese 8 dígitos"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                        <div id="dni-error" class="text-red-500 text-xs mt-1"></div>
+                        <div id="dni-status" class="text-gray-500 text-xs mt-1"></div>
+                    </div>
+
+                    <div>
+                        <label for="nombres" class="block text-sm font-medium text-gray-700 mb-1">
+                            Nombres <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text"
+                               id="nombres"
+                               name="nombres"
+                               required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label for="apellido_paterno" class="block text-sm font-medium text-gray-700 mb-1">
+                            Apellido Paterno <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text"
+                               id="apellido_paterno"
+                               name="apellido_paterno"
+                               required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label for="apellido_materno" class="block text-sm font-medium text-gray-700 mb-1">
+                            Apellido Materno <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text"
+                               id="apellido_materno"
+                               name="apellido_materno"
+                               required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Sexo <span class="text-red-500">*</span>
+                        </label>
+                        <div class="flex gap-4">
+                            <label class="flex items-center">
+                                <input type="radio" id="sexo_m" name="sexo" value="M" required class="mr-2">
+                                <span>Masculino</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="radio" id="sexo_f" name="sexo" value="F" class="mr-2">
+                                <span>Femenino</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="fecha_nacimiento" class="block text-sm font-medium text-gray-700 mb-1">
+                            Fecha de Nacimiento <span class="text-red-500">*</span>
+                        </label>
+                        <input type="date"
+                               id="fecha_nacimiento"
+                               name="fecha_nacimiento"
+                               required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
+                            Correo Electrónico <span class="text-red-500">*</span>
+                        </label>
+                        <input type="email"
+                               id="email"
+                               name="email"
+                               required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label for="celular" class="block text-sm font-medium text-gray-700 mb-1">
+                            Celular (WhatsApp) <span class="text-red-500">*</span>
+                        </label>
+                        <input type="tel"
+                               id="celular"
+                               name="celular"
+                               required
+                               placeholder="Solo números (9 dígitos)"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                        <div id="celular-error" class="text-red-500 text-xs mt-1"></div>
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label for="direccion" class="block text-sm font-medium text-gray-700 mb-1">
+                            Dirección Actual <span class="text-red-500">*</span>
+                        </label>
+                        <textarea id="direccion"
+                                  name="direccion"
+                                  rows="2"
+                                  required
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"></textarea>
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label for="ruc" class="block text-sm font-medium text-gray-700 mb-1">
+                            RUC <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text"
+                               id="ruc"
+                               name="ruc"
+                               required
+                               placeholder="Solo números (11 dígitos)"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                        <div id="ruc-error" class="text-red-500 text-xs mt-1"></div>
+                        <div id="ruc-loading" class="hidden text-blue-500 text-xs mt-1">Consultando datos del RUC...</div>
+                        <div id="ruc-info" class="hidden mt-2 p-2 bg-blue-50 rounded text-sm">
+                            <div id="ruc-activo"></div>
+                            <div id="ruc-habido"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Datos Laborales -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                    </svg>
+                    Datos Laborales
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="sede" class="block text-sm font-medium text-gray-700 mb-1">Sede</label>
+                        <input type="text"
+                               id="sede"
+                               name="sede"
+                               placeholder="Ejemplo: Puno, Juliaca y/o Virtual"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label for="turno" class="block text-sm font-medium text-gray-700 mb-1">Turno</label>
+                        <input type="text"
+                               id="turno"
+                               name="turno"
+                               placeholder="Ejemplo: Mañana, Tarde y/o Noche"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label for="area" class="block text-sm font-medium text-gray-700 mb-1">Área</label>
+                        <input type="text"
+                               id="area"
+                               name="area"
+                               placeholder="Ejemplo: Sociales, Ingenierías"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+
+                    <div>
+                        <label for="cargo" class="block text-sm font-medium text-gray-700 mb-1">
+                            Cargo <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text"
+                               id="cargo"
+                               name="cargo"
+                               required
+                               placeholder="Ingrese su cargo"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Datos Bancarios -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                    </svg>
+                    Datos Bancarios
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="banco" class="block text-sm font-medium text-gray-700 mb-1">
+                            Banco Comercial <span class="text-red-500">*</span>
+                        </label>
+                        <select id="banco"
+                                name="banco"
+                                required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                            <option value="">Seleccione un banco</option>
+                            <option value="BCP">BCP</option>
+                            <option value="Interbank">Interbank</option>
+                            <option value="BBVA">BBVA</option>
+                            <option value="ScotiaBank">ScotiaBank</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="cci" class="block text-sm font-medium text-gray-700 mb-1">
+                            CCI <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text"
+                               id="cci"
+                               name="cci"
+                               required
+                               placeholder="Número de 20 dígitos"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                        <div id="cci-error" class="text-red-500 text-xs mt-1"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Documentos -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span id="photo-section-title">Foto para Credencial</span>
+                </h3>
+
+                <!-- Contenedor para mostrar foto existente cuando está actualizando -->
+                <div id="existing-photo-container" class="hidden mb-4">
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <p class="text-sm font-medium text-gray-700 mb-2">Foto actual registrada:</p>
+                        <img id="current-photo" src="" alt="Foto actual" class="mx-auto rounded-lg shadow-md max-w-xs mb-3">
+                        <p class="text-xs text-gray-500 text-center">Puede mantener esta foto o subir una nueva</p>
+                    </div>
+                </div>
+
+                <div class="preview-container p-8 text-center cursor-pointer" id="photo-upload-container" onclick="document.getElementById('foto').click()">
+                    <svg class="w-12 h-12 mx-auto text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <p class="text-gray-600 mb-1" id="upload-text">Haz clic para subir tu foto</p>
+                    <p class="text-sm text-gray-500" id="upload-hint">Formatos aceptados: JPG, PNG (Máx. 2MB)</p>
+                    <img id="preview" class="hidden mt-4 mx-auto rounded-lg shadow-md max-w-xs" alt="Vista previa">
+                </div>
+                <input type="file" id="foto" name="foto" accept="image/jpeg,image/png" required class="hidden">
+            </div>
+
+            <!-- Información adicional -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        ¿Es padre/madre de familia? <span class="text-red-500">*</span>
+                    </label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center">
+                            <input type="radio" id="padre_si" name="padre_familia" value="Si" required class="mr-2">
+                            <span>Sí</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" id="padre_no" name="padre_familia" value="No" class="mr-2">
+                            <span>No</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tallas de Vestimenta -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                    </svg>
+                    <span id="tallas-title">Tallas de Vestimenta</span>
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="talla_casaca" class="block text-sm font-medium text-gray-700 mb-1">
+                            Talla de Casaca <span class="text-red-500">*</span>
+                        </label>
+                        <select id="talla_casaca"
+                                name="talla_casaca"
+                                required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                            <option value="">Seleccione su talla</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="talla_pantalon" class="block text-sm font-medium text-gray-700 mb-1">
+                            Talla de Pantalón <span class="text-red-500">*</span>
+                        </label>
+                        <select id="talla_pantalon"
+                                name="talla_pantalon"
+                                required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                            <option value="">Seleccione su talla</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Guías de tallas -->
+                <div id="guia-femenino" class="hidden mt-6">
+                    <h4 class="font-medium text-gray-700 mb-3">Guía de tallas femeninas</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <img src="/formulario-admins/casaca-dama.jpg" alt="Medidas casaca dama" class="w-full rounded-lg shadow-md">
+                        <img src="/formulario-admins/pantalon-dama.jpg" alt="Medidas pantalón dama" class="w-full rounded-lg shadow-md">
+                    </div>
+                </div>
+
+                <div id="guia-masculino" class="hidden mt-6">
+                    <h4 class="font-medium text-gray-700 mb-3">Guía de tallas masculinas</h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <img src="/formulario-admins/casaca-varon.jpg" alt="Medidas casaca varón" class="w-full rounded-lg shadow-md">
+                        <img src="/formulario-admins/pantalon-varon.jpg" alt="Medidas pantalón varón" class="w-full rounded-lg shadow-md">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Botones de acción -->
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button type="button"
+                        id="btn-volver-verificacion"
+                        class="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 focus:ring-4 focus:ring-gray-200 transition-all flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    <span>Verificar otro DNI</span>
+                </button>
+                <button type="submit"
+                        class="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:ring-4 focus:ring-green-200 transition-all flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span>Enviar Formulario</span>
+                </button>
+            </div>
+        </form>
+
+        <!-- Footer -->
+        <footer class="mt-8 text-center text-gray-600 text-sm">
+            <p>Oficina de Comunicaciones e Imagen Institucional</p>
+            <p>Desarrollado por <strong>Edwin Flores</strong></p>
+        </footer>
+    </div>
+
+    <!-- Modal de confirmación -->
+    <div id="confirmation-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div class="p-6 border-b border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <svg class="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    Confirmación de Actualización
+                </h3>
+            </div>
+
+            <div class="p-6">
+                <p class="text-gray-600 mb-4">¿Está seguro de que desea actualizar los siguientes datos?</p>
+                <div id="changes-list" class="bg-gray-50 rounded-lg p-4 mb-4 max-h-60 overflow-y-auto"></div>
+                <p class="text-sm text-gray-500">
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    Fecha de registro original: <span id="original-date" class="font-medium"></span>
+                </p>
+            </div>
+
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3 justify-end rounded-b-lg">
+                <button type="button"
+                        id="cancel-update"
+                        class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all">
+                    Cancelar
+                </button>
+                <button type="button"
+                        id="confirm-update"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all">
+                    Confirmar Actualización
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/formulario-admins/script.js"></script>
+</body>
+</html>
