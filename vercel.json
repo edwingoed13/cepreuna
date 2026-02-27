@@ -10,11 +10,23 @@
       "use": "@vercel/static"
     },
     {
+      "src": "formulario-admins/**",
+      "use": "@vercel/static"
+    },
+    {
       "src": "server.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
+    {
+      "src": "/formulario-admins",
+      "dest": "/formulario-admins/index.html"
+    },
+    {
+      "src": "/formulario-admins/(.*)",
+      "dest": "/formulario-admins/$1"
+    },
     {
       "src": "/(.*)",
       "dest": "server.js"
