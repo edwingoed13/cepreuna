@@ -1286,6 +1286,364 @@ app.get('/api/materiales/area/:areaNum', async (req, res) => {
   }
 });
 
+// ============ ENDPOINTS ESTADÍSTICAS INSCRIPCIONES ============
+
+// 1. Total de inscritos
+app.get('/api/stats-inscripciones/totales', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+
+    const [[totales]] = await connection.query(`
+      SELECT
+        COUNT(DISTINCT id) as total_inscritos,
+        SUM(CASE WHEN modalidad = '1' THEN 1 ELSE 0 END) as total_virtual,
+        SUM(CASE WHEN modalidad = '2' THEN 1 ELSE 0 END) as total_presencial,
+        (SELECT COUNT(*) FROM banco_pagos WHERE fch_pag >= '2026-02-25' AND imp_pag > 200) as total_pagos_25feb
+      FROM inscripciones
+      WHERE periodos_id = 1
+    `);
+
+    connection.release();
+
+    res.json({
+      total_inscritos: parseInt(totales.total_inscritos) || 0,
+      total_virtual: parseInt(totales.total_virtual) || 0,
+      total_presencial: parseInt(totales.total_presencial) || 0,
+      total_pagos_25feb: parseInt(totales.total_pagos_25feb) || 0,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error en totales:', error);
+    res.status(500).json({ error: 'Error al obtener totales', message: error.message });
+  }
+});
+
+// 2. Inscritos por sede
+app.get('/api/stats-inscripciones/por-sede', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const [result] = await connection.query(`
+      SELECT
+        s.denominacion as sede,
+        s.id as sede_id,
+        COUNT(DISTINCT i.id) as total_inscritos,
+        SUM(CASE WHEN i.modalidad = '1' THEN 1 ELSE 0 END) as \`virtual\`,
+        SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
+      FROM inscripciones i
+      INNER JOIN sedes s ON i.sedes_id = s.id
+      WHERE i.periodos_id = 1
+      GROUP BY s.id, s.denominacion
+      ORDER BY total_inscritos DESC
+    `);
+
+    connection.release();
+
+    const sedes = result.map(row => ({
+      sede_id: parseInt(row.sede_id) || 0,
+      sede: row.sede,
+      total_inscritos: parseInt(row.total_inscritos) || 0,
+      virtual: parseInt(row.virtual) || 0,
+      presencial: parseInt(row.presencial) || 0
+    }));
+
+    res.json({ sedes, timestamp: new Date().toISOString() });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error por sede:', error);
+    res.status(500).json({ error: 'Error al obtener datos por sede', message: error.message });
+  }
+});
+
+// 3. Inscritos por área
+app.get('/api/stats-inscripciones/por-area', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const [result] = await connection.query(`
+      SELECT
+        a.denominacion as area,
+        a.id as area_id,
+        COUNT(DISTINCT i.id) as total_inscritos,
+        SUM(CASE WHEN i.modalidad = '1' THEN 1 ELSE 0 END) as \`virtual\`,
+        SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
+      FROM inscripciones i
+      INNER JOIN areas a ON i.areas_id = a.id
+      WHERE i.periodos_id = 1
+      GROUP BY a.id, a.denominacion
+      ORDER BY total_inscritos DESC
+    `);
+
+    connection.release();
+
+    const areas = result.map(row => ({
+      area_id: parseInt(row.area_id) || 0,
+      area: row.area,
+      total_inscritos: parseInt(row.total_inscritos) || 0,
+      virtual: parseInt(row.virtual) || 0,
+      presencial: parseInt(row.presencial) || 0
+    }));
+
+    res.json({ areas, timestamp: new Date().toISOString() });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error por área:', error);
+    res.status(500).json({ error: 'Error al obtener datos por área', message: error.message });
+  }
+});
+
+// 4. Inscritos por turno
+app.get('/api/stats-inscripciones/por-turno', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const [result] = await connection.query(`
+      SELECT
+        t.denominacion as turno,
+        t.id as turno_id,
+        COUNT(DISTINCT i.id) as total_inscritos,
+        SUM(CASE WHEN i.modalidad = '1' THEN 1 ELSE 0 END) as \`virtual\`,
+        SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
+      FROM inscripciones i
+      INNER JOIN turnos t ON i.turnos_id = t.id
+      WHERE i.periodos_id = 1
+      GROUP BY t.id, t.denominacion
+      ORDER BY total_inscritos DESC
+    `);
+
+    connection.release();
+
+    const turnos = result.map(row => ({
+      turno_id: parseInt(row.turno_id) || 0,
+      turno: row.turno,
+      total_inscritos: parseInt(row.total_inscritos) || 0,
+      virtual: parseInt(row.virtual) || 0,
+      presencial: parseInt(row.presencial) || 0
+    }));
+
+    res.json({ turnos, timestamp: new Date().toISOString() });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error por turno:', error);
+    res.status(500).json({ error: 'Error al obtener datos por turno', message: error.message });
+  }
+});
+
+// 5. Inscritos por día
+app.get('/api/stats-inscripciones/por-dia', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const [result] = await connection.query(`
+      SELECT
+        DATE(created_at) as fecha,
+        COUNT(DISTINCT id) as total_inscritos,
+        SUM(CASE WHEN modalidad = '1' THEN 1 ELSE 0 END) as \`virtual\`,
+        SUM(CASE WHEN modalidad = '2' THEN 1 ELSE 0 END) as presencial
+      FROM inscripciones
+      WHERE periodos_id = 1 AND created_at IS NOT NULL
+      GROUP BY DATE(created_at)
+      ORDER BY fecha ASC
+    `);
+
+    connection.release();
+
+    const dias = result.map(row => ({
+      fecha: row.fecha,
+      total_inscritos: parseInt(row.total_inscritos) || 0,
+      virtual: parseInt(row.virtual) || 0,
+      presencial: parseInt(row.presencial) || 0
+    }));
+
+    res.json({ dias, timestamp: new Date().toISOString() });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error por día:', error);
+    res.status(500).json({ error: 'Error al obtener datos por día', message: error.message });
+  }
+});
+
+// 6. Pagos por día (desde 25 Feb 2026, imp_pag > 200)
+app.get('/api/stats-inscripciones/pagos-por-dia', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const [result] = await connection.query(`
+      SELECT
+        DATE(fch_pag) as fecha,
+        COUNT(*) as total_pagos,
+        SUM(imp_pag) as total_monto
+      FROM banco_pagos
+      WHERE fch_pag >= '2026-02-25' AND imp_pag > 200 AND fch_pag IS NOT NULL
+      GROUP BY DATE(fch_pag)
+      ORDER BY fecha ASC
+    `);
+
+    connection.release();
+
+    const dias = result.map(row => ({
+      fecha: row.fecha,
+      total_pagos: parseInt(row.total_pagos) || 0,
+      total_monto: parseFloat(row.total_monto) || 0
+    }));
+
+    res.json({ dias, timestamp: new Date().toISOString() });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error pagos por día:', error);
+    res.status(500).json({ error: 'Error al obtener pagos por día', message: error.message });
+  }
+});
+
+// 7. Filtro combinado: Sede + Área + Turno (muestra 0 si no hay inscritos)
+app.get('/api/stats-inscripciones/filtro-completo', async (req, res) => {
+  try {
+    const { sede_id, area_id, turno_id } = req.query;
+
+    const connection = await pool.getConnection();
+
+    // Generar todas las combinaciones posibles desde grupo_aulas
+    // y hacer LEFT JOIN con inscripciones para contar inscritos (0 si no hay)
+    let query = `
+      SELECT
+        s.denominacion as sede,
+        a.denominacion as area,
+        t.denominacion as turno,
+        COUNT(DISTINCT i.id) as total_inscritos
+      FROM grupo_aulas ga
+      INNER JOIN areas a ON ga.areas_id = a.id
+      INNER JOIN turnos t ON ga.turnos_id = t.id
+      INNER JOIN aulas au ON ga.aulas_id = au.id
+      INNER JOIN locales l ON au.locales_id = l.id
+      INNER JOIN sedes s ON l.sedes_id = s.id
+      LEFT JOIN inscripciones i ON i.sedes_id = s.id
+        AND i.areas_id = a.id
+        AND i.turnos_id = t.id
+        AND i.periodos_id = 1
+      WHERE 1=1
+    `;
+
+    const params = [];
+
+    if (sede_id) {
+      query += ` AND s.id = ?`;
+      params.push(sede_id);
+    }
+
+    if (area_id) {
+      query += ` AND a.id = ?`;
+      params.push(area_id);
+    }
+
+    if (turno_id) {
+      query += ` AND t.id = ?`;
+      params.push(turno_id);
+    }
+
+    query += `
+      GROUP BY s.denominacion, a.denominacion, t.denominacion
+      ORDER BY s.denominacion, a.denominacion, t.denominacion
+    `;
+
+    const [result] = await connection.query(query, params);
+    connection.release();
+
+    const data = result.map(row => ({
+      sede: row.sede,
+      area: row.area,
+      turno: row.turno,
+      total_inscritos: parseInt(row.total_inscritos) || 0
+    }));
+
+    res.json({ data, total: data.length, timestamp: new Date().toISOString() });
+
+  } catch (error) {
+    console.error('Error filtro completo:', error);
+    res.status(500).json({ error: 'Error al obtener datos filtrados', message: error.message });
+  }
+});
+
+// 8. Todas las sedes (incluidas las que no tienen inscritos)
+app.get('/api/stats-inscripciones/todas-sedes', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    const [sedes] = await connection.query(`
+      SELECT id, denominacion
+      FROM sedes
+      ORDER BY denominacion
+    `);
+
+    connection.release();
+
+    res.json({
+      sedes: sedes.map(s => ({ sede_id: s.id, sede: s.denominacion })),
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error todas las sedes:', error);
+    res.status(500).json({ error: 'Error al obtener todas las sedes', message: error.message });
+  }
+});
+
+// 9. Áreas y turnos disponibles por sede
+app.get('/api/stats-inscripciones/opciones-por-sede/:sedeId', async (req, res) => {
+  let connection;
+  try {
+    const { sedeId } = req.params;
+    connection = await pool.getConnection();
+
+    // Obtener áreas disponibles para esta sede desde grupo_aulas
+    const [areas] = await connection.query(`
+      SELECT DISTINCT a.id as area_id, a.denominacion as area
+      FROM grupo_aulas ga
+      INNER JOIN areas a ON ga.areas_id = a.id
+      INNER JOIN aulas au ON ga.aulas_id = au.id
+      INNER JOIN locales l ON au.locales_id = l.id
+      WHERE l.sedes_id = ?
+      ORDER BY a.id
+    `, [sedeId]);
+
+    // Obtener turnos disponibles para esta sede desde grupo_aulas
+    const [turnos] = await connection.query(`
+      SELECT DISTINCT t.id as turno_id, t.denominacion as turno
+      FROM grupo_aulas ga
+      INNER JOIN turnos t ON ga.turnos_id = t.id
+      INNER JOIN aulas au ON ga.aulas_id = au.id
+      INNER JOIN locales l ON au.locales_id = l.id
+      WHERE l.sedes_id = ?
+      ORDER BY t.id
+    `, [sedeId]);
+
+    connection.release();
+
+    res.json({
+      areas: areas.map(a => ({ area_id: a.area_id, area: a.area })),
+      turnos: turnos.map(t => ({ turno_id: t.turno_id, turno: t.turno })),
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error opciones por sede:', error);
+    res.status(500).json({ error: 'Error al obtener opciones por sede', message: error.message });
+  }
+});
+
 // ============ ENDPOINT DE AUTENTICACIÓN ============
 
 // Endpoint para autenticar participantes
@@ -1404,6 +1762,11 @@ app.get('/materiales.html', (req, res) => {
 
 app.get('/certificado.html', (req, res) => {
   res.redirect(301, '/certificado');
+});
+
+// Ruta para panel de estadísticas
+app.get('/stats', (req, res) => {
+  res.sendFile(__dirname + '/stats/index.html');
 });
 
 // Iniciar servidor (solo en desarrollo local)

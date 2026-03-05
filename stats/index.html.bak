@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Estadísticas - CEPREUNA 2026-I</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    * {
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* Colores sólidos profesionales */
+    .bg-primary {
+      background: #5B21B6;
+    }
+
+    .bg-primary-hover:hover {
+      background: #4C1D95;
+    }
+
+    /* Cards limpios */
+    .card {
+      background: #ffffff;
+      border: 1px solid #E5E7EB;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    }
+
+    .card:hover {
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+
+    /* Animaciones */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .fade-in {
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    /* Spinner */
+    .spinner {
+      border: 3px solid #E5E7EB;
+      border-top-color: #5B21B6;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Select custom */
+    select {
+      appearance: none;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 0.5rem center;
+      background-size: 1.5em 1.5em;
+      padding-right: 2.5rem;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-primary text-white shadow-md sticky top-0 z-50">
+    <div class="container mx-auto px-4 py-5">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          <div>
+            <h1 class="text-xl md:text-2xl font-bold">Estadísticas de Inscripciones</h1>
+            <p class="text-sm text-purple-200 mt-0.5">CEPREUNA - Periodo 2026-I</p>
+          </div>
+        </div>
+        <div class="text-right hidden md:block">
+          <p class="text-xs text-purple-200" id="lastUpdate">Actualizando...</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl p-8 text-center card">
+      <div class="spinner mx-auto mb-4"></div>
+      <p class="text-gray-700 font-medium">Cargando estadísticas...</p>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="container mx-auto px-4 py-6 md:py-8">
+
+    <!-- Stats Cards (Totales) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
+
+      <!-- Total Inscritos -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow">
+        <div class="flex items-center justify-between mb-4">
+          <div class="bg-purple-100 p-3 rounded-lg">
+            <svg class="w-7 h-7 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="text-4xl font-bold text-gray-900 mb-1" id="totalInscritos">-</div>
+        <p class="text-sm text-gray-500 font-medium uppercase tracking-wide">Total Inscritos</p>
+      </div>
+
+      <!-- Total Virtual -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow" style="animation-delay: 0.1s">
+        <div class="flex items-center justify-between mb-4">
+          <div class="bg-blue-100 p-3 rounded-lg">
+            <svg class="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="text-4xl font-bold text-gray-900 mb-1" id="totalVirtual">-</div>
+        <p class="text-sm text-gray-500 font-medium uppercase tracking-wide">Modalidad Virtual</p>
+      </div>
+
+      <!-- Total Presencial -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow" style="animation-delay: 0.2s">
+        <div class="flex items-center justify-between mb-4">
+          <div class="bg-green-100 p-3 rounded-lg">
+            <svg class="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+            </svg>
+          </div>
+        </div>
+        <div class="text-4xl font-bold text-gray-900 mb-1" id="totalPresencial">-</div>
+        <p class="text-sm text-gray-500 font-medium uppercase tracking-wide">Modalidad Presencial</p>
+      </div>
+
+      <!-- Total Pagos -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow" style="animation-delay: 0.3s">
+        <div class="flex items-center justify-between mb-4">
+          <div class="bg-amber-100 p-3 rounded-lg">
+            <svg class="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
+            </svg>
+          </div>
+        </div>
+        <div class="text-4xl font-bold text-gray-900 mb-1" id="totalPagos">-</div>
+        <p class="text-sm text-gray-500 font-medium uppercase tracking-wide">Pagos (≥S/200)</p>
+      </div>
+
+    </div>
+
+    <!-- Filtros -->
+    <div class="card rounded-xl p-6 mb-6 md:mb-8 fade-in" style="animation-delay: 0.4s">
+      <div class="flex items-center gap-3 mb-5">
+        <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+        </svg>
+        <h2 class="text-xl md:text-2xl font-bold text-gray-900">Filtros de Búsqueda</h2>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Sede</label>
+          <select id="filtroSede" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition text-gray-900">
+            <option value="">Todas las sedes</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Área</label>
+          <select id="filtroArea" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition text-gray-900">
+            <option value="">Todas las áreas</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Turno</label>
+          <select id="filtroTurno" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition text-gray-900">
+            <option value="">Todos los turnos</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Modalidad</label>
+          <select id="filtroModalidad" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition text-gray-900">
+            <option value="">Todas</option>
+            <option value="1">Virtual</option>
+            <option value="2">Presencial</option>
+          </select>
+        </div>
+
+      </div>
+
+      <div class="flex gap-3">
+        <button onclick="aplicarFiltros()" class="bg-primary bg-primary-hover text-white px-6 py-2.5 rounded-lg font-semibold hover:shadow-md transition flex items-center gap-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          Aplicar Filtros
+        </button>
+        <button onclick="limpiarFiltros()" class="bg-gray-200 text-gray-700 px-6 py-2.5 rounded-lg font-semibold hover:bg-gray-300 transition">
+          Limpiar
+        </button>
+      </div>
+    </div>
+
+    <!-- Gráficos -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-8">
+
+      <!-- Inscritos por Sede -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow" style="animation-delay: 0.5s">
+        <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-4">Inscritos por Sede</h3>
+        <div class="relative h-64 md:h-80">
+          <canvas id="chartSede"></canvas>
+        </div>
+      </div>
+
+      <!-- Inscritos por Área -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow" style="animation-delay: 0.6s">
+        <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-4">Inscritos por Área</h3>
+        <div class="relative h-64 md:h-80">
+          <canvas id="chartArea"></canvas>
+        </div>
+      </div>
+
+      <!-- Inscritos por Turno -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow" style="animation-delay: 0.7s">
+        <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-4">Inscritos por Turno</h3>
+        <div class="relative h-64 md:h-80">
+          <canvas id="chartTurno"></canvas>
+        </div>
+      </div>
+
+      <!-- Inscritos por Día -->
+      <div class="card rounded-xl p-6 fade-in transition-shadow" style="animation-delay: 0.8s">
+        <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-4">Inscritos por Día</h3>
+        <div class="relative h-64 md:h-80">
+          <canvas id="chartDia"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Pagos por Día -->
+    <div class="card rounded-xl p-6 mb-6 md:mb-8 fade-in transition-shadow" style="animation-delay: 0.9s">
+      <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-4">Pagos por Día (≥S/200 desde 25 Feb 2026)</h3>
+      <div class="relative h-64 md:h-80">
+        <canvas id="chartPagos"></canvas>
+      </div>
+    </div>
+
+    <!-- Tabla Filtrada -->
+    <div id="tablaFiltrada" class="card rounded-xl p-6 hidden fade-in">
+      <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-4">Resultados del Filtro</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="border-b-2 border-gray-200">
+              <th class="text-left py-3 px-4 font-semibold text-gray-700">Sede</th>
+              <th class="text-left py-3 px-4 font-semibold text-gray-700">Área</th>
+              <th class="text-left py-3 px-4 font-semibold text-gray-700">Turno</th>
+              <th class="text-left py-3 px-4 font-semibold text-gray-700">Modalidad</th>
+              <th class="text-right py-3 px-4 font-semibold text-gray-700">Total</th>
+            </tr>
+          </thead>
+          <tbody id="tablaFiltradaBody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-gray-200 mt-12 py-6">
+    <div class="container mx-auto px-4 text-center text-gray-600 text-sm">
+      <p>&copy; 2026 CEPREUNA - Centro Pre Universitario UNA Puno</p>
+    </div>
+  </footer>
+
+  <script>
+    // Variables globales
+    let charts = {};
+    let datosOriginales = {};
+
+    // API Base URL - detectar automáticamente el entorno
+    const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? 'http://localhost:3000/api/stats-inscripciones'
+      : '/api/stats-inscripciones';
+
+    // Función para formatear fechas
+    function formatFecha(fechaStr) {
+      const fecha = new Date(fechaStr);
+      const dia = String(fecha.getDate()).padStart(2, '0');
+      const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+      return `${dia}/${mes}`;
+    }
+
+    // Función para actualizar timestamp
+    function actualizarTimestamp() {
+      const ahora = new Date();
+      const hora = ahora.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('lastUpdate').textContent = `Actualizado: ${hora}`;
+    }
+
+    // Paleta de colores profesional
+    const COLORES = {
+      purple: 'rgba(91, 33, 182, 0.85)',
+      blue: 'rgba(37, 99, 235, 0.85)',
+      green: 'rgba(5, 150, 105, 0.85)',
+      amber: 'rgba(217, 119, 6, 0.85)',
+      red: 'rgba(220, 38, 38, 0.85)',
+      indigo: 'rgba(79, 70, 229, 0.85)',
+      pink: 'rgba(219, 39, 119, 0.85)',
+      cyan: 'rgba(8, 145, 178, 0.85)'
+    };
+
+    // Función para crear gráfico de barras
+    function crearGraficoBarras(canvasId, labels, data, label, colors) {
+      const ctx = document.getElementById(canvasId).getContext('2d');
+
+      if (charts[canvasId]) {
+        charts[canvasId].destroy();
+      }
+
+      charts[canvasId] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: label,
+            data: data,
+            backgroundColor: colors || COLORES.purple,
+            borderColor: 'rgba(91, 33, 182, 1)',
+            borderWidth: 0,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                precision: 0
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)'
+              }
+            },
+            x: {
+              grid: {
+                display: false
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Función para crear gráfico de líneas
+    function crearGraficoLineas(canvasId, labels, datasets) {
+      const ctx = document.getElementById(canvasId).getContext('2d');
+
+      if (charts[canvasId]) {
+        charts[canvasId].destroy();
+      }
+
+      charts[canvasId] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top'
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                precision: 0
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)'
+              }
+            },
+            x: {
+              grid: {
+                display: false
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Función para cargar totales
+    async function cargarTotales() {
+      try {
+        const res = await fetch(`${API_BASE}/totales`);
+        const data = await res.json();
+
+        document.getElementById('totalInscritos').textContent = data.total_inscritos.toLocaleString('es-PE');
+        document.getElementById('totalVirtual').textContent = data.total_virtual.toLocaleString('es-PE');
+        document.getElementById('totalPresencial').textContent = data.total_presencial.toLocaleString('es-PE');
+        document.getElementById('totalPagos').textContent = data.total_pagos_25feb.toLocaleString('es-PE');
+      } catch (error) {
+        console.error('Error al cargar totales:', error);
+      }
+    }
+
+    // Función para cargar datos por sede
+    async function cargarPorSede() {
+      try {
+        const res = await fetch(`${API_BASE}/por-sede`);
+        const data = await res.json();
+        datosOriginales.sedes = data.sedes;
+
+        const labels = data.sedes.map(s => s.sede);
+        const totales = data.sedes.map(s => s.total_inscritos);
+
+        const colors = [
+          COLORES.purple,
+          COLORES.blue,
+          COLORES.green,
+          COLORES.amber,
+          COLORES.red,
+          COLORES.indigo,
+          COLORES.pink,
+          COLORES.cyan
+        ];
+
+        crearGraficoBarras('chartSede', labels, totales, 'Inscritos', colors);
+
+        // Poblar filtro de sedes
+        const selectSede = document.getElementById('filtroSede');
+        selectSede.innerHTML = '<option value="">Todas las sedes</option>';
+        data.sedes.forEach((s, idx) => {
+          selectSede.innerHTML += `<option value="${idx + 1}">${s.sede}</option>`;
+        });
+      } catch (error) {
+        console.error('Error al cargar por sede:', error);
+      }
+    }
+
+    // Función para cargar datos por área
+    async function cargarPorArea() {
+      try {
+        const res = await fetch(`${API_BASE}/por-area`);
+        const data = await res.json();
+        datosOriginales.areas = data.areas;
+
+        const labels = data.areas.map(a => a.area);
+        const totales = data.areas.map(a => a.total_inscritos);
+
+        const colors = [
+          COLORES.red,
+          COLORES.blue,
+          COLORES.green
+        ];
+
+        crearGraficoBarras('chartArea', labels, totales, 'Inscritos', colors);
+
+        // Poblar filtro de áreas
+        const selectArea = document.getElementById('filtroArea');
+        selectArea.innerHTML = '<option value="">Todas las áreas</option>';
+        data.areas.forEach((a, idx) => {
+          selectArea.innerHTML += `<option value="${idx + 1}">${a.area}</option>`;
+        });
+      } catch (error) {
+        console.error('Error al cargar por área:', error);
+      }
+    }
+
+    // Función para cargar datos por turno
+    async function cargarPorTurno() {
+      try {
+        const res = await fetch(`${API_BASE}/por-turno`);
+        const data = await res.json();
+        datosOriginales.turnos = data.turnos;
+
+        const labels = data.turnos.map(t => t.turno);
+        const totales = data.turnos.map(t => t.total_inscritos);
+
+        const colors = [
+          COLORES.amber,
+          COLORES.indigo,
+          COLORES.pink
+        ];
+
+        crearGraficoBarras('chartTurno', labels, totales, 'Inscritos', colors);
+
+        // Poblar filtro de turnos
+        const selectTurno = document.getElementById('filtroTurno');
+        selectTurno.innerHTML = '<option value="">Todos los turnos</option>';
+        data.turnos.forEach((t, idx) => {
+          selectTurno.innerHTML += `<option value="${idx + 1}">${t.turno}</option>`;
+        });
+      } catch (error) {
+        console.error('Error al cargar por turno:', error);
+      }
+    }
+
+    // Función para cargar inscritos por día
+    async function cargarPorDia() {
+      try {
+        const res = await fetch(`${API_BASE}/por-dia`);
+        const data = await res.json();
+
+        const labels = data.dias.map(d => formatFecha(d.fecha));
+
+        const datasets = [
+          {
+            label: 'Total',
+            data: data.dias.map(d => d.total_inscritos),
+            borderColor: 'rgba(91, 33, 182, 1)',
+            backgroundColor: 'rgba(91, 33, 182, 0.1)',
+            tension: 0.4,
+            fill: true,
+            borderWidth: 2
+          },
+          {
+            label: 'Virtual',
+            data: data.dias.map(d => d.virtual),
+            borderColor: 'rgba(37, 99, 235, 1)',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            tension: 0.4,
+            fill: true,
+            borderWidth: 2
+          },
+          {
+            label: 'Presencial',
+            data: data.dias.map(d => d.presencial),
+            borderColor: 'rgba(5, 150, 105, 1)',
+            backgroundColor: 'rgba(5, 150, 105, 0.1)',
+            tension: 0.4,
+            fill: true,
+            borderWidth: 2
+          }
+        ];
+
+        crearGraficoLineas('chartDia', labels, datasets);
+      } catch (error) {
+        console.error('Error al cargar por día:', error);
+      }
+    }
+
+    // Función para cargar pagos por día
+    async function cargarPagosPorDia() {
+      try {
+        const res = await fetch(`${API_BASE}/pagos-por-dia`);
+        const data = await res.json();
+
+        const labels = data.dias.map(d => formatFecha(d.fecha));
+
+        const datasets = [
+          {
+            label: 'Total Pagos',
+            data: data.dias.map(d => d.total_pagos),
+            borderColor: 'rgba(217, 119, 6, 1)',
+            backgroundColor: 'rgba(217, 119, 6, 0.2)',
+            tension: 0.4,
+            fill: true,
+            yAxisID: 'y',
+            borderWidth: 2
+          },
+          {
+            label: 'Monto Total (S/)',
+            data: data.dias.map(d => d.total_monto),
+            borderColor: 'rgba(5, 150, 105, 1)',
+            backgroundColor: 'rgba(5, 150, 105, 0.2)',
+            tension: 0.4,
+            fill: true,
+            yAxisID: 'y1',
+            borderWidth: 2
+          }
+        ];
+
+        const ctx = document.getElementById('chartPagos').getContext('2d');
+
+        if (charts['chartPagos']) {
+          charts['chartPagos'].destroy();
+        }
+
+        charts['chartPagos'] = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+              mode: 'index',
+              intersect: false
+            },
+            plugins: {
+              legend: {
+                position: 'top'
+              }
+            },
+            scales: {
+              y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                beginAtZero: true,
+                ticks: {
+                  precision: 0
+                },
+                grid: {
+                  color: 'rgba(0, 0, 0, 0.05)'
+                }
+              },
+              y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                beginAtZero: true,
+                grid: {
+                  drawOnChartArea: false
+                },
+                ticks: {
+                  callback: function(value) {
+                    return 'S/ ' + value.toLocaleString('es-PE');
+                  }
+                }
+              },
+              x: {
+                grid: {
+                  display: false
+                }
+              }
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Error al cargar pagos por día:', error);
+      }
+    }
+
+    // Función para aplicar filtros
+    async function aplicarFiltros() {
+      const sedeId = document.getElementById('filtroSede').value;
+      const areaId = document.getElementById('filtroArea').value;
+      const turnoId = document.getElementById('filtroTurno').value;
+      const modalidad = document.getElementById('filtroModalidad').value;
+
+      const params = new URLSearchParams();
+      if (sedeId) params.append('sede_id', sedeId);
+      if (areaId) params.append('area_id', areaId);
+      if (turnoId) params.append('turno_id', turnoId);
+      if (modalidad) params.append('modalidad', modalidad);
+
+      try {
+        const res = await fetch(`${API_BASE}/filtro-completo?${params.toString()}`);
+        const data = await res.json();
+
+        if (data.data.length > 0) {
+          mostrarTablaFiltrada(data.data);
+        } else {
+          alert('No se encontraron resultados con los filtros seleccionados.');
+          document.getElementById('tablaFiltrada').classList.add('hidden');
+        }
+      } catch (error) {
+        console.error('Error al aplicar filtros:', error);
+        alert('Error al aplicar filtros. Intente nuevamente.');
+      }
+    }
+
+    // Función para mostrar tabla filtrada
+    function mostrarTablaFiltrada(datos) {
+      const tbody = document.getElementById('tablaFiltradaBody');
+      tbody.innerHTML = '';
+
+      datos.forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-gray-100 hover:bg-gray-50 transition';
+        tr.innerHTML = `
+          <td class="py-3 px-4 text-gray-800">${row.sede}</td>
+          <td class="py-3 px-4 text-gray-800">${row.area}</td>
+          <td class="py-3 px-4 text-gray-800">${row.turno}</td>
+          <td class="py-3 px-4">
+            <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full ${row.modalidad === 'Virtual' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+              ${row.modalidad}
+            </span>
+          </td>
+          <td class="py-3 px-4 text-right font-semibold text-gray-800">${row.total_inscritos.toLocaleString('es-PE')}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('tablaFiltrada').classList.remove('hidden');
+
+      // Scroll suave a la tabla
+      setTimeout(() => {
+        document.getElementById('tablaFiltrada').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+
+    // Función para limpiar filtros
+    function limpiarFiltros() {
+      document.getElementById('filtroSede').value = '';
+      document.getElementById('filtroArea').value = '';
+      document.getElementById('filtroTurno').value = '';
+      document.getElementById('filtroModalidad').value = '';
+      document.getElementById('tablaFiltrada').classList.add('hidden');
+    }
+
+    // Cargar todos los datos al iniciar
+    async function cargarTodosLosDatos() {
+      await Promise.all([
+        cargarTotales(),
+        cargarPorSede(),
+        cargarPorArea(),
+        cargarPorTurno(),
+        cargarPorDia(),
+        cargarPagosPorDia()
+      ]);
+
+      actualizarTimestamp();
+
+      // Ocultar overlay de carga
+      document.getElementById('loadingOverlay').style.display = 'none';
+    }
+
+    // Inicializar
+    cargarTodosLosDatos();
+
+    // Auto-refresh cada 5 minutos
+    setInterval(() => {
+      cargarTodosLosDatos();
+    }, 5 * 60 * 1000);
+  </script>
+
+</body>
+</html>
