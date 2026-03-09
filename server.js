@@ -932,6 +932,61 @@ app.put('/api/listado-curso/actualizar/:id', async (req, res) => {
 
 // ============ ENDPOINTS CURSO TALLER 2026 ============
 
+// Total de inscritos del curso taller
+app.get('/api/curso2026/total-inscritos', async (req, res) => {
+  try {
+    const [[result]] = await pool.execute(`
+      SELECT COUNT(*) AS total
+      FROM inscripcion_curso_tallers
+    `);
+    res.json({ total: result.total || 0 });
+  } catch (error) {
+    console.error('Error total-inscritos curso2026:', error);
+    res.status(500).json({ error: 'Error al obtener total de inscritos', message: error.message });
+  }
+});
+
+// Distribución por género
+app.get('/api/curso2026/distribucion-genero', async (req, res) => {
+  try {
+    const [rows] = await pool.execute(`
+      SELECT
+        sexo,
+        COUNT(*) AS total
+      FROM inscripcion_curso_tallers
+      GROUP BY sexo
+    `);
+
+    const masculino = rows.find(r => r.sexo === 'M')?.total || 0;
+    const femenino = rows.find(r => r.sexo === 'F')?.total || 0;
+
+    res.json({ masculino, femenino });
+  } catch (error) {
+    console.error('Error distribucion-genero curso2026:', error);
+    res.status(500).json({ error: 'Error al obtener distribución por género', message: error.message });
+  }
+});
+
+// Top instituciones
+app.get('/api/curso2026/top-instituciones', async (req, res) => {
+  try {
+    const [rows] = await pool.execute(`
+      SELECT
+        colegio_procedencia,
+        COUNT(*) AS total_inscritos
+      FROM inscripcion_curso_tallers
+      WHERE colegio_procedencia IS NOT NULL AND colegio_procedencia != ''
+      GROUP BY colegio_procedencia
+      ORDER BY total_inscritos DESC
+      LIMIT 10
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error top-instituciones curso2026:', error);
+    res.status(500).json({ error: 'Error al obtener top instituciones', message: error.message });
+  }
+});
+
 // Inscritos por área del curso taller
 app.get('/api/curso2026/inscritos-por-area', async (req, res) => {
   try {
