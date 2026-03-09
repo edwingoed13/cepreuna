@@ -116,28 +116,28 @@
         <!-- Secondary Metrics Grid - Áreas -->
         <div class="grid grid-cols-2 gap-3 px-4">
             <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-orange/10 shadow-sm">
-                <span class="material-symbols-outlined text-primary-orange mb-2">calculate</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Área 1</p>
+                <span class="material-symbols-outlined text-primary-orange mb-2">medical_services</span>
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Biomédicas</p>
                 <p class="text-lg font-bold" id="area1">-</p>
-                <p class="text-[9px] text-slate-400">Matemáticas</p>
+                <p class="text-[9px] text-slate-400">Salud</p>
             </div>
             <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-blue/10 shadow-sm">
-                <span class="material-symbols-outlined text-primary-blue mb-2">menu_book</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Área 2</p>
+                <span class="material-symbols-outlined text-primary-blue mb-2">engineering</span>
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Ingenierías</p>
                 <p class="text-lg font-bold" id="area2">-</p>
-                <p class="text-[9px] text-slate-400">Comunicación</p>
+                <p class="text-[9px] text-slate-400">Tecnología</p>
             </div>
             <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-green/10 shadow-sm">
-                <span class="material-symbols-outlined text-primary-green mb-2">science</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Área 3</p>
+                <span class="material-symbols-outlined text-primary-green mb-2">groups</span>
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Sociales</p>
                 <p class="text-lg font-bold" id="area3">-</p>
-                <p class="text-[9px] text-slate-400">CTA</p>
+                <p class="text-[9px] text-slate-400">Humanidades</p>
             </div>
             <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-orange-500/10 shadow-sm">
-                <span class="material-symbols-outlined text-orange-500 mb-2">public</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Área 4</p>
+                <span class="material-symbols-outlined text-orange-500 mb-2">business_center</span>
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Empresariales</p>
                 <p class="text-lg font-bold" id="area4">-</p>
-                <p class="text-[9px] text-slate-400">Sociales</p>
+                <p class="text-[9px] text-slate-400">Negocios</p>
             </div>
         </div>
 
@@ -154,11 +154,11 @@
                 </div>
             </div>
 
-            <!-- Género Distribution -->
+            <!-- Turno Distribution -->
             <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-orange/5 shadow-sm">
                 <h4 class="text-sm font-bold mb-4 flex items-center gap-2">
                     <span class="material-symbols-outlined text-primary-orange text-lg">pie_chart</span>
-                    Distribución por Género
+                    Distribución por Turno
                 </h4>
                 <div class="flex items-center gap-8 py-2">
                     <div class="relative size-24 group outline-none" tabindex="0">
@@ -174,21 +174,21 @@
                     <div class="space-y-2">
                         <div class="flex items-center gap-2">
                             <div class="size-3 rounded-full bg-primary-blue"></div>
-                            <span class="text-xs" id="masculinoCount">Masculino (-)</span>
+                            <span class="text-xs" id="masculinoCount">Turno Mañana (-)</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <div class="size-3 rounded-full bg-primary-orange"></div>
-                            <span class="text-xs" id="femeninoCount">Femenino (-)</span>
+                            <span class="text-xs" id="femeninoCount">Turno Tarde (-)</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Instituciones Top -->
+            <!-- Sedes Top -->
             <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-green/5 shadow-sm">
                 <h4 class="text-sm font-bold mb-4 flex items-center gap-2">
-                    <span class="material-symbols-outlined text-primary-green text-lg">school</span>
-                    Top 5 Instituciones
+                    <span class="material-symbols-outlined text-primary-green text-lg">location_on</span>
+                    Distribución por Sede
                 </h4>
                 <div class="space-y-3" id="topInstituciones">
                     <!-- Se llenará dinámicamente -->
@@ -236,65 +236,75 @@
         async function cargarEstadisticas() {
             try {
                 // Total inscritos
-                const responseTotal = await fetch('/api/curso2026/total-inscritos');
+                const responseTotal = await fetch('/api/stats-inscripciones/totales');
                 const dataTotal = await responseTotal.json();
-                document.getElementById('totalInscritos').textContent = dataTotal.total || 0;
+                document.getElementById('totalInscritos').textContent = dataTotal.total_inscritos || 0;
 
                 // Inscritos por área
-                const responseAreas = await fetch('/api/curso2026/inscritos-por-area');
+                const responseAreas = await fetch('/api/stats-inscripciones/por-area');
                 const dataAreas = await responseAreas.json();
 
-                let maxInscritos = 0;
-                dataAreas.forEach(area => {
-                    if (area.total_inscritos > maxInscritos) maxInscritos = area.total_inscritos;
-                });
 
-                // Actualizar cards de áreas
-                document.getElementById('area1').textContent = dataAreas.find(a => a.area === 'Área 1')?.total_inscritos || 0;
-                document.getElementById('area2').textContent = dataAreas.find(a => a.area === 'Área 2')?.total_inscritos || 0;
-                document.getElementById('area3').textContent = dataAreas.find(a => a.area === 'Área 3')?.total_inscritos || 0;
-                document.getElementById('area4').textContent = dataAreas.find(a => a.area === 'Área 4')?.total_inscritos || 0;
+                // Actualizar cards de áreas - usando las propiedades correctas del API
+                document.getElementById('area1').textContent = dataAreas.biomedicas || 0;
+                document.getElementById('area2').textContent = dataAreas.ingenierias || 0;
+                document.getElementById('area3').textContent = dataAreas.sociales || 0;
+                document.getElementById('area4').textContent = dataAreas.empresariales || 0;
 
                 // Generar gráfico de barras de áreas
-                const areasChartHTML = dataAreas.map(area => {
-                    const porcentaje = Math.round((area.total_inscritos / maxInscritos) * 100);
-                    const color = areaColors[area.area] || '#0381d9';
+                const areasData = [
+                    { nombre: 'Biomédicas', valor: dataAreas.biomedicas || 0, color: '#ff5e0f' },
+                    { nombre: 'Ingenierías', valor: dataAreas.ingenierias || 0, color: '#0381d9' },
+                    { nombre: 'Sociales', valor: dataAreas.sociales || 0, color: '#0da954' },
+                    { nombre: 'Empresariales', valor: dataAreas.empresariales || 0, color: '#f97316' }
+                ];
+
+                const maxValue = Math.max(...areasData.map(a => a.valor));
+
+                const areasChartHTML = areasData.map(area => {
+                    const porcentaje = maxValue > 0 ? Math.round((area.valor / maxValue) * 100) : 0;
                     return `
                         <div class="relative group outline-none" tabindex="0">
-                            <div class="chart-tooltip">${area.area}: ${area.total_inscritos} inscritos</div>
+                            <div class="chart-tooltip">${area.nombre}: ${area.valor} inscritos</div>
                             <div class="flex justify-between text-xs mb-1">
-                                <span>${area.area}</span>
-                                <span class="font-bold">${area.total_inscritos}</span>
+                                <span>${area.nombre}</span>
+                                <span class="font-bold">${area.valor}</span>
                             </div>
                             <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
-                                <div class="h-2 rounded-full transition-all duration-500" style="width: ${porcentaje}%; background-color: ${color}"></div>
+                                <div class="h-2 rounded-full transition-all duration-500" style="width: ${porcentaje}%; background-color: ${area.color}"></div>
                             </div>
                         </div>
                     `;
                 }).join('');
                 document.getElementById('areasChart').innerHTML = areasChartHTML;
 
-                // Distribución por género
-                const responseGenero = await fetch('/api/curso2026/distribucion-genero');
-                const dataGenero = await responseGenero.json();
+                // Distribución por turno (adaptado como género para el diseño)
+                const responseTurno = await fetch('/api/stats-inscripciones/por-turno');
+                const dataTurno = await responseTurno.json();
 
-                const totalGenero = (dataGenero.masculino || 0) + (dataGenero.femenino || 0);
-                const porcentajeMasculino = totalGenero > 0 ? Math.round((dataGenero.masculino / totalGenero) * 100) : 50;
+                const totalTurno = (dataTurno.manana || 0) + (dataTurno.tarde || 0);
+                const porcentajeManana = totalTurno > 0 ? Math.round((dataTurno.manana / totalTurno) * 100) : 50;
 
-                document.getElementById('generoPercent').textContent = `${porcentajeMasculino}%`;
-                document.getElementById('generoCircle').setAttribute('stroke-dasharray', `${porcentajeMasculino} 100`);
-                document.getElementById('generoTooltip').textContent = `Masculino: ${porcentajeMasculino}%`;
-                document.getElementById('masculinoCount').textContent = `Masculino (${dataGenero.masculino || 0})`;
-                document.getElementById('femeninoCount').textContent = `Femenino (${dataGenero.femenino || 0})`;
+                document.getElementById('generoPercent').textContent = `${porcentajeManana}%`;
+                document.getElementById('generoCircle').setAttribute('stroke-dasharray', `${porcentajeManana} 100`);
+                document.getElementById('generoTooltip').textContent = `Mañana: ${porcentajeManana}%`;
+                document.getElementById('masculinoCount').textContent = `Turno Mañana (${dataTurno.manana || 0})`;
+                document.getElementById('femeninoCount').textContent = `Turno Tarde (${dataTurno.tarde || 0})`;
 
-                // Top 5 instituciones
-                const responseInst = await fetch('/api/curso2026/top-instituciones');
-                const dataInst = await responseInst.json();
+                // Inscritos por sede (como alternativa a instituciones)
+                const responseSede = await fetch('/api/stats-inscripciones/por-sede');
+                const dataSede = await responseSede.json();
 
-                // Verificar que dataInst sea un array
-                const instituciones = Array.isArray(dataInst) ? dataInst : [];
+                // Convertir objeto a array de sedes
+                const sedes = [
+                    { nombre: 'Puno', valor: dataSede.puno || 0 },
+                    { nombre: 'Juliaca', valor: dataSede.juliaca || 0 },
+                    { nombre: 'Ilave', valor: dataSede.ilave || 0 },
+                    { nombre: 'Ayaviri', valor: dataSede.ayaviri || 0 },
+                    { nombre: 'Azángaro', valor: dataSede.azangaro || 0 }
+                ].sort((a, b) => b.valor - a.valor);
 
-                const topInstHTML = instituciones.slice(0, 5).map((inst, index) => {
+                const topInstHTML = sedes.filter(s => s.valor > 0).slice(0, 5).map((sede, index) => {
                     const colors = ['#0381d9', '#0da954', '#ff5e0f', '#f97316', '#8b5cf6'];
                     const color = colors[index % colors.length];
                     return `
@@ -303,8 +313,8 @@
                                 ${index + 1}
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-xs font-medium truncate">${inst.colegio_procedencia || 'Sin especificar'}</p>
-                                <p class="text-[10px] text-slate-400">${inst.total_inscritos} estudiantes</p>
+                                <p class="text-xs font-medium truncate">${sede.nombre}</p>
+                                <p class="text-[10px] text-slate-400">${sede.valor} estudiantes</p>
                             </div>
                         </div>
                     `;
