@@ -114,31 +114,8 @@
         </div>
 
         <!-- Secondary Metrics Grid - Áreas -->
-        <div class="grid grid-cols-2 gap-3 px-4">
-            <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-orange/10 shadow-sm">
-                <span class="material-symbols-outlined text-primary-orange mb-2">medical_services</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Biomédicas</p>
-                <p class="text-lg font-bold" id="area1">-</p>
-                <p class="text-[9px] text-slate-400">Salud</p>
-            </div>
-            <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-blue/10 shadow-sm">
-                <span class="material-symbols-outlined text-primary-blue mb-2">engineering</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Ingenierías</p>
-                <p class="text-lg font-bold" id="area2">-</p>
-                <p class="text-[9px] text-slate-400">Tecnología</p>
-            </div>
-            <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-green/10 shadow-sm">
-                <span class="material-symbols-outlined text-primary-green mb-2">groups</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Sociales</p>
-                <p class="text-lg font-bold" id="area3">-</p>
-                <p class="text-[9px] text-slate-400">Humanidades</p>
-            </div>
-            <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-orange-500/10 shadow-sm">
-                <span class="material-symbols-outlined text-orange-500 mb-2">business_center</span>
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Empresariales</p>
-                <p class="text-lg font-bold" id="area4">-</p>
-                <p class="text-[9px] text-slate-400">Negocios</p>
-            </div>
+        <div class="grid grid-cols-2 gap-3 px-4" id="areasGrid">
+            <!-- Se llenará dinámicamente -->
         </div>
 
         <!-- Charts Grid -->
@@ -244,22 +221,43 @@
                 const responseAreas = await fetch('/api/stats-inscripciones/por-area');
                 const dataAreas = await responseAreas.json();
 
+                // Procesar las áreas correctamente del formato de API
+                const areas = dataAreas.areas || [];
 
-                // Actualizar cards de áreas - usando las propiedades correctas del API
-                document.getElementById('area1').textContent = dataAreas.biomedicas || 0;
-                document.getElementById('area2').textContent = dataAreas.ingenierias || 0;
-                document.getElementById('area3').textContent = dataAreas.sociales || 0;
-                document.getElementById('area4').textContent = dataAreas.empresariales || 0;
-
-                // Generar gráfico de barras de áreas
-                const areasData = [
-                    { nombre: 'Biomédicas', valor: dataAreas.biomedicas || 0, color: '#ff5e0f' },
-                    { nombre: 'Ingenierías', valor: dataAreas.ingenierias || 0, color: '#0381d9' },
-                    { nombre: 'Sociales', valor: dataAreas.sociales || 0, color: '#0da954' },
-                    { nombre: 'Empresariales', valor: dataAreas.empresariales || 0, color: '#f97316' }
+                // Colores e iconos para cada área
+                const areaConfig = [
+                    { color: '#ff5e0f', borderColor: 'border-primary-orange/10', icon: 'school', iconColor: 'text-primary-orange' },
+                    { color: '#0381d9', borderColor: 'border-primary-blue/10', icon: 'calculate', iconColor: 'text-primary-blue' },
+                    { color: '#0da954', borderColor: 'border-primary-green/10', icon: 'psychology', iconColor: 'text-primary-green' },
+                    { color: '#f97316', borderColor: 'border-orange-500/10', icon: 'science', iconColor: 'text-orange-500' }
                 ];
 
-                const maxValue = Math.max(...areasData.map(a => a.valor));
+                // Generar cards de áreas dinámicamente
+                const areasGridHTML = areas.slice(0, 4).map((area, index) => {
+                    const config = areaConfig[index % areaConfig.length];
+                    return `
+                        <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border ${config.borderColor} shadow-sm">
+                            <span class="material-symbols-outlined ${config.iconColor} mb-2">${config.icon}</span>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">${area.area}</p>
+                            <p class="text-lg font-bold">${area.total_inscritos || 0}</p>
+                            <div class="flex gap-1 mt-1">
+                                <span class="text-[9px] text-slate-500">P: ${area.presencial || 0}</span>
+                                <span class="text-[9px] text-slate-400">•</span>
+                                <span class="text-[9px] text-slate-500">V: ${area.virtual || 0}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('areasGrid').innerHTML = areasGridHTML;
+
+                // Generar gráfico de barras de áreas
+                const areasData = areas.map((area, index) => ({
+                    nombre: area.area,
+                    valor: area.total_inscritos || 0,
+                    color: areaConfig[index % areaConfig.length].color
+                }));
+
+                const maxValue = Math.max(...areasData.map(a => a.valor), 1); // Evitar división por cero
 
                 const areasChartHTML = areasData.map(area => {
                     const porcentaje = maxValue > 0 ? Math.round((area.valor / maxValue) * 100) : 0;
@@ -276,7 +274,7 @@
                         </div>
                     `;
                 }).join('');
-                document.getElementById('areasChart').innerHTML = areasChartHTML;
+                document.getElementById('areasChart').innerHTML = areasChartHTML || '<p class="text-sm text-slate-400">No hay datos disponibles</p>';
 
                 // Distribución por turno (adaptado como género para el diseño)
                 const responseTurno = await fetch('/api/stats-inscripciones/por-turno');
