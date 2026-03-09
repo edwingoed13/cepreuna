@@ -1390,9 +1390,8 @@ app.get('/api/stats-inscripciones/por-sede', async (req, res) => {
         COUNT(DISTINCT i.id) as total_inscritos,
         SUM(CASE WHEN i.modalidad = '1' THEN 1 ELSE 0 END) as \`virtual\`,
         SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
-      FROM inscripciones i
-      INNER JOIN sedes s ON i.sedes_id = s.id
-      WHERE i.periodos_id = 1
+      FROM sedes s
+      LEFT JOIN inscripciones i ON i.sedes_id = s.id AND i.periodos_id = 1
       GROUP BY s.id, s.denominacion
       ORDER BY total_inscritos DESC
     `);
