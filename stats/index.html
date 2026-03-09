@@ -226,7 +226,7 @@
                 // Obtener array de sedes del API (ya viene ordenado por total_inscritos DESC)
                 const sedes = dataSede.sedes || [];
 
-                const topInstHTML = sedes.filter(s => s.total_inscritos > 0).map((sede, index) => {
+                const topInstHTML = sedes.map((sede, index) => {
                     const colors = ['#0381d9', '#0da954', '#ff5e0f', '#f97316', '#8b5cf6'];
                     const color = colors[index % colors.length];
                     return `
