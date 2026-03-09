@@ -229,17 +229,7 @@
                 const topInstHTML = sedes.map((sede, index) => {
                     const colors = ['#0381d9', '#0da954', '#ff5e0f', '#f97316', '#8b5cf6'];
                     const color = colors[index % colors.length];
-                    return `
-                        <div class="flex items-center gap-3">
-                            <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm" style="background-color: ${color}">
-                                ${index + 1}
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <p class="text-xs font-medium truncate">${sede.sede}</p>
-                                <p class="text-[10px] text-slate-400">${sede.total_inscritos} estudiantes</p>
-                            </div>
-                        </div>
-                    `;
+                    return `<div class="flex items-center gap-3"><div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm" style="background-color: ${color}">${index + 1}</div><div class="flex-1 min-w-0"><p class="text-xs font-medium truncate">${sede.sede}</p><p class="text-[10px] text-slate-400">${sede.total_inscritos} estudiantes</p></div></div>`;
                 }).join('');
                 document.getElementById('topInstituciones').innerHTML = topInstHTML || '<p class="text-sm text-slate-400">No hay datos disponibles</p>';
 
