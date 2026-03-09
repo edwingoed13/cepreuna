@@ -100,10 +100,6 @@
                     <div>
                         <p class="text-xs font-bold uppercase tracking-widest mb-1 text-white/80">Total General</p>
                         <h3 class="text-4xl font-bold text-white tracking-tight" id="totalInscritos">-</h3>
-                        <div class="flex items-center gap-1 mt-2 bg-white/20 w-fit px-2 py-0.5 rounded-full">
-                            <span class="material-symbols-outlined text-white text-sm">groups</span>
-                            <span class="text-white text-xs font-medium">Inscritos al curso taller</span>
-                        </div>
                     </div>
                     <div class="bg-white/10 p-3 rounded-full">
                         <span class="material-symbols-outlined text-white text-3xl">group</span>
@@ -222,16 +218,10 @@
                 const responseSede = await fetch('/api/stats-inscripciones/por-sede');
                 const dataSede = await responseSede.json();
 
-                // Convertir objeto a array de sedes
-                const sedes = [
-                    { nombre: 'Puno', valor: dataSede.puno || 0 },
-                    { nombre: 'Juliaca', valor: dataSede.juliaca || 0 },
-                    { nombre: 'Ilave', valor: dataSede.ilave || 0 },
-                    { nombre: 'Ayaviri', valor: dataSede.ayaviri || 0 },
-                    { nombre: 'Azángaro', valor: dataSede.azangaro || 0 }
-                ].sort((a, b) => b.valor - a.valor);
+                // Obtener array de sedes del API (ya viene ordenado por total_inscritos DESC)
+                const sedes = dataSede.sedes || [];
 
-                const topInstHTML = sedes.filter(s => s.valor > 0).slice(0, 5).map((sede, index) => {
+                const topInstHTML = sedes.filter(s => s.total_inscritos > 0).map((sede, index) => {
                     const colors = ['#0381d9', '#0da954', '#ff5e0f', '#f97316', '#8b5cf6'];
                     const color = colors[index % colors.length];
                     return `
@@ -240,13 +230,13 @@
                                 ${index + 1}
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-xs font-medium truncate">${sede.nombre}</p>
-                                <p class="text-[10px] text-slate-400">${sede.valor} estudiantes</p>
+                                <p class="text-xs font-medium truncate">${sede.sede}</p>
+                                <p class="text-[10px] text-slate-400">${sede.total_inscritos} estudiantes</p>
                             </div>
                         </div>
                     `;
                 }).join('');
-                document.getElementById('topInstituciones').innerHTML = topInstHTML;
+                document.getElementById('topInstituciones').innerHTML = topInstHTML || '<p class="text-sm text-slate-400">No hay datos disponibles</p>';
 
                 // Actualizar hora
                 const ahora = new Date();
