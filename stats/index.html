@@ -90,7 +90,7 @@
         <!-- Title Section -->
         <div class="p-4 pb-0">
             <h2 class="text-xl font-bold tracking-tight">Estadísticas de Inscripciones</h2>
-            <p class="text-sm text-slate-500 dark:text-slate-400">Curso Taller 2026-I • <span id="lastUpdate">Cargando...</span></p>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Ciclo marzo-julio 2026-I • <span id="lastUpdate">Cargando...</span></p>
         </div>
 
         <!-- Hero Card: Total Inscritos -->
@@ -113,11 +113,6 @@
             </div>
         </div>
 
-        <!-- Secondary Metrics Grid - Áreas -->
-        <div class="grid grid-cols-2 gap-3 px-4" id="areasGrid">
-            <!-- Se llenará dinámicamente -->
-        </div>
-
         <!-- Charts Grid -->
         <div class="px-4 space-y-4 mt-4">
             <!-- Bar Chart: Inscritos por Área -->
@@ -128,36 +123,6 @@
                 </h4>
                 <div class="space-y-3" id="areasChart">
                     <!-- Se llenará dinámicamente -->
-                </div>
-            </div>
-
-            <!-- Turno Distribution -->
-            <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border border-primary-orange/5 shadow-sm">
-                <h4 class="text-sm font-bold mb-4 flex items-center gap-2">
-                    <span class="material-symbols-outlined text-primary-orange text-lg">pie_chart</span>
-                    Distribución por Turno
-                </h4>
-                <div class="flex items-center gap-8 py-2">
-                    <div class="relative size-24 group outline-none" tabindex="0">
-                        <div class="chart-tooltip" id="generoTooltip">Calculando...</div>
-                        <svg class="size-full -rotate-90" viewBox="0 0 36 36">
-                            <circle class="stroke-primary-blue/20" cx="18" cy="18" fill="none" r="16" stroke-width="4"></circle>
-                            <circle id="generoCircle" class="stroke-primary-blue" cx="18" cy="18" fill="none" r="16" stroke-dasharray="50 100" stroke-linecap="round" stroke-width="4"></circle>
-                        </svg>
-                        <div class="absolute inset-0 flex items-center justify-center">
-                            <span class="text-xs font-bold text-primary-blue" id="generoPercent">-%</span>
-                        </div>
-                    </div>
-                    <div class="space-y-2">
-                        <div class="flex items-center gap-2">
-                            <div class="size-3 rounded-full bg-primary-blue"></div>
-                            <span class="text-xs" id="masculinoCount">Turno Mañana (-)</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <div class="size-3 rounded-full bg-primary-orange"></div>
-                            <span class="text-xs" id="femeninoCount">Turno Tarde (-)</span>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -224,37 +189,14 @@
                 // Procesar las áreas correctamente del formato de API
                 const areas = dataAreas.areas || [];
 
-                // Colores e iconos para cada área
-                const areaConfig = [
-                    { color: '#ff5e0f', borderColor: 'border-primary-orange/10', icon: 'school', iconColor: 'text-primary-orange' },
-                    { color: '#0381d9', borderColor: 'border-primary-blue/10', icon: 'calculate', iconColor: 'text-primary-blue' },
-                    { color: '#0da954', borderColor: 'border-primary-green/10', icon: 'psychology', iconColor: 'text-primary-green' },
-                    { color: '#f97316', borderColor: 'border-orange-500/10', icon: 'science', iconColor: 'text-orange-500' }
-                ];
-
-                // Generar cards de áreas dinámicamente
-                const areasGridHTML = areas.slice(0, 4).map((area, index) => {
-                    const config = areaConfig[index % areaConfig.length];
-                    return `
-                        <div class="bg-white dark:bg-slate-800/50 p-4 rounded-xl border ${config.borderColor} shadow-sm">
-                            <span class="material-symbols-outlined ${config.iconColor} mb-2">${config.icon}</span>
-                            <p class="text-[10px] font-bold text-slate-400 uppercase">${area.area}</p>
-                            <p class="text-lg font-bold">${area.total_inscritos || 0}</p>
-                            <div class="flex gap-1 mt-1">
-                                <span class="text-[9px] text-slate-500">P: ${area.presencial || 0}</span>
-                                <span class="text-[9px] text-slate-400">•</span>
-                                <span class="text-[9px] text-slate-500">V: ${area.virtual || 0}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                document.getElementById('areasGrid').innerHTML = areasGridHTML;
+                // Colores para cada área
+                const areaColors = ['#ff5e0f', '#0381d9', '#0da954', '#f97316'];
 
                 // Generar gráfico de barras de áreas
                 const areasData = areas.map((area, index) => ({
                     nombre: area.area,
                     valor: area.total_inscritos || 0,
-                    color: areaConfig[index % areaConfig.length].color
+                    color: areaColors[index % areaColors.length]
                 }));
 
                 const maxValue = Math.max(...areasData.map(a => a.valor), 1); // Evitar división por cero
@@ -276,20 +218,7 @@
                 }).join('');
                 document.getElementById('areasChart').innerHTML = areasChartHTML || '<p class="text-sm text-slate-400">No hay datos disponibles</p>';
 
-                // Distribución por turno (adaptado como género para el diseño)
-                const responseTurno = await fetch('/api/stats-inscripciones/por-turno');
-                const dataTurno = await responseTurno.json();
-
-                const totalTurno = (dataTurno.manana || 0) + (dataTurno.tarde || 0);
-                const porcentajeManana = totalTurno > 0 ? Math.round((dataTurno.manana / totalTurno) * 100) : 50;
-
-                document.getElementById('generoPercent').textContent = `${porcentajeManana}%`;
-                document.getElementById('generoCircle').setAttribute('stroke-dasharray', `${porcentajeManana} 100`);
-                document.getElementById('generoTooltip').textContent = `Mañana: ${porcentajeManana}%`;
-                document.getElementById('masculinoCount').textContent = `Turno Mañana (${dataTurno.manana || 0})`;
-                document.getElementById('femeninoCount').textContent = `Turno Tarde (${dataTurno.tarde || 0})`;
-
-                // Inscritos por sede (como alternativa a instituciones)
+                // Inscritos por sede
                 const responseSede = await fetch('/api/stats-inscripciones/por-sede');
                 const dataSede = await responseSede.json();
 
