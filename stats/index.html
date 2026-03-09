@@ -278,20 +278,23 @@
                 const responseGenero = await fetch('/api/curso2026/distribucion-genero');
                 const dataGenero = await responseGenero.json();
 
-                const totalGenero = dataGenero.masculino + dataGenero.femenino;
-                const porcentajeMasculino = Math.round((dataGenero.masculino / totalGenero) * 100);
+                const totalGenero = (dataGenero.masculino || 0) + (dataGenero.femenino || 0);
+                const porcentajeMasculino = totalGenero > 0 ? Math.round((dataGenero.masculino / totalGenero) * 100) : 50;
 
                 document.getElementById('generoPercent').textContent = `${porcentajeMasculino}%`;
                 document.getElementById('generoCircle').setAttribute('stroke-dasharray', `${porcentajeMasculino} 100`);
                 document.getElementById('generoTooltip').textContent = `Masculino: ${porcentajeMasculino}%`;
-                document.getElementById('masculinoCount').textContent = `Masculino (${dataGenero.masculino})`;
-                document.getElementById('femeninoCount').textContent = `Femenino (${dataGenero.femenino})`;
+                document.getElementById('masculinoCount').textContent = `Masculino (${dataGenero.masculino || 0})`;
+                document.getElementById('femeninoCount').textContent = `Femenino (${dataGenero.femenino || 0})`;
 
                 // Top 5 instituciones
                 const responseInst = await fetch('/api/curso2026/top-instituciones');
                 const dataInst = await responseInst.json();
 
-                const topInstHTML = dataInst.slice(0, 5).map((inst, index) => {
+                // Verificar que dataInst sea un array
+                const instituciones = Array.isArray(dataInst) ? dataInst : [];
+
+                const topInstHTML = instituciones.slice(0, 5).map((inst, index) => {
                     const colors = ['#0381d9', '#0da954', '#ff5e0f', '#f97316', '#8b5cf6'];
                     const color = colors[index % colors.length];
                     return `

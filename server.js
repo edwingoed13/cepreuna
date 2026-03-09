@@ -954,16 +954,18 @@ app.get('/api/curso2026/distribucion-genero', async (req, res) => {
         sexo,
         COUNT(*) AS total
       FROM inscripcion_curso_tallers
+      WHERE sexo IS NOT NULL
       GROUP BY sexo
     `);
 
-    const masculino = rows.find(r => r.sexo === 'M')?.total || 0;
-    const femenino = rows.find(r => r.sexo === 'F')?.total || 0;
+    const masculino = rows.find(r => r.sexo === 'M' || r.sexo === 'MASCULINO')?.total || 0;
+    const femenino = rows.find(r => r.sexo === 'F' || r.sexo === 'FEMENINO')?.total || 0;
 
     res.json({ masculino, femenino });
   } catch (error) {
     console.error('Error distribucion-genero curso2026:', error);
-    res.status(500).json({ error: 'Error al obtener distribución por género', message: error.message });
+    // Enviar datos por defecto en caso de error
+    res.json({ masculino: 0, femenino: 0 });
   }
 });
 
@@ -983,7 +985,8 @@ app.get('/api/curso2026/top-instituciones', async (req, res) => {
     res.json(rows);
   } catch (error) {
     console.error('Error top-instituciones curso2026:', error);
-    res.status(500).json({ error: 'Error al obtener top instituciones', message: error.message });
+    // Enviar array vacío en caso de error
+    res.json([]);
   }
 });
 
