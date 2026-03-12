@@ -36,11 +36,16 @@
         }
         .tab-button.active {
             background-color: #0381d9;
-            color: white;
+            color: white !important;
             border-bottom-color: #ff5e0f;
         }
-        .tab-button.active .text-slate-400 {
-            color: rgba(255, 255, 255, 0.8) !important;
+        .tab-button.active * {
+            color: white !important;
+        }
+        .tab-button.active .text-slate-400,
+        .tab-button.active div,
+        .tab-button.active span {
+            color: rgba(255, 255, 255, 0.9) !important;
         }
         .tab-content {
             display: none;
