@@ -1909,6 +1909,11 @@ app.get('/stats', (req, res) => {
   res.sendFile(__dirname + '/stats/index.html');
 });
 
+// Ruta para página de reportes
+app.get('/stats/reportes', (req, res) => {
+  res.sendFile(__dirname + '/stats/reportes/index.html');
+});
+
 // Iniciar servidor (solo en desarrollo local)
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {

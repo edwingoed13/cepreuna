@@ -14,6 +14,10 @@
       "use": "@vercel/static"
     },
     {
+      "src": "stats/**",
+      "use": "@vercel/static"
+    },
+    {
       "src": "server.js",
       "use": "@vercel/node"
     }
@@ -26,6 +30,14 @@
     {
       "src": "/formulario-admins/(.*)",
       "dest": "/formulario-admins/$1"
+    },
+    {
+      "src": "/stats/reportes",
+      "dest": "/stats/reportes/index.html"
+    },
+    {
+      "src": "/stats/(.*)",
+      "dest": "/stats/$1"
     },
     {
       "src": "/(.*)",
