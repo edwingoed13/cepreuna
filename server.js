@@ -1717,14 +1717,12 @@ app.get('/api/stats-inscripciones/reporte-sedes', async (req, res) => {
     const reporteCompleto = [];
 
     for (const sede of sedes) {
-      // Obtener turnos disponibles para esta sede
+      // Obtener turnos que tienen inscripciones en esta sede
       const [turnos] = await connection.query(`
         SELECT DISTINCT t.id as turno_id, t.denominacion as turno
-        FROM grupo_aulas ga
-        INNER JOIN turnos t ON ga.turnos_id = t.id
-        INNER JOIN aulas au ON ga.aulas_id = au.id
-        INNER JOIN locales l ON au.locales_id = l.id
-        WHERE l.sedes_id = ?
+        FROM inscripciones i
+        INNER JOIN turnos t ON i.turnos_id = t.id
+        WHERE i.sedes_id = ? AND i.periodos_id = 1
         ORDER BY t.id
       `, [sede.sede_id]);
 
