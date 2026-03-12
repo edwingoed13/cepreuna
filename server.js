@@ -1760,14 +1760,12 @@ app.get('/api/stats-inscripciones/reporte-sedes', async (req, res) => {
         }
       }
 
-      // Solo agregar sedes que tienen al menos un turno con inscritos
-      if (turnosData.length > 0) {
-        reporteCompleto.push({
-          sede_id: sede.sede_id,
-          sede: sede.sede,
-          turnos: turnosData
-        });
-      }
+      // Agregar todas las sedes, incluso si no tienen inscritos
+      reporteCompleto.push({
+        sede_id: sede.sede_id,
+        sede: sede.sede,
+        turnos: turnosData
+      });
     }
 
     connection.release();
