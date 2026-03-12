@@ -32,16 +32,29 @@
         }
         .tab-button {
             transition: all 0.2s;
+            border-bottom: 3px solid transparent;
         }
         .tab-button.active {
             background-color: #0381d9;
             color: white;
+            border-bottom-color: #ff5e0f;
+        }
+        .tab-button.active .text-slate-400 {
+            color: rgba(255, 255, 255, 0.8) !important;
         }
         .tab-content {
             display: none;
         }
         .tab-content.active {
             display: block;
+        }
+        /* Mejorar scroll horizontal en móviles */
+        #tabsHeader {
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none;  /* IE and Edge */
+        }
+        #tabsHeader::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
         }
     </style>
 </head>
@@ -75,7 +88,7 @@
         <div class="p-4">
             <div class="bg-white dark:bg-slate-800/50 rounded-xl shadow-sm border border-primary-blue/10 overflow-hidden">
                 <!-- Tabs Header -->
-                <div class="flex overflow-x-auto border-b border-slate-200 dark:border-slate-700" id="tabsHeader">
+                <div class="flex overflow-x-auto border-b border-slate-200 dark:border-slate-700 snap-x snap-mandatory" id="tabsHeader">
                     <!-- Se llenará dinámicamente -->
                 </div>
 
@@ -131,8 +144,12 @@
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
             // Activar tab seleccionado
-            document.querySelector(`[data-tab="${sedeIndex}"]`).classList.add('active');
+            const activeTab = document.querySelector(`[data-tab="${sedeIndex}"]`);
+            activeTab.classList.add('active');
             document.getElementById(`content-${sedeIndex}`).classList.add('active');
+
+            // Scroll al tab activo en móviles
+            activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
         }
 
         // Cargar reportes
@@ -162,13 +179,13 @@
 
                     tabsHeaderHTML += `
                         <button
-                            class="tab-button flex-shrink-0 px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 ${index === 0 ? 'active' : ''}"
+                            class="tab-button flex-shrink-0 px-3 sm:px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 snap-start min-w-[120px] sm:min-w-0 ${index === 0 ? 'active' : ''}"
                             data-tab="${index}"
                             onclick="cambiarTab(${index})"
                         >
                             <div class="text-left">
-                                <div class="font-bold">${sede.sede}</div>
-                                <div class="text-xs text-slate-400">${totalInscritos} estudiantes</div>
+                                <div class="font-bold text-xs sm:text-sm truncate max-w-[100px] sm:max-w-none">${sede.sede}</div>
+                                <div class="text-[10px] sm:text-xs text-slate-400">${totalInscritos} est.</div>
                             </div>
                         </button>
                     `;
