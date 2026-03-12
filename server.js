@@ -1701,6 +1701,93 @@ app.get('/api/stats-inscripciones/opciones-por-sede/:sedeId', async (req, res) =
   }
 });
 
+// 10. Reporte detallado: Sede > Turno > Área (para página de reportes)
+app.get('/api/stats-inscripciones/reporte-sedes', async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+
+    // Obtener todas las sedes
+    const [sedes] = await connection.query(`
+      SELECT id as sede_id, denominacion as sede
+      FROM sedes
+      ORDER BY denominacion
+    `);
+
+    const reporteCompleto = [];
+
+    for (const sede of sedes) {
+      // Obtener turnos disponibles para esta sede
+      const [turnos] = await connection.query(`
+        SELECT DISTINCT t.id as turno_id, t.denominacion as turno
+        FROM grupo_aulas ga
+        INNER JOIN turnos t ON ga.turnos_id = t.id
+        INNER JOIN aulas au ON ga.aulas_id = au.id
+        INNER JOIN locales l ON au.locales_id = l.id
+        WHERE l.sedes_id = ?
+        ORDER BY t.id
+      `, [sede.sede_id]);
+
+      const turnosData = [];
+
+      for (const turno of turnos) {
+        // Obtener áreas con inscritos para esta sede y turno
+        const [areas] = await connection.query(`
+          SELECT
+            a.id as area_id,
+            a.denominacion as area,
+            COUNT(DISTINCT i.id) as total_inscritos,
+            SUM(CASE WHEN i.modalidad = '1' THEN 1 ELSE 0 END) as virtual,
+            SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
+          FROM areas a
+          LEFT JOIN inscripciones i ON i.areas_id = a.id
+            AND i.sedes_id = ?
+            AND i.turnos_id = ?
+            AND i.periodos_id = 1
+          GROUP BY a.id, a.denominacion
+          HAVING total_inscritos > 0
+          ORDER BY a.denominacion
+        `, [sede.sede_id, turno.turno_id]);
+
+        if (areas.length > 0) {
+          turnosData.push({
+            turno_id: turno.turno_id,
+            turno: turno.turno,
+            areas: areas.map(a => ({
+              area_id: a.area_id,
+              area: a.area,
+              total_inscritos: parseInt(a.total_inscritos) || 0,
+              virtual: parseInt(a.virtual) || 0,
+              presencial: parseInt(a.presencial) || 0
+            }))
+          });
+        }
+      }
+
+      // Solo agregar sedes que tienen al menos un turno con inscritos
+      if (turnosData.length > 0) {
+        reporteCompleto.push({
+          sede_id: sede.sede_id,
+          sede: sede.sede,
+          turnos: turnosData
+        });
+      }
+    }
+
+    connection.release();
+
+    res.json({
+      reporte: reporteCompleto,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error en reporte de sedes:', error);
+    res.status(500).json({ error: 'Error al generar reporte', message: error.message });
+  }
+});
+
 // ============ ENDPOINT DE AUTENTICACIÓN ============
 
 // Endpoint para autenticar participantes
