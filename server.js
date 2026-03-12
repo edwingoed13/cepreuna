@@ -1736,9 +1736,7 @@ app.get('/api/stats-inscripciones/reporte-sedes', async (req, res) => {
           SELECT
             a.id as area_id,
             a.denominacion as area,
-            COUNT(DISTINCT i.id) as total_inscritos,
-            SUM(CASE WHEN i.modalidad = '1' THEN 1 ELSE 0 END) as virtual,
-            SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
+            COUNT(DISTINCT i.id) as total_inscritos
           FROM areas a
           LEFT JOIN inscripciones i ON i.areas_id = a.id
             AND i.sedes_id = ?
@@ -1756,9 +1754,7 @@ app.get('/api/stats-inscripciones/reporte-sedes', async (req, res) => {
             areas: areas.map(a => ({
               area_id: a.area_id,
               area: a.area,
-              total_inscritos: parseInt(a.total_inscritos) || 0,
-              virtual: parseInt(a.virtual) || 0,
-              presencial: parseInt(a.presencial) || 0
+              total_inscritos: parseInt(a.total_inscritos) || 0
             }))
           });
         }
