@@ -25,23 +25,126 @@
   "routes": [
     {
       "src": "/formulario-admins",
-      "dest": "/formulario-admins/index.html"
+      "dest": "/formulario-admins/index.html",
+      "headers": {
+        "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400"
+      }
     },
     {
       "src": "/formulario-admins/(.*)",
-      "dest": "/formulario-admins/$1"
+      "dest": "/formulario-admins/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400"
+      }
     },
     {
       "src": "/stats/reportes",
-      "dest": "/stats/reportes/index.html"
+      "dest": "/stats/reportes/index.html",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
     },
     {
       "src": "/stats/(.*)",
-      "dest": "/stats/$1"
+      "dest": "/stats/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
+      "src": "/api/stats-inscripciones/(.*)",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=180, s-maxage=180, stale-while-revalidate=300"
+      }
+    },
+    {
+      "src": "/api/matriculas/(totales|por-area|por-sede|por-sede-area|por-sede-area-turno)",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
+      "src": "/api/matriculas/completo",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=600, s-maxage=600, stale-while-revalidate=1800"
+      }
+    },
+    {
+      "src": "/api/curso2026/(.*)",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
+      "src": "/api/listado-curso/inscritos",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
+      "src": "/api/auth/login",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "private, no-cache, no-store, must-revalidate"
+      }
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=60, s-maxage=60, stale-while-revalidate=120"
+      }
+    },
+    {
+      "src": "/(dashboard|curso|videos|materiales|certificado)",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=1800, s-maxage=1800, stale-while-revalidate=3600"
+      }
+    },
+    {
+      "src": "/",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "public, max-age=1800, s-maxage=1800, stale-while-revalidate=3600"
+      }
     },
     {
       "src": "/(.*)",
       "dest": "server.js"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Content-Encoding",
+          "value": "gzip"
+        }
+      ]
     }
   ]
 }
