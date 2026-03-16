@@ -38,8 +38,22 @@
       }
     },
     {
+      "src": "/stats/login",
+      "dest": "/stats/login.html",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
       "src": "/stats/reportes",
       "dest": "/stats/reportes/index.html",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
+      "src": "/stats",
+      "dest": "/stats/index.html",
       "headers": {
         "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
       }
