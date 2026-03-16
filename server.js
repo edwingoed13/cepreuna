@@ -9,9 +9,77 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ============ CACHE LAYER ============
+// Cache en memoria con TTL para reducir Fast Origin Transfer
+const cache = new Map();
+
+function cacheMiddleware(ttlSeconds = 300) {
+  return (req, res, next) => {
+    // Solo cachear GET requests
+    if (req.method !== 'GET') {
+      return next();
+    }
+
+    const key = req.originalUrl || req.url;
+    const cached = cache.get(key);
+
+    if (cached && Date.now() < cached.expiry) {
+      console.log(`✅ CACHE HIT: ${key}`);
+      // Agregar header para debugging
+      res.setHeader('X-Cache', 'HIT');
+      res.setHeader('X-Cache-TTL', Math.floor((cached.expiry - Date.now()) / 1000));
+      return res.json(cached.data);
+    }
+
+    console.log(`❌ CACHE MISS: ${key}`);
+    res.setHeader('X-Cache', 'MISS');
+
+    // Interceptar res.json para guardar en caché
+    const originalJson = res.json.bind(res);
+    res.json = function(data) {
+      cache.set(key, {
+        data: data,
+        expiry: Date.now() + (ttlSeconds * 1000)
+      });
+      return originalJson(data);
+    };
+
+    next();
+  };
+}
+
+// Limpiar caché expirado cada 5 minutos
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [key, value] of cache.entries()) {
+    if (now >= value.expiry) {
+      cache.delete(key);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`🧹 Cache cleanup: ${cleaned} entradas eliminadas`);
+  }
+}, 5 * 60 * 1000);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Compression middleware para reducir payload size
+const compression = require('compression');
+app.use(compression({
+  level: 6, // Balance entre velocidad y ratio de compresión
+  threshold: 1024, // Solo comprimir responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Comprimir solo JSON y texto
+    return compression.filter(req, res);
+  }
+}));
 
 // Servir archivos estáticos (HTML, CSS, JS)
 app.use(express.static(__dirname));
@@ -133,7 +201,7 @@ app.get('/api/inscritos-por-area', async (req, res) => {
 // ============ ENDPOINTS MATRÍCULAS ============
 
 // 1. Totales Generales
-app.get('/api/matriculas/totales', async (req, res) => {
+app.get('/api/matriculas/totales', cacheMiddleware(300), async (req, res) => {
   try {
     const connection = await pool.getConnection();
 
@@ -165,7 +233,7 @@ app.get('/api/matriculas/totales', async (req, res) => {
 });
 
 // 2. Desglose por Área
-app.get('/api/matriculas/por-area', async (req, res) => {
+app.get('/api/matriculas/por-area', cacheMiddleware(300), async (req, res) => {
   try {
     const connection = await pool.getConnection();
 
@@ -210,7 +278,7 @@ app.get('/api/matriculas/por-area', async (req, res) => {
 });
 
 // 3. Desglose por Sede
-app.get('/api/matriculas/por-sede', async (req, res) => {
+app.get('/api/matriculas/por-sede', cacheMiddleware(300), async (req, res) => {
   try {
     const connection = await pool.getConnection();
 
@@ -348,7 +416,7 @@ app.get('/api/matriculas/por-sede-area-turno', async (req, res) => {
 });
 
 // 5. Desglose completo: Sede > Área > Turno > Grupo
-app.get('/api/matriculas/completo', async (req, res) => {
+app.get('/api/matriculas/completo', cacheMiddleware(600), async (req, res) => {
   try {
     const connection = await pool.getConnection();
 
@@ -843,7 +911,7 @@ app.get('/api/matriculas/generar-token/:matricula_id', async (req, res) => {
 // ============ ENDPOINTS LISTADO CURSO TALLER 2026 ============
 
 // GET: obtiene el listado completo desde la base de datos local
-app.get('/api/listado-curso/inscritos', async (_req, res) => {
+app.get('/api/listado-curso/inscritos', cacheMiddleware(300), async (_req, res) => {
   try {
     console.log('🔄 Consultando listado desde base de datos...');
     const connection = await pool.getConnection();
@@ -947,7 +1015,7 @@ app.put('/api/listado-curso/actualizar/:id', async (req, res) => {
 // ============ ENDPOINTS CURSO TALLER 2026 ============
 
 // Total de inscritos del curso taller
-app.get('/api/curso2026/total-inscritos', async (req, res) => {
+app.get('/api/curso2026/total-inscritos', cacheMiddleware(300), async (req, res) => {
   try {
     const [[result]] = await pool.execute(`
       SELECT COUNT(*) AS total
@@ -1005,7 +1073,7 @@ app.get('/api/curso2026/top-instituciones', async (req, res) => {
 });
 
 // Inscritos por área del curso taller
-app.get('/api/curso2026/inscritos-por-area', async (req, res) => {
+app.get('/api/curso2026/inscritos-por-area', cacheMiddleware(300), async (req, res) => {
   try {
     const [rows] = await pool.execute(`
       SELECT
@@ -1361,7 +1429,7 @@ app.get('/api/materiales/area/:areaNum', async (req, res) => {
 // ============ ENDPOINTS ESTADÍSTICAS INSCRIPCIONES ============
 
 // 1. Total de inscritos
-app.get('/api/stats-inscripciones/totales', async (req, res) => {
+app.get('/api/stats-inscripciones/totales', cacheMiddleware(180), async (req, res) => {
   try {
     const connection = await pool.getConnection();
 
@@ -1392,7 +1460,7 @@ app.get('/api/stats-inscripciones/totales', async (req, res) => {
 });
 
 // 2. Inscritos por sede
-app.get('/api/stats-inscripciones/por-sede', async (req, res) => {
+app.get('/api/stats-inscripciones/por-sede', cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1430,7 +1498,7 @@ app.get('/api/stats-inscripciones/por-sede', async (req, res) => {
 });
 
 // 3. Inscritos por área
-app.get('/api/stats-inscripciones/por-area', async (req, res) => {
+app.get('/api/stats-inscripciones/por-area', cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1469,7 +1537,7 @@ app.get('/api/stats-inscripciones/por-area', async (req, res) => {
 });
 
 // 4. Inscritos por turno
-app.get('/api/stats-inscripciones/por-turno', async (req, res) => {
+app.get('/api/stats-inscripciones/por-turno', cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1508,7 +1576,7 @@ app.get('/api/stats-inscripciones/por-turno', async (req, res) => {
 });
 
 // 5. Inscritos por día
-app.get('/api/stats-inscripciones/por-dia', async (req, res) => {
+app.get('/api/stats-inscripciones/por-dia', cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1544,7 +1612,7 @@ app.get('/api/stats-inscripciones/por-dia', async (req, res) => {
 });
 
 // 6. Pagos por día (desde 25 Feb 2026, imp_pag > 200)
-app.get('/api/stats-inscripciones/pagos-por-dia', async (req, res) => {
+app.get('/api/stats-inscripciones/pagos-por-dia', cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1716,7 +1784,7 @@ app.get('/api/stats-inscripciones/opciones-por-sede/:sedeId', async (req, res) =
 });
 
 // 10. Reporte detallado: Sede > Turno > Área (para página de reportes)
-app.get('/api/stats-inscripciones/reporte-sedes', async (req, res) => {
+app.get('/api/stats-inscripciones/reporte-sedes', cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
