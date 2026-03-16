@@ -3,6 +3,7 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const app = express();
@@ -14,6 +15,19 @@ app.use(express.json());
 
 // Servir archivos estáticos (HTML, CSS, JS)
 app.use(express.static(__dirname));
+
+// Rutas amigables para Stats
+app.get('/stats/login', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'login.html'));
+});
+
+app.get('/stats', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'index.html'));
+});
+
+app.get('/stats/reportes', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'reportes', 'index.html'));
+});
 
 // Configuración de la base de datos
 const dbConfig = {
@@ -50,11 +64,11 @@ pool.getConnection()
 app.get('/api/stats', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    
+
     const [inscritosResult] = await connection.query(
       'SELECT COUNT(*) as total FROM inscripcion_simulacros'
     );
-    
+
     const [pagadosResult] = await connection.query(
       `SELECT COUNT(*) as total 
        FROM banco_pagos
@@ -62,22 +76,22 @@ app.get('/api/stats', async (req, res) => {
          AND imp_pag > 14 
          AND imp_pag <= 18`
     );
-    
+
     connection.release();
-    
+
     const stats = {
       totalInscritos: inscritosResult[0].total,
       totalPagados: pagadosResult[0].total,
       timestamp: new Date().toISOString()
     };
-    
+
     res.json(stats);
-    
+
   } catch (error) {
     console.error('Error en la consulta:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Error al obtener datos',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -86,7 +100,7 @@ app.get('/api/stats', async (req, res) => {
 app.get('/api/inscritos-por-area', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    
+
     const [result] = await connection.query(`
       SELECT 
         a.denominacion as area,
@@ -99,19 +113,19 @@ app.get('/api/inscritos-por-area', async (req, res) => {
       GROUP BY a.id, a.denominacion
       ORDER BY a.denominacion
     `);
-    
+
     connection.release();
-    
+
     res.json({
       areas: result,
       timestamp: new Date().toISOString()
     });
-    
+
   } catch (error) {
     console.error('Error en la consulta de áreas:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Error al obtener datos por área',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -852,7 +866,7 @@ app.get('/api/listado-curso/inscritos', async (_req, res) => {
     `);
 
     // Obtener total
-    const [[{total}]] = await connection.query(`
+    const [[{ total }]] = await connection.query(`
       SELECT COUNT(*) as total FROM inscripcion_curso_tallers
     `);
 
@@ -1838,6 +1852,56 @@ app.post('/api/auth/login', async (req, res) => {
       error: 'Error al procesar la solicitud',
       message: error.message
     });
+  }
+});
+
+// Endpoint para login de administradores (Dashboard Stats)
+app.post('/api/stats/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+  }
+
+  try {
+    const connection = await pool.getConnection();
+
+    // Buscar usuario por email
+    const [users] = await connection.query(
+      'SELECT id, name, email, password FROM users WHERE email = ? AND estado = "1" LIMIT 1',
+      [email]
+    );
+
+    connection.release();
+
+    if (users.length === 0) {
+      return res.status(401).json({ error: 'Usuario no encontrado o inactivo' });
+    }
+
+    const user = users[0];
+
+    // Convertir hash de PHP ($2y$) a formato Node.js ($2a$)
+    // Son funcionalmente idénticos, pero bcryptjs requiere $2a$ o $2b$
+    const normalizedHash = user.password.replace(/^\$2y\$/, '$2a$');
+    const isMatch = await bcrypt.compare(password, normalizedHash);
+
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Contraseña incorrecta' });
+    }
+
+    // Login exitoso
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en login stats:', error);
+    res.status(500).json({ error: 'Error interno del servidor', message: error.message });
   }
 });
 

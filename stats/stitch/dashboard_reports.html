@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#003366",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#0f1923",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<title>CEPREUNA - Estadísticas de Inscripciones</title>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+<div class="flex h-screen overflow-hidden">
+<aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col">
+<div class="p-6 flex items-center gap-3">
+<div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-2xl">school</span>
+</div>
+<div>
+<h1 class="text-primary font-bold text-lg leading-none">CEPREUNA</h1>
+<p class="text-slate-500 text-xs font-medium uppercase tracking-wider mt-1">Gestión Académica</p>
+</div>
+</div>
+<nav class="flex-1 px-4 py-4 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-medium">Inicio</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary border border-primary/10" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-medium">Resumen</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined">description</span>
+<span class="font-medium">Reportes</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-medium">Alumnos</span>
+</a>
+</nav>
+<div class="p-4 border-t border-slate-200 dark:border-slate-800">
+<div class="flex items-center gap-3 p-2">
+<div class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+<img alt="User Profile" data-alt="Avatar of a male administrator or teacher" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDBMjWRX4-h3AGBAarncMcN1QbuuUqrc26nxhvarEJbzrnoOxWXRCKrESIbONsZjlD_Le7lxWp4pWRrqPCX4bho5lMwa5mKqlLFTUcg79f6I1g_QC-s5OfsH0qhin8OZHG1O_Tg34iNC9EOCldQhr3l4-X2uOXRKIeiKv8nGNi0qpJtW60AFgLMcYNOx3r8nrexSDx0ZMRVHur2exVcrI_WKX8qjEwZJON1_P3f63ZszDjrnuKo-x6c2scq5dOaOvd3TeLThM-Sqgli"/>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-semibold truncate">Admin User</p>
+<p class="text-xs text-slate-500 truncate">admin@unap.edu.pe</p>
+</div>
+<span class="material-symbols-outlined text-slate-400 text-sm">logout</span>
+</div>
+</div>
+</aside>
+<main class="flex-1 flex flex-col overflow-y-auto">
+<header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-8 sticky top-0 z-10">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">bar_chart_4_bars</span>
+<h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Estadísticas de Inscripciones</h2>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xl">search</span>
+<input class="pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/20 transition-all" placeholder="Buscar estudiante o sede..." type="text"/>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</header>
+<div class="p-8 space-y-8 max-w-7xl mx-auto w-full flex-1 flex flex-col">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="md:col-span-2 bg-primary rounded-xl p-8 text-white shadow-lg relative overflow-hidden">
+<div class="relative z-10">
+<h3 class="text-primary-foreground/80 font-medium text-lg">Total General de Inscritos</h3>
+<div class="mt-4 flex items-baseline gap-4">
+<span class="text-6xl font-bold tracking-tight">292</span>
+<span class="bg-white/20 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">trending_up</span>
+                                    +12% vs mes anterior
+                                </span>
+</div>
+<p class="mt-4 text-primary-foreground/70 flex items-center gap-2">
+<span class="material-symbols-outlined text-lg">payments</span>
+                                404 pagos realizados verificados
+                            </p>
+</div>
+<div class="absolute -right-16 -bottom-16 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
+</div>
+<div class="bg-white dark:bg-slate-900 rounded-xl p-8 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-center">
+<h3 class="text-slate-500 font-medium">Ciclo Académico</h3>
+<p class="text-2xl font-bold text-primary mt-1">2024 - II</p>
+<div class="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+<div class="flex justify-between text-sm mb-2">
+<span class="text-slate-500">Progreso de Inscripción</span>
+<span class="font-bold">75%</span>
+</div>
+<div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2.5">
+<div class="bg-primary h-2.5 rounded-full" style="width: 75%"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1">
+<section class="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm h-full flex flex-col">
+<div class="flex items-center justify-between mb-8">
+<div>
+<h3 class="text-lg font-bold text-slate-800 dark:text-slate-100">Distribución por Área</h3>
+<p class="text-sm text-slate-500">Número de alumnos inscritos por facultad</p>
+</div>
+<span class="material-symbols-outlined text-slate-400">category</span>
+</div>
+<div class="space-y-8 flex-1 flex flex-col justify-center">
+<div class="space-y-3">
+<div class="flex justify-between items-end">
+<span class="text-slate-700 dark:text-slate-300 font-semibold uppercase text-xs tracking-widest">Sociales</span>
+<span class="text-2xl font-bold text-slate-900 dark:text-slate-100">118</span>
+</div>
+<div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-4 overflow-hidden">
+<div class="bg-blue-600 h-full rounded-full transition-all" style="width: 40.4%;"></div>
+</div>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between items-end">
+<span class="text-slate-700 dark:text-slate-300 font-semibold uppercase text-xs tracking-widest">Biomédicas</span>
+<span class="text-2xl font-bold text-slate-900 dark:text-slate-100">89</span>
+</div>
+<div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-4 overflow-hidden">
+<div class="bg-emerald-600 h-full rounded-full transition-all" style="width: 30.4%;"></div>
+</div>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between items-end">
+<span class="text-slate-700 dark:text-slate-300 font-semibold uppercase text-xs tracking-widest">Ingenierías</span>
+<span class="text-2xl font-bold text-slate-900 dark:text-slate-100">85</span>
+</div>
+<div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-4 overflow-hidden">
+<div class="bg-amber-500 h-full rounded-full transition-all" style="width: 29.1%;"></div>
+</div>
+</div>
+</div>
+</section>
+<section class="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm h-full flex flex-col">
+<div class="flex items-center justify-between mb-6">
+<div>
+<h3 class="text-lg font-bold text-slate-800 dark:text-slate-100">Distribución por Sede</h3>
+<p class="text-sm text-slate-500">Alcance regional de la institución</p>
+</div>
+<span class="material-symbols-outlined text-slate-400">location_on</span>
+</div>
+<div class="grid grid-cols-2 gap-4 flex-1">
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Puno</span>
+<span class="text-xs text-slate-500">Sede Principal</span>
+</div>
+<span class="text-lg font-bold text-primary">124</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Juliaca</span>
+<span class="text-xs text-slate-500">Sede Norte</span>
+</div>
+<span class="text-lg font-bold text-primary">56</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Virtual</span>
+<span class="text-xs text-slate-500">Nacional</span>
+</div>
+<span class="text-lg font-bold text-primary">42</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Ilave</span>
+<span class="text-xs text-slate-500">Sede Sur</span>
+</div>
+<span class="text-lg font-bold text-primary">21</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Ayaviri</span>
+<span class="text-xs text-slate-500">Melgar</span>
+</div>
+<span class="text-lg font-bold text-primary">18</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Azángaro</span>
+<span class="text-xs text-slate-500">Sede Central</span>
+</div>
+<span class="text-lg font-bold text-primary">14</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Huancané-Moho</span>
+<span class="text-xs text-slate-500">Sede Binacional</span>
+</div>
+<span class="text-lg font-bold text-primary">10</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-slate-700 dark:text-slate-300">Juli-Chucuito</span>
+<span class="text-xs text-slate-500">Sede Sur</span>
+</div>
+<span class="text-lg font-bold text-primary">7</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+</div>
+</body></html>

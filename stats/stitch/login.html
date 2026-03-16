@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+
+<html class="light" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Inicio de Sesión CEPREUNA</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0b73da",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#101922",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+</head>
+<body class="min-h-screen bg-background-light dark:bg-background-dark font-display flex items-center justify-center p-4">
+<div class="w-full max-w-[420px] bg-white dark:bg-slate-900 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] p-8 sm:p-10 border border-slate-100 dark:border-slate-800">
+<div class="flex justify-center mb-8">
+<div class="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center">
+<img class="h-12 w-12 object-contain rounded-full" data-alt="Abstract academic institution logo" src="https://lh3.googleusercontent.com/aida-public/AB6AXuASL1pm_DAkFDkM9rZvEGiJHD1pl22ZdopMpGViI7gmfBLYHks39uuGSxjZfNsj2zFQGJ6BDgUP9fqPkcFT43b7HTwMjA_E0g6q8dUj_x0A4E5-qeGLeBoZxtzlhjDEbAxz1D10QrSxEqvgL3gyIKWJY7LC9hTFETR4At8JuBVibuW2dszP1rjSEv7K2mxKGP-tsCLF7ccGWKTkXvAyabMepabsZ13vPUksQ8DklkOeyKuToL6UZeB75RZb6ODSNGICoRrZO35OLzqQ"/>
+</div>
+</div>
+<h1 class="text-[26px] font-bold text-slate-900 dark:text-slate-100 text-center mb-8 tracking-tight">Iniciar Sesión</h1>
+<form class="flex flex-col gap-5">
+<div class="flex flex-col gap-2">
+<label class="text-sm font-semibold text-slate-700 dark:text-slate-300" for="email">
+                    Correo Electrónico
+                </label>
+<input class="w-full h-12 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 text-base text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all shadow-sm" id="email" placeholder="ejemplo@correo.com" required="" type="email"/>
+</div>
+<div class="flex flex-col gap-2">
+<label class="text-sm font-semibold text-slate-700 dark:text-slate-300" for="password">
+                    Contraseña
+                </label>
+<input class="w-full h-12 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 text-base text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all shadow-sm" id="password" placeholder="••••••••" required="" type="password"/>
+</div>
+<button class="mt-4 w-full h-12 flex items-center justify-center rounded-lg bg-primary hover:bg-primary/90 text-white text-base font-bold transition-colors focus:ring-2 focus:ring-primary focus:ring-offset-2 dark:focus:ring-offset-background-dark shadow-sm" type="button">
+                Ingresar
+            </button>
+</form>
+</div>
+</body></html>
