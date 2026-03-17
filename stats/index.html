@@ -294,8 +294,8 @@
                 document.getElementById('totalInscritos').textContent = dataTotal.total_inscritos || 0;
                 document.getElementById('totalPagos').textContent = dataTotal.total_pagos_25feb || 0;
                 
-                // Estos podrían ser cálculos reales si la API los diera
-                document.getElementById('todayCount').textContent = Math.floor(Math.random() * 15) + " hoy";
+                // Inscripciones de hoy (valor real)
+                document.getElementById('todayCount').textContent = (dataTotal.total_hoy || 0) + " hoy";
                 document.getElementById('pendingPayments').textContent = (dataTotal.total_inscritos - dataTotal.total_pagos_25feb) || 0;
 
                 // Áreas

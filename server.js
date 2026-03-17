@@ -1438,7 +1438,8 @@ app.get('/api/stats-inscripciones/totales', cacheMiddleware(180), async (req, re
         COUNT(DISTINCT id) as total_inscritos,
         SUM(CASE WHEN modalidad = '1' THEN 1 ELSE 0 END) as total_virtual,
         SUM(CASE WHEN modalidad = '2' THEN 1 ELSE 0 END) as total_presencial,
-        (SELECT COUNT(*) FROM banco_pagos WHERE fch_pag >= '2026-02-25' AND imp_pag > 200) as total_pagos_25feb
+        (SELECT COUNT(*) FROM banco_pagos WHERE fch_pag >= '2026-02-25' AND imp_pag > 200) as total_pagos_25feb,
+        (SELECT COUNT(*) FROM inscripciones WHERE periodos_id = 1 AND DATE(created_at) = CURDATE()) as total_hoy
       FROM inscripciones
       WHERE periodos_id = 1
     `);
@@ -1450,6 +1451,7 @@ app.get('/api/stats-inscripciones/totales', cacheMiddleware(180), async (req, re
       total_virtual: parseInt(totales.total_virtual) || 0,
       total_presencial: parseInt(totales.total_presencial) || 0,
       total_pagos_25feb: parseInt(totales.total_pagos_25feb) || 0,
+      total_hoy: parseInt(totales.total_hoy) || 0,
       timestamp: new Date().toISOString()
     });
 
