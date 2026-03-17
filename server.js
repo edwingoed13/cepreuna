@@ -1799,51 +1799,68 @@ app.get('/api/stats-inscripciones/reporte-sedes', cacheMiddleware(300), async (r
     const reporteCompleto = [];
 
     for (const sede of sedes) {
-      // Obtener turnos que tienen inscripciones en esta sede
+      // Determinar si es virtual
+      const esVirtual = sede.sede.toLowerCase().includes('virtual');
+
+      // Obtener turnos que tienen inscripciones o capacidad configurada en esta sede
       const [turnos] = await connection.query(`
         SELECT DISTINCT t.id as turno_id, t.denominacion as turno
-        FROM inscripciones i
-        INNER JOIN turnos t ON i.turnos_id = t.id
-        WHERE i.sedes_id = ? AND i.periodos_id = 1
+        FROM turnos t
+        WHERE t.id IN (
+          SELECT DISTINCT turnos_id FROM inscripciones WHERE sedes_id = ? AND periodos_id = 1
+          UNION
+          SELECT DISTINCT turnos_id FROM configuracion_vacantes WHERE sedes_id = ? AND estado = '1'
+        )
         ORDER BY t.id
-      `, [sede.sede_id]);
+      `, [sede.sede_id, sede.sede_id]);
 
       const turnosData = [];
 
       for (const turno of turnos) {
-        // Obtener áreas con inscritos para esta sede y turno
+        // Obtener áreas con inscritos o capacidad para esta sede y turno
         const [areas] = await connection.query(`
-          SELECT
-            a.id as area_id,
+          SELECT 
+            a.id as area_id, 
             a.denominacion as area,
-            COUNT(DISTINCT i.id) as total_inscritos
+            COUNT(DISTINCT i.id) as total_inscritos,
+            COALESCE(cv.cantidad, 0) as capacidad
           FROM areas a
-          LEFT JOIN inscripciones i ON i.areas_id = a.id
-            AND i.sedes_id = ?
-            AND i.turnos_id = ?
+          LEFT JOIN inscripciones i ON i.areas_id = a.id 
+            AND i.sedes_id = ? 
+            AND i.turnos_id = ? 
             AND i.periodos_id = 1
-          GROUP BY a.id, a.denominacion
-          HAVING total_inscritos > 0
+          LEFT JOIN configuracion_vacantes cv ON a.id = cv.areas_id
+            AND cv.sedes_id = ?
+            AND cv.turnos_id = ?
+            AND cv.estado = '1'
+          GROUP BY a.id, a.denominacion, cv.cantidad
+          HAVING total_inscritos > 0 OR capacidad > 0
           ORDER BY a.denominacion
-        `, [sede.sede_id, turno.turno_id]);
+        `, [sede.sede_id, turno.turno_id, sede.sede_id, turno.turno_id]);
 
         if (areas.length > 0) {
           turnosData.push({
             turno_id: turno.turno_id,
             turno: turno.turno,
-            areas: areas.map(a => ({
-              area_id: a.area_id,
-              area: a.area,
-              total_inscritos: parseInt(a.total_inscritos) || 0
-            }))
+            areas: areas.map(a => {
+              const inscritos = parseInt(a.total_inscritos) || 0;
+              const capacidad = parseInt(a.capacidad) || 0;
+              return {
+                area_id: a.area_id,
+                area: a.area,
+                total_inscritos: inscritos,
+                capacidad: capacidad,
+                vacantes_disponibles: Math.max(0, capacidad - inscritos)
+              };
+            })
           });
         }
       }
 
-      // Agregar todas las sedes, incluso si no tienen inscritos
       reporteCompleto.push({
         sede_id: sede.sede_id,
         sede: sede.sede,
+        es_virtual: esVirtual,
         turnos: turnosData
       });
     }

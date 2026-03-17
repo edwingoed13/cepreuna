@@ -229,6 +229,7 @@
 
                 reportes.forEach((sede, i) => {
                     const totalSede = sede.turnos.reduce((acc, t) => acc + t.areas.reduce((aa, a) => aa + a.total_inscritos, 0), 0);
+                    const totalCapacidad = sede.turnos.reduce((acc, t) => acc + t.areas.reduce((aa, a) => aa + a.capacidad, 0), 0);
                     
                     tabsHTML += `
                         <button class="tab-button flex-shrink-0 px-6 py-4 text-sm font-semibold text-slate-500 hover:text-primary transition-all flex flex-col items-start gap-1 border-b-2 border-transparent ${i === 0 ? 'active' : ''}" 
@@ -240,16 +241,26 @@
 
                     contentHTML += `
                         <div id="content-${i}" class="tab-content transition-all duration-300 ${i === 0 ? 'active' : ''}">
-                            <div class="flex items-center gap-3 mb-8">
+                            <div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-8">
                                 <h3 class="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">${sede.sede}</h3>
-                                <div class="h-px flex-1 bg-slate-100 dark:bg-slate-800"></div>
-                                <span class="bg-primary text-white px-3 py-1 rounded-full text-xs font-bold">${totalSede} Total</span>
+                                <div class="h-px flex-1 bg-slate-100 dark:bg-slate-800 hidden lg:block"></div>
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-primary/10 text-primary dark:bg-white/10 dark:text-white px-3 py-1 rounded-full text-xs font-bold">${totalSede} Inscritos</span>
+                                    ${!sede.es_virtual && totalCapacidad > 0 ? `
+                                        <span class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-3 py-1 rounded-full text-xs font-bold">Capacidad: ${totalCapacidad}</span>
+                                        <span class="${(totalCapacidad - totalSede) / totalCapacidad < 0.1 ? 'bg-red-500 text-white' : 'bg-green-500 text-white'} px-3 py-1 rounded-full text-xs font-bold">
+                                            ${totalCapacidad - totalSede} Libres
+                                        </span>
+                                    ` : ''}
+                                </div>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                     `;
 
                     sede.turnos.forEach((turno, ti) => {
                         const totalTurno = turno.areas.reduce((acc, a) => acc + a.total_inscritos, 0);
+                        const totalCapacidadTurno = turno.areas.reduce((acc, a) => acc + a.capacidad, 0);
+                        
                         contentHTML += `
                             <div class="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 border border-slate-100 dark:border-slate-700">
                                 <div class="flex items-center justify-between mb-4">
@@ -259,21 +270,39 @@
                                     </h4>
                                     <span class="text-xs font-bold text-primary dark:text-white">${totalTurno} Inscritos</span>
                                 </div>
-                                <div class="space-y-3">
+                                <div class="space-y-4">
                         `;
 
                         turno.areas.forEach((area, ai) => {
                             const color = areaColors[area.area] || '#666';
                             const pct = totalTurno > 0 ? (area.total_inscritos / totalTurno * 100) : 0;
+                            
+                            const disponPct = area.capacidad > 0 ? (area.vacantes_disponibles / area.capacidad * 100) : 100;
+                            const isLow = !sede.es_virtual && area.capacidad > 0 && disponPct < 10;
+                            const statusColor = isLow ? 'text-red-600 dark:text-red-400 font-black animate-pulse' : 'text-slate-800 dark:text-white';
+
                             contentHTML += `
-                                <div class="flex flex-col gap-1">
+                                <div class="flex flex-col gap-1.5">
                                     <div class="flex justify-between text-[11px] font-bold">
-                                        <span class="text-slate-500">${area.area}</span>
-                                        <span class="text-slate-800 dark:text-white">${area.total_inscritos}</span>
+                                        <span class="text-slate-500 uppercase">${area.area}</span>
+                                        <div class="flex gap-2 items-center">
+                                            <span class="text-slate-400 font-medium">Inscritos: ${area.total_inscritos}</span>
+                                            ${!sede.es_virtual && area.capacidad > 0 ? `
+                                                <span class="text-slate-300">|</span>
+                                                <span class="${statusColor}">Vacantes: ${area.vacantes_disponibles}</span>
+                                            ` : ''}
+                                        </div>
                                     </div>
-                                    <div class="w-full bg-white dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                                    <div class="w-full bg-white dark:bg-slate-700 rounded-full h-1.5 overflow-hidden flex">
                                         <div class="h-full rounded-full" style="width: ${pct}%; background-color: ${color}"></div>
                                     </div>
+                                    ${!sede.es_virtual && area.capacidad > 0 ? `
+                                        <div class="flex justify-end">
+                                            <span class="text-[9px] uppercase tracking-tighter ${isLow ? 'text-red-500 font-bold' : 'text-slate-400'}">
+                                                ${isLow ? '¡QUEDAN POCAS VACANTES!' : `Capacidad: ${area.capacidad}`}
+                                            </span>
+                                        </div>
+                                    ` : ''}
                                 </div>
                             `;
                         });
