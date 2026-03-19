@@ -275,31 +275,42 @@
 
                         turno.areas.forEach((area, ai) => {
                             const color = areaColors[area.area] || '#666';
-                            const pct = totalTurno > 0 ? (area.total_inscritos / totalTurno * 100) : 0;
+                            const occupancyPct = area.capacidad > 0 ? (area.total_inscritos / area.capacidad * 100) : 0;
+                            const sharePct = totalTurno > 0 ? (area.total_inscritos / totalTurno * 100) : 0;
+                            const pct = area.capacidad > 0 ? Math.min(100, occupancyPct) : sharePct;
                             
+                            const isFull = !sede.es_virtual && area.capacidad > 0 && area.total_inscritos >= area.capacidad;
                             const disponPct = area.capacidad > 0 ? (area.vacantes_disponibles / area.capacidad * 100) : 100;
-                            const isLow = !sede.es_virtual && area.capacidad > 0 && disponPct < 10;
-                            const statusColor = isLow ? 'text-red-600 dark:text-red-400 font-black animate-pulse' : 'text-slate-800 dark:text-white';
-
+                            const isLow = !sede.es_virtual && area.capacidad > 0 && !isFull && disponPct < 10;
+                            
+                            const barColor = isFull ? '#ef4444' : (isLow ? '#f97316' : color);
+                            const statusColor = isFull ? 'text-red-700 dark:text-red-400 font-bold' : (isLow ? 'text-orange-600 dark:text-orange-400 font-bold' : 'text-slate-800 dark:text-white');
                             contentHTML += `
-                                <div class="flex flex-col gap-1.5">
+                                <div class="flex flex-col gap-1.5 ${isFull ? 'bg-red-50/50 dark:bg-red-900/10 p-2 -m-2 rounded-lg' : ''}">
                                     <div class="flex justify-between text-[11px] font-bold">
-                                        <span class="text-slate-500 uppercase">${area.area}</span>
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="${isFull ? 'text-red-700 dark:text-red-400' : 'text-slate-500'} uppercase">${area.area}</span>
+                                            ${!sede.es_virtual && area.capacidad > 0 ? `
+                                                <span class="${isFull ? 'bg-red-600 text-white' : (isLow ? 'bg-orange-500 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400')} px-1.5 py-0.5 rounded text-[8px]">
+                                                    ${Math.round(occupancyPct)}%
+                                                </span>
+                                            ` : ''}
+                                        </div>
                                         <div class="flex gap-2 items-center">
-                                            <span class="text-slate-400 font-medium">Inscritos: ${area.total_inscritos}</span>
+                                            <span class="${isFull ? 'text-red-600 dark:text-red-400' : 'text-slate-400'} font-medium">Inscritos: ${area.total_inscritos}</span>
                                             ${!sede.es_virtual && area.capacidad > 0 ? `
                                                 <span class="text-slate-300">|</span>
-                                                <span class="${statusColor}">Vacantes: ${area.vacantes_disponibles}</span>
+                                                <span class="${statusColor}">${isFull ? '¡AGOTADO!' : `Vacantes: ${area.vacantes_disponibles}`}</span>
                                             ` : ''}
                                         </div>
                                     </div>
-                                    <div class="w-full bg-white dark:bg-slate-700 rounded-full h-1.5 overflow-hidden flex">
-                                        <div class="h-full rounded-full" style="width: ${pct}%; background-color: ${color}"></div>
+                                    <div class="w-full bg-white dark:bg-slate-700 rounded-full h-1.5 overflow-hidden flex shadow-inner">
+                                        <div class="h-full rounded-full transition-all duration-500 ease-out" style="width: ${pct}%; background-color: ${barColor}"></div>
                                     </div>
                                     ${!sede.es_virtual && area.capacidad > 0 ? `
                                         <div class="flex justify-end">
-                                            <span class="text-[9px] uppercase tracking-tighter ${isLow ? 'text-red-500 font-bold' : 'text-slate-400'}">
-                                                ${isLow ? '¡QUEDAN POCAS VACANTES!' : `Capacidad: ${area.capacidad}`}
+                                            <span class="text-[9px] uppercase tracking-tighter ${isFull || isLow ? 'text-red-500 font-bold' : 'text-slate-400'}">
+                                                ${isFull ? '100% LLENO - SIN VACANTES' : (isLow ? '¡ALERTA: QUEDAN POCAS VACANTES!' : `Capacidad Total: ${area.capacidad}`)}
                                             </span>
                                         </div>
                                     ` : ''}

@@ -1834,7 +1834,6 @@ app.get('/api/stats-inscripciones/reporte-sedes', cacheMiddleware(300), async (r
           LEFT JOIN configuracion_vacantes cv ON a.id = cv.areas_id
             AND cv.sedes_id = ?
             AND cv.turnos_id = ?
-            AND cv.estado = '1'
           GROUP BY a.id, a.denominacion, cv.cantidad
           HAVING total_inscritos > 0 OR capacidad > 0
           ORDER BY a.denominacion
