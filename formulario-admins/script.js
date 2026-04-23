@@ -156,125 +156,46 @@ function mostrarImagenExistente(imageUrl) {
     existingImageContainer.id = 'existing-image-container';
     existingImageContainer.className = 'existing-image-preview';
     
-    // Verificar si es Google Drive o URL normal
-    if (imageUrl.includes('drive.google.com')) {
-        // Usar el sistema de iframe para Google Drive
-        existingImageContainer.innerHTML = `
-            <div class="existing-image-header">
-                <strong>Foto actual registrada</strong>
-                <button type="button" class="btn-remove-preview" onclick="ocultarImagenExistente()">×</button>
+    // Renderizar siempre como <img> (el thumbnail de Drive es embebible
+    // cross-origin; los iframes los bloquea la CSP frame-ancestors de Drive).
+    const displayUrl = convertToPreviewUrl(imageUrl);
+    existingImageContainer.innerHTML = `
+        <div class="existing-image-header">
+            <strong>Foto actual registrada</strong>
+            <button type="button" class="btn-remove-preview" onclick="ocultarImagenExistente()">×</button>
+        </div>
+        <div class="image-container" style="text-align: center;">
+            <img src="${displayUrl}" alt="Foto existente" class="existing-image" referrerpolicy="no-referrer"
+                 style="max-width: 250px; max-height: 250px; border-radius: 8px; display: none; margin: 10px auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div class="image-placeholder" style="display: none; width: 250px; height: 250px; margin: 10px auto; border: 2px dashed #ddd; border-radius: 8px; background: #f8f9fa; align-items: center; justify-content: center; flex-direction: column; cursor: pointer;">
+                <div style="font-size: 48px;">📷</div>
+                <div><strong>Foto no disponible</strong><br><small>Click para ver original</small></div>
             </div>
-            <div class="photo-preview-container">
-                <div class="photo-iframe-wrapper" style="width: 250px; height: 250px; margin: 0 auto;">
-                    <iframe class="photo-iframe" 
-                            src="${convertToPreviewUrl(imageUrl)}"
-                            style="width: 100%; height: 100%; border: none; border-radius: 8px;"
-                            allow="encrypted-media"
-                            sandbox="allow-scripts allow-same-origin">
-                    </iframe>
-                </div>
-                <div class="photo-fallback" style="display: none; width: 250px; height: 250px; margin: 0 auto;">
-                    <div class="photo-icon">📷</div>
-                    <div class="photo-text">
-                        <strong>Foto Registrada</strong><br>
-                        <small>Click para ver original</small>
-                    </div>
-                </div>
-            </div>
-            <div class="photo-actions" style="text-align: center; margin-top: 10px;">
-                <button type="button" class="btn-view-photo" onclick="window.open('${imageUrl}', '_blank')" 
-                        style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-                    Ver Foto Original
-                </button>
-            </div>
-            <p class="update-note"><small>Puede subir una nueva imagen para reemplazar la actual</small></p>
-        `;
-        
-        // Después de insertar, configurar el iframe
-        setTimeout(() => {
-            const iframe = existingImageContainer.querySelector('.photo-iframe');
-            const fallback = existingImageContainer.querySelector('.photo-fallback');
-            
-            if (iframe && fallback) {
-                iframe.onload = function() {
-                    this.style.display = 'block';
-                    fallback.style.display = 'none';
-                };
-                
-                iframe.onerror = function() {
-                    this.style.display = 'none';
-                    fallback.style.display = 'flex';
-                    fallback.style.alignItems = 'center';
-                    fallback.style.justifyContent = 'center';
-                    fallback.style.flexDirection = 'column';
-                    fallback.style.border = '2px dashed #ddd';
-                    fallback.style.borderRadius = '8px';
-                    fallback.style.background = '#f8f9fa';
-                    fallback.style.cursor = 'pointer';
-                    fallback.onclick = () => window.open(imageUrl, '_blank');
-                };
-                
-                // Timeout para detectar si no carga
-                setTimeout(() => {
-                    if (iframe.style.display !== 'block') {
-                        iframe.style.display = 'none';
-                        fallback.style.display = 'flex';
-                        fallback.style.alignItems = 'center';
-                        fallback.style.justifyContent = 'center';
-                        fallback.style.flexDirection = 'column';
-                        fallback.style.border = '2px dashed #ddd';
-                        fallback.style.borderRadius = '8px';
-                        fallback.style.background = '#f8f9fa';
-                        fallback.style.cursor = 'pointer';
-                        fallback.onclick = () => window.open(imageUrl, '_blank');
-                    }
-                }, 3000);
-            }
-        }, 100);
-        
-    } else {
-        // Para URLs normales, usar imagen directa
-        existingImageContainer.innerHTML = `
-            <div class="existing-image-header">
-                <strong>Foto actual registrada</strong>
-                <button type="button" class="btn-remove-preview" onclick="ocultarImagenExistente()">×</button>
-            </div>
-            <div class="image-container" style="text-align: center;">
-                <img src="${imageUrl}" alt="Foto existente" class="existing-image" 
-                     style="max-width: 250px; max-height: 250px; border-radius: 8px; display: none; margin: 10px auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <div class="image-placeholder" style="display: none; width: 250px; height: 250px; margin: 10px auto; border: 2px dashed #ddd; border-radius: 8px; background: #f8f9fa; display: flex; align-items: center; justify-content: center; flex-direction: column; cursor: pointer;">
-                    <div style="font-size: 48px;">📷</div>
-                    <div><strong>Foto no disponible</strong><br><small>Click para ver enlace</small></div>
-                </div>
-            </div>
-            <div class="photo-actions" style="text-align: center; margin-top: 10px;">
-                <button type="button" class="btn-view-photo" onclick="window.open('${imageUrl}', '_blank')"
-                        style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-                    Ver Foto Original
-                </button>
-            </div>
-            <p class="update-note"><small>Puede subir una nueva imagen para reemplazar la actual</small></p>
-        `;
-        
-        // Configurar la imagen después de insertar
-        setTimeout(() => {
-            const img = existingImageContainer.querySelector('.existing-image');
-            const placeholder = existingImageContainer.querySelector('.image-placeholder');
-            
-            if (img && placeholder) {
-                img.onload = function() {
-                    this.style.display = 'block';
-                    placeholder.style.display = 'none';
-                };
-                
-                img.onerror = function() {
-                    this.style.display = 'none';
-                    placeholder.style.display = 'flex';
-                    placeholder.onclick = () => window.open(imageUrl, '_blank');
-                };
-            }
-        }, 100);
-    }
+        </div>
+        <div class="photo-actions" style="text-align: center; margin-top: 10px;">
+            <button type="button" class="btn-view-photo" onclick="window.open('${imageUrl}', '_blank')"
+                    style="background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                Ver foto original
+            </button>
+        </div>
+        <p class="update-note"><small>Puedes subir una nueva imagen para reemplazar la actual</small></p>
+    `;
+
+    setTimeout(() => {
+        const img = existingImageContainer.querySelector('.existing-image');
+        const placeholder = existingImageContainer.querySelector('.image-placeholder');
+        if (img && placeholder) {
+            img.onload = function() {
+                this.style.display = 'block';
+                placeholder.style.display = 'none';
+            };
+            img.onerror = function() {
+                this.style.display = 'none';
+                placeholder.style.display = 'flex';
+                placeholder.onclick = () => window.open(imageUrl, '_blank');
+            };
+        }
+    }, 50);
     
     // Remover contenedor existente si ya existe
     const existingContainer = document.getElementById('existing-image-container');
@@ -1098,13 +1019,14 @@ function showConfirmationModal() {
 // Variables para la pantalla de verificación
 let currentUserData = null;
 
-// Función para convertir URL de Google Drive a formato preview
+// Convierte una URL de Google Drive en un thumbnail embebible vía <img>.
+// Evita iframes (Drive bloquea por CSP frame-ancestors). El thumbnail
+// se sirve como imagen estática cross-origin, así que funciona.
 function convertToPreviewUrl(url) {
-    if (url.includes('drive.google.com/file/d/')) {
-        const fileId = url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
-        if (fileId) {
-            return `https://drive.google.com/file/d/${fileId[1]}/preview`;
-        }
+    if (!url) return url;
+    if (url.includes('drive.google.com')) {
+        const m = url.match(/[-\w]{25,}/); // id de Drive embebido en la URL
+        if (m) return `https://drive.google.com/thumbnail?id=${m[0]}&sz=w400`;
     }
     return url;
 }
@@ -1152,100 +1074,20 @@ function mostrarUsuarioExistente(userData) {
     
     // Mostrar foto si existe
     if (userData.fotoUrl && userData.fotoUrl.trim() !== '') {
-        // Para Google Drive, crear previsualización mejorada
-        if (userData.fotoUrl.includes('drive.google.com')) {
-            userPhoto.style.display = 'none';
-            
-            // Crear contenedor de previsualización
-            const photoContainer = document.createElement('div');
-            photoContainer.className = 'photo-button';
-            photoContainer.innerHTML = `
-                <div class="photo-preview-container">
-                    <div class="photo-iframe-wrapper">
-                        <iframe class="photo-iframe" 
-                                src="${convertToPreviewUrl(userData.fotoUrl)}"
-                                allow="encrypted-media"
-                                sandbox="allow-scripts allow-same-origin">
-                        </iframe>
-                    </div>
-                    <div class="photo-fallback" style="display: none;">
-                        <div class="photo-icon">📷</div>
-                        <div class="photo-text">
-                            <strong>Foto Registrada</strong><br>
-                            <small>Click para abrir</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="photo-actions">
-                    <button type="button" class="btn-view-photo" onclick="window.open('${userData.fotoUrl}', '_blank')">
-                        Ver Foto Original
-                    </button>
-                </div>
-            `;
-            
-            // Detectar si el iframe funciona (fallback para Edge)
-            const iframe = photoContainer.querySelector('.photo-iframe');
-            const fallback = photoContainer.querySelector('.photo-fallback');
-            
-            iframe.onload = function() {
-                // Si carga correctamente, mostrar iframe
-                this.style.display = 'block';
-                fallback.style.display = 'none';
-            };
-            
-            iframe.onerror = function() {
-                // Si falla (Edge), mostrar fallback
-                this.style.display = 'none';
-                fallback.style.display = 'flex';
-            };
-            
-            // Timeout para detectar si no carga en Edge
-            setTimeout(() => {
-                if (iframe.style.display !== 'block') {
-                    iframe.style.display = 'none';
-                    fallback.style.display = 'flex';
-                }
-            }, 3000);
-            
-            document.querySelector('.user-photo').appendChild(photoContainer);
-            
-        } else {
-            // Para otras URLs, intentar mostrar la imagen normalmente
-            userPhoto.onload = function() {
-                this.style.display = 'block';
-            };
-            
-            userPhoto.onerror = function() {
-                console.warn('No se pudo cargar la imagen:', userData.fotoUrl);
-                this.style.display = 'none';
-                
-                const placeholder = document.createElement('div');
-                placeholder.className = 'photo-placeholder';
-                placeholder.innerHTML = '📷 Foto no disponible<br><small>Click para ver enlace</small>';
-                placeholder.style.cssText = `
-                    width: 150px; 
-                    height: 150px; 
-                    border: 2px dashed #ddd; 
-                    display: flex; 
-                    align-items: center; 
-                    justify-content: center; 
-                    color: #666; 
-                    border-radius: 8px;
-                    background: #f8f9fa;
-                    text-align: center;
-                    cursor: pointer;
-                    font-size: 12px;
-                    margin: 15px auto;
-                `;
-                placeholder.onclick = function() {
-                    window.open(userData.fotoUrl, '_blank');
-                };
-                this.parentNode.appendChild(placeholder);
-            };
-            
-            userPhoto.src = userData.fotoUrl;
-        }
-        
+        // Unificado: <img> con thumbnail (funciona tanto para Drive como para URLs normales).
+        // Antes usábamos iframe para Drive, pero Drive bloquea con CSP frame-ancestors.
+        userPhoto.src = convertToPreviewUrl(userData.fotoUrl);
+        userPhoto.setAttribute('referrerpolicy', 'no-referrer');
+        userPhoto.onload = function() { this.classList.remove('hidden'); this.style.display = 'block'; };
+        userPhoto.onerror = function() {
+            this.style.display = 'none';
+            const placeholder = document.createElement('div');
+            placeholder.className = 'photo-placeholder';
+            placeholder.style.cssText = 'text-align:center;padding:20px;border:2px dashed #d1d5db;border-radius:8px;background:#f9fafb;cursor:pointer;color:#6b7280;';
+            placeholder.innerHTML = '📷 Foto no disponible<br><small>Click para abrir</small>';
+            placeholder.onclick = () => window.open(userData.fotoUrl, '_blank');
+            document.querySelector('.user-photo').appendChild(placeholder);
+        };
     } else {
         userPhoto.style.display = 'none';
         
