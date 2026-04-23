@@ -65,7 +65,8 @@ setInterval(() => {
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Límite elevado para aceptar fotos en Base64 del forms-admin (~2.7MB cuando la original es 2MB).
+app.use(express.json({ limit: '6mb' }));
 
 // Compression middleware para reducir payload size
 const compression = require('compression');
@@ -1423,6 +1424,85 @@ app.get('/api/materiales/area/:areaNum', async (req, res) => {
       error: 'Error al listar materiales',
       message: error.message
     });
+  }
+});
+
+// ============ FORMS-ADMIN: PROXY APPS SCRIPT (DNI lookup + envío) ============
+// Evita el JSONP y el mode:'no-cors' en el cliente: aquí sí podemos leer la respuesta real.
+
+// Verificar DNI contra el Apps Script (equivalente a la antigua llamada JSONP).
+app.get('/api/forms-admin/check-dni/:dni', async (req, res) => {
+  const dni = String(req.params.dni || '').trim();
+  if (!/^\d{8}$/.test(dni)) {
+    return res.status(400).json({ error: 'DNI inválido' });
+  }
+  const scriptUrl = process.env.APPS_SCRIPT_URL;
+  if (!scriptUrl) {
+    return res.status(500).json({ error: 'APPS_SCRIPT_URL no configurado' });
+  }
+  try {
+    // El Apps Script actual responde en formato JSONP cuando se pasa `callback`.
+    // Pasamos un callback conocido y desempaquetamos la respuesta para devolver JSON real.
+    const cb = '__proxyCb__';
+    const upstream = await fetch(`${scriptUrl}?dni=${encodeURIComponent(dni)}&callback=${cb}`);
+    const text = (await upstream.text()).trim();
+    const match = text.match(new RegExp(`^${cb}\\((.*)\\);?$`, 's'));
+    const jsonText = match ? match[1] : text;
+    try {
+      res.status(upstream.status).json(JSON.parse(jsonText));
+    } catch {
+      res.status(502).json({ error: 'Respuesta no parseable del Apps Script', raw: jsonText.slice(0, 500) });
+    }
+  } catch (err) {
+    console.error('Error proxy check-dni:', err);
+    res.status(502).json({ error: 'Error consultando Apps Script' });
+  }
+});
+
+// Enviar el formulario al Apps Script y devolver la respuesta real.
+// El límite de body está elevado globalmente (ver app.use(express.json({ limit: '6mb' })) arriba)
+// porque la foto viaja en Base64 (~2.7MB cuando la original es 2MB).
+app.post('/api/forms-admin/submit', async (req, res) => {
+  const scriptUrl = process.env.APPS_SCRIPT_URL;
+  if (!scriptUrl) {
+    return res.status(500).json({ error: 'APPS_SCRIPT_URL no configurado' });
+  }
+  try {
+    const upstream = await fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {}),
+    });
+    const text = await upstream.text();
+    try {
+      res.status(upstream.status).json(JSON.parse(text));
+    } catch {
+      res.status(upstream.status).json({ success: upstream.ok, raw: text.slice(0, 500) });
+    }
+  } catch (err) {
+    console.error('Error proxy submit:', err);
+    res.status(502).json({ error: 'Error enviando al Apps Script' });
+  }
+});
+
+// ============ FORMS-ADMIN: PROXY APISPERU (RUC) ============
+// Mantiene el token JWT en el servidor en lugar de exponerlo en el cliente.
+app.get('/api/forms-admin/ruc/:ruc', async (req, res) => {
+  const ruc = String(req.params.ruc || '').trim();
+  if (!/^\d{11}$/.test(ruc)) {
+    return res.status(400).json({ error: 'RUC inválido' });
+  }
+  const token = process.env.APISPERU_TOKEN;
+  if (!token) {
+    return res.status(500).json({ error: 'APISPERU_TOKEN no configurado' });
+  }
+  try {
+    const upstream = await fetch(`https://dniruc.apisperu.com/api/v1/ruc/${ruc}?token=${token}`);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    console.error('Error proxy apisperu:', err);
+    res.status(502).json({ error: 'Error consultando apisperu' });
   }
 });
 

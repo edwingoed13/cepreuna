@@ -1,6 +1,7 @@
-// Configuración
-const API_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImVzZmxvcmVzQGNlcHJldW5hLmVkdS5wZSJ9.TJDxZrXcWCbPiVadus5RmBWVky6MmsYEl5cxs0VXUdU';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUKNXv3DtQ0stpavjB6MyWvVAGlWSxKgYvCnBc3lw9X3BgjuKjYDJMZDOWQqcK1jxqvw/exec'; // Reemplaza con la URL de tu Apps Script actualizado
+// Configuración — todas las llamadas externas pasan por el backend propio.
+const RUC_API_URL = '/api/forms-admin/ruc';            // Proxy apisperu (token JWT en servidor)
+const CHECK_DNI_URL = '/api/forms-admin/check-dni';    // Proxy Apps Script (GET)
+const SUBMIT_URL = '/api/forms-admin/submit';          // Proxy Apps Script (POST)
 
 // Variables para almacenar datos del RUC
 let rucActivo = 'No';
@@ -84,53 +85,41 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Función para mostrar mensajes en el frontend
+// Función para mostrar mensajes en el frontend (estilos en styles.css)
 function mostrarMensaje(tipo, mensaje) {
+    const tiposValidos = ['exito', 'error', 'info'];
+    const clase = tiposValidos.includes(tipo) ? tipo : 'info';
+
     const mensajeDiv = document.createElement('div');
     mensajeDiv.id = 'mensaje-flotante';
-    mensajeDiv.className = `mensaje-${tipo}`;
+    mensajeDiv.className = `mensaje-flotante mensaje-${clase}`;
     mensajeDiv.textContent = mensaje;
-    
-    mensajeDiv.style.position = 'fixed';
-    mensajeDiv.style.bottom = '20px';
-    mensajeDiv.style.right = '20px';
-    mensajeDiv.style.padding = '15px 20px';
-    mensajeDiv.style.borderRadius = '5px';
-    mensajeDiv.style.color = 'white';
-    mensajeDiv.style.fontWeight = 'bold';
-    mensajeDiv.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
-    mensajeDiv.style.zIndex = '1000';
-    mensajeDiv.style.animation = 'fadeIn 0.5s';
-    
-    if (tipo === 'exito') {
-        mensajeDiv.style.backgroundColor = '#4CAF50';
-    } else {
-        mensajeDiv.style.backgroundColor = '#F44336';
-    }
-    
+
     document.body.appendChild(mensajeDiv);
-    
+
     setTimeout(() => {
         mensajeDiv.style.animation = 'fadeOut 0.5s';
         setTimeout(() => {
-            document.body.removeChild(mensajeDiv);
+            if (mensajeDiv.parentNode) mensajeDiv.parentNode.removeChild(mensajeDiv);
         }, 500);
     }, 5000);
 }
 
-// Agrega estilos al head del documento
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
+// Consulta el DNI contra el backend propio (que a su vez proxya al Apps Script).
+// Devuelve el objeto del backend o null si hubo error/timeout.
+async function consultarDNI(dni, { timeoutMs = 10000 } = {}) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const r = await fetch(`${CHECK_DNI_URL}/${encodeURIComponent(dni)}`, { signal: ctrl.signal });
+        return await r.json();
+    } catch (err) {
+        console.error('Error consultando DNI:', err);
+        return null;
+    } finally {
+        clearTimeout(timer);
     }
-    @keyframes fadeOut {
-        from { opacity: 1; transform: translateY(0); }
-        to { opacity: 0; transform: translateY(20px); }
-    }
-`;
-document.head.appendChild(style);
+}
 
 // Vista previa de la imagen
 function previewImage(input) {
@@ -287,64 +276,6 @@ function mostrarImagenExistente(imageUrl) {
         }, 100);
     }
     
-    // Agregar estilos
-    if (!document.getElementById('existing-image-styles')) {
-        const styles = document.createElement('style');
-        styles.id = 'existing-image-styles';
-        styles.textContent = `
-            .existing-image-preview {
-                border: 2px solid #007bff;
-                border-radius: 8px;
-                padding: 15px;
-                margin-bottom: 15px;
-                background: #f8f9ff;
-            }
-            .existing-image-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 10px;
-                color: #007bff;
-                font-weight: bold;
-            }
-            .btn-remove-preview {
-                background: #dc3545;
-                color: white;
-                border: none;
-                border-radius: 50%;
-                width: 25px;
-                height: 25px;
-                cursor: pointer;
-                font-size: 16px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                line-height: 1;
-                padding: 0;
-                transition: background 0.3s;
-            }
-            .btn-remove-preview:hover {
-                background: #c82333;
-            }
-            .photo-iframe-wrapper {
-                position: relative;
-                overflow: hidden;
-                border-radius: 8px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            }
-            .update-note {
-                text-align: center;
-                margin: 10px 0 0 0;
-                color: #6c757d;
-                font-style: italic;
-            }
-            .btn-view-photo:hover {
-                background: #0056b3 !important;
-            }
-        `;
-        document.head.appendChild(styles);
-    }
-    
     // Remover contenedor existente si ya existe
     const existingContainer = document.getElementById('existing-image-container');
     if (existingContainer) {
@@ -404,81 +335,59 @@ let existingUserData = null;
 let originalFormData = {}; // Para comparar cambios
 
 // Validar DNI duplicado usando JSONP
-function validarDNI(dni) {
-    return new Promise((resolve) => {
-        const statusElement = document.getElementById('dni-status');
-        const errorElement = document.getElementById('dni-error');
-        
-        if (dni.length !== 8) {
-            statusElement.textContent = '';
-            isUpdateMode = false;
-            existingUserData = null;
-            resolve(true);
-            return;
-        }
-        
-        statusElement.textContent = 'Validando DNI...';
-        statusElement.className = 'dni-status validando';
-        
-        // Crear callback único
-        const callbackName = 'dniCallback' + Date.now();
-        
-        // Definir callback global
-        window[callbackName] = function(result) {
-            // Limpiar después de un pequeño delay
-            setTimeout(() => {
-                if (document.head.contains(script)) {
-                    document.head.removeChild(script);
-                }
-                delete window[callbackName];
-            }, 100);
+async function validarDNI(dni) {
+    const statusElement = document.getElementById('dni-status');
+    const errorElement = document.getElementById('dni-error');
 
-            if (!result.success && result.error === 'DNI_ALREADY_EXISTS') {
-                statusElement.innerHTML = `
-                    <div>${result.message}</div>
-                    <div style="margin-top: 5px;">
-                        <button id="btn-cargar-datos" onclick="cargarDatosExistentes()" style="background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-right: 5px;">
-                            Cargar Datos
-                        </button>
-                        <button id="btn-nuevo-registro" onclick="limpiarFormulario()" style="background: #28a745; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
-                            Nuevo Registro
-                        </button>
-                    </div>
-                `;
-                statusElement.className = 'dni-status duplicado';
-                errorElement.textContent = `Registrado como: ${result.existingData.nombres} ${result.existingData.apellidos}`;
-                
-                // Guardar datos existentes
-                existingUserData = result.existingData;
-                resolve(false);
-            } else if (result.success) {
-                statusElement.textContent = 'DNI disponible';
-                statusElement.className = 'dni-status disponible';
-                errorElement.textContent = '';
-                isUpdateMode = false;
-                existingUserData = null;
-                resolve(true);
-            } else {
-                statusElement.textContent = 'Error al validar DNI';
-                statusElement.className = 'dni-status error';
-                console.error('Error al validar DNI:', result);
-                resolve(true);
-            }
-        };
-        
-        // Crear script tag para JSONP
-        const script = document.createElement('script');
-        script.src = `${SCRIPT_URL}?dni=${dni}&callback=${callbackName}`;
-        script.onerror = function() {
-            statusElement.textContent = 'Error al validar DNI';
-            statusElement.className = 'dni-status error';
-            document.head.removeChild(script);
-            delete window[callbackName];
-            resolve(true);
-        };
-        
-        document.head.appendChild(script);
-    });
+    if (dni.length !== 8) {
+        statusElement.textContent = '';
+        isUpdateMode = false;
+        existingUserData = null;
+        return true;
+    }
+
+    statusElement.textContent = 'Validando DNI...';
+    statusElement.className = 'dni-status validando';
+
+    const result = await consultarDNI(dni);
+
+    if (!result) {
+        statusElement.textContent = 'Error al validar DNI';
+        statusElement.className = 'dni-status error';
+        return true;
+    }
+
+    if (!result.success && result.error === 'DNI_ALREADY_EXISTS') {
+        statusElement.innerHTML = `
+            <div>${result.message}</div>
+            <div style="margin-top: 5px;">
+                <button id="btn-cargar-datos" onclick="cargarDatosExistentes()" style="background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-right: 5px;">
+                    Cargar Datos
+                </button>
+                <button id="btn-limpiar-formulario" onclick="limpiarFormulario()" style="background: #28a745; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
+                    Nuevo Registro
+                </button>
+            </div>
+        `;
+        statusElement.className = 'dni-status duplicado';
+        errorElement.textContent = `Registrado como: ${result.existingData.nombres} ${result.existingData.apellidos}`;
+        existingUserData = result.existingData;
+        return false;
+    }
+
+    if (result.success) {
+        statusElement.textContent = 'DNI disponible';
+        statusElement.className = 'dni-status disponible';
+        errorElement.textContent = '';
+        isUpdateMode = false;
+        existingUserData = null;
+        return true;
+    }
+
+    statusElement.textContent = 'Error al validar DNI';
+    statusElement.className = 'dni-status error';
+    console.error('Error al validar DNI:', result);
+    return true;
 }
 
 // Cargar datos existentes en el formulario
@@ -662,48 +571,50 @@ function cargarDatosExistentes() {
     mostrarMensaje('exito', 'Datos cargados para actualización. Puede modificar los campos necesarios.');
 }
 
-// Limpiar formulario y salir del modo actualización
-function limpiarFormulario() {
+// Reset completo del formulario y de las variables de modo. Usada por:
+// - limpiarFormulario() (botón "Nuevo Registro" cuando el DNI ya existe)
+// - procesarEnvioFormulario() (tras envío exitoso)
+// - handler btn-volver-verificacion (volver a la pantalla inicial)
+function resetFormulario() {
     document.getElementById('registroForm').reset();
     document.getElementById('preview').style.display = 'none';
     document.getElementById('ruc-info').style.display = 'none';
-    document.getElementById('dni-status').textContent = '';
-    document.getElementById('dni-status').className = 'dni-status';
-    document.getElementById('dni-error').textContent = '';
-    ocultarImagenExistente(); // Remover vista previa de imagen existente
-    
-    // Resetear variables
+
+    const dniStatus = document.getElementById('dni-status');
+    if (dniStatus) {
+        dniStatus.textContent = '';
+        dniStatus.className = 'dni-status';
+    }
+    const dniError = document.getElementById('dni-error');
+    if (dniError) dniError.textContent = '';
+
+    ocultarImagenExistente();
+
     isUpdateMode = false;
     existingUserData = null;
+    originalFormData = {};
     rucActivo = 'No';
     rucHabido = 'No';
-    
-    // Restaurar texto del botón
+
     const submitBtn = document.querySelector('button[type="submit"]');
-    submitBtn.textContent = 'Enviar Formulario';
-    
-    // Restaurar textos originales de la foto y required
+    if (submitBtn) submitBtn.textContent = 'Enviar Formulario';
+
     const fotoLabel = document.querySelector('label[for="foto"]');
-    if (fotoLabel) {
-        fotoLabel.innerHTML = 'Foto personal para credencial <span class="required"></span>';
-    }
-    
-    // IMPORTANTE: Restaurar el atributo required del campo foto
+    if (fotoLabel) fotoLabel.innerHTML = 'Foto personal para credencial <span class="required"></span>';
+
     const fotoInput = document.getElementById('foto');
-    if (fotoInput) {
-        fotoInput.setAttribute('required', '');
-    }
-    
-    const fileUploadText = document.querySelector('.file-upload-btn p');
-    if (fileUploadText) {
-        fileUploadText.textContent = 'Haz clic para subir tu foto';
-    }
-    
-    const fileUploadSmall = document.querySelector('.file-upload-btn small');
-    if (fileUploadSmall) {
-        fileUploadSmall.innerHTML = 'Formatos aceptados: JPG, PNG (Máx. 2MB)';
-    }
-    
+    if (fotoInput) fotoInput.setAttribute('required', '');
+
+    const uploadText = document.getElementById('upload-text');
+    if (uploadText) uploadText.textContent = 'Haz clic para subir tu foto';
+
+    const uploadHint = document.getElementById('upload-hint');
+    if (uploadHint) uploadHint.textContent = 'Formatos aceptados: JPG, PNG (Máx. 2 MB)';
+}
+
+// Limpiar formulario y salir del modo actualización
+function limpiarFormulario() {
+    resetFormulario();
     mostrarMensaje('exito', 'Formulario limpiado. Puede crear un nuevo registro.');
 }
 
@@ -720,7 +631,7 @@ async function consultarRUC(ruc) {
     infoElement.style.display = 'none';
     
     try {
-        const response = await fetch(`https://dniruc.apisperu.com/api/v1/ruc/${ruc}?token=${API_TOKEN}`);
+        const response = await fetch(`${RUC_API_URL}/${ruc}`);
         const data = await response.json();
         
         if (data.razonSocial) {
@@ -741,22 +652,24 @@ async function consultarRUC(ruc) {
     }
 }
 
-// Enviar datos al servidor
+// Enviar datos al backend propio, que a su vez los reenvía al Apps Script.
+// A diferencia del antiguo mode:'no-cors', ahora sí podemos leer la respuesta real.
 async function enviarFormulario(formData) {
     try {
-        const response = await fetch(SCRIPT_URL, {
+        const response = await fetch(SUBMIT_URL, {
             method: 'POST',
-            mode: 'no-cors',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(formData)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData),
         });
-        
-        // Con no-cors, asumimos que fue exitoso si no hubo error
-        return { success: true };
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            return { success: false, error: data.error || `HTTP ${response.status}` };
+        }
+        // El Apps Script devuelve { success, ... } — respetamos su shape si viene.
+        if (typeof data.success === 'boolean') return data;
+        return { success: true, ...data };
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error enviando formulario:', error);
         return { success: false, error: 'Error de conexión' };
     }
 }
@@ -802,135 +715,8 @@ function mostrarModalConfirmacionTallas(tallaCasaca, tallaPantalon, callback) {
         </div>
     `;
     
-    // Agregar estilos del modal si no existen
-    if (!document.getElementById('modal-styles')) {
-        const modalStyles = document.createElement('style');
-        modalStyles.id = 'modal-styles';
-        modalStyles.textContent = `
-            .modal-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 9999;
-                animation: fadeIn 0.3s ease;
-            }
-            .modal-content {
-                background: white;
-                border-radius: 12px;
-                padding: 0;
-                max-width: 450px;
-                width: 90%;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-                animation: slideIn 0.3s ease;
-            }
-            .modal-header {
-                background: #007bff;
-                color: white;
-                padding: 20px;
-                border-radius: 12px 12px 0 0;
-                position: relative;
-            }
-            .modal-header h3 {
-                margin: 0;
-                font-size: 1.3em;
-                margin-bottom: 8px;
-            }
-            .tipo-talla-badge {
-                display: inline-block;
-                background: rgba(255, 255, 255, 0.2);
-                padding: 4px 12px;
-                border-radius: 20px;
-                font-size: 0.9em;
-                font-weight: bold;
-                border: 1px solid rgba(255, 255, 255, 0.3);
-            }
-            .modal-body {
-                padding: 25px;
-            }
-            .modal-body p {
-                margin-bottom: 15px;
-                color: #333;
-            }
-            .tallas-confirmacion {
-                background: #f8f9fa;
-                border: 2px solid #007bff;
-                border-radius: 8px;
-                padding: 20px;
-                margin: 20px 0;
-            }
-            .talla-item {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 10px 0;
-                border-bottom: 1px solid #dee2e6;
-            }
-            .talla-item:last-child {
-                border-bottom: none;
-            }
-            .talla-value {
-                background: #007bff;
-                color: white;
-                padding: 5px 15px;
-                border-radius: 20px;
-                font-weight: bold;
-                font-size: 1.1em;
-            }
-            .modal-note {
-                color: #ff6b6b;
-                font-size: 0.9em;
-                text-align: center;
-                margin-top: 15px;
-            }
-            .modal-footer {
-                display: flex;
-                justify-content: space-between;
-                padding: 20px;
-                border-top: 1px solid #dee2e6;
-                gap: 10px;
-            }
-            .btn-modal {
-                flex: 1;
-                padding: 12px 20px;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: all 0.3s;
-                font-size: 1em;
-            }
-            .btn-cancel {
-                background: #6c757d;
-                color: white;
-            }
-            .btn-cancel:hover {
-                background: #5a6268;
-            }
-            .btn-confirm {
-                background: #28a745;
-                color: white;
-            }
-            .btn-confirm:hover {
-                background: #218838;
-            }
-            @keyframes fadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
-            }
-            @keyframes slideIn {
-                from { transform: translateY(-30px); opacity: 0; }
-                to { transform: translateY(0); opacity: 1; }
-            }
-        `;
-        document.head.appendChild(modalStyles);
-    }
-    
+    // Estilos del modal definidos en styles.css (.modal-overlay, .modal-content, etc.)
+
     // Agregar modal al DOM
     document.body.appendChild(modal);
     
@@ -1098,24 +884,12 @@ async function procesarEnvioFormulario(form) {
         const resultado = await enviarFormulario(formData);
         
         if (resultado.success) {
-            const mensajeExito = isUpdateMode ? 'Datos actualizados exitosamente' : 'Registro completado exitosamente';
-            mostrarMensaje('exito', mensajeExito);
-            
-            // Limpiar formulario después de éxito
-            form.reset();
-            document.getElementById('preview').style.display = 'none';
-            document.getElementById('ruc-info').style.display = 'none';
-            document.getElementById('dni-status').textContent = '';
-            ocultarImagenExistente(); // Remover vista previa de imagen existente
-            
-            // Si estaba en modo actualización, volver a pantalla de verificación
             const wasUpdateMode = isUpdateMode;
-            
-            // Resetear variables de modo
-            isUpdateMode = false;
-            existingUserData = null;
-            originalFormData = {};
-            
+            const mensajeExito = wasUpdateMode ? 'Datos actualizados exitosamente' : 'Registro completado exitosamente';
+            mostrarMensaje('exito', mensajeExito);
+
+            resetFormulario();
+
             if (wasUpdateMode) {
                 setTimeout(() => {
                     document.getElementById('dni-verification-screen').style.display = 'block';
@@ -1130,8 +904,8 @@ async function procesarEnvioFormulario(form) {
         mostrarMensaje('error', 'Error: ' + error.message);
     } finally {
         submitBtn.disabled = false;
-        const btnText = isUpdateMode ? 'Actualizar Registro' : 'Enviar Formulario';
-        submitBtn.textContent = btnText;
+        // resetFormulario() ya dejó el texto por defecto; si seguimos en update mode (fallo), reponerlo
+        submitBtn.textContent = isUpdateMode ? 'Actualizar Registro' : 'Enviar Formulario';
     }
 }
 
@@ -1336,63 +1110,25 @@ function convertToPreviewUrl(url) {
 }
 
 // Función para verificar DNI en pantalla inicial
-function verificarDNIInicial(dni) {
-    return new Promise((resolve) => {
-        const statusElement = document.getElementById('verification-status');
-        
-        if (dni.length !== 8) {
-            statusElement.innerHTML = '<div style="color: #e74c3c;">El DNI debe tener 8 dígitos</div>';
-            resolve(null);
-            return;
-        }
-        
-        statusElement.innerHTML = '<div style="color: #3498db;">Verificando DNI...</div>';
-        
-        // Crear callback único
-        const callbackName = 'verifyCallback' + Date.now();
-        
-        // Definir callback global
-        window[callbackName] = function(result) {
-            // Limpiar después de un pequeño delay para asegurar que se ejecute
-            setTimeout(() => {
-                if (document.head.contains(script)) {
-                    document.head.removeChild(script);
-                }
-                delete window[callbackName];
-            }, 100);
+async function verificarDNIInicial(dni) {
+    const statusElement = document.getElementById('verification-status');
 
-            statusElement.innerHTML = '';
-            resolve(result);
-        };
+    if (dni.length !== 8) {
+        statusElement.innerHTML = '<div style="color: #e74c3c;">El DNI debe tener 8 dígitos</div>';
+        return null;
+    }
 
-        // Crear script tag para JSONP
-        const script = document.createElement('script');
-        script.src = `${SCRIPT_URL}?dni=${dni}&callback=${callbackName}`;
-        script.onerror = function() {
-            statusElement.innerHTML = '<div style="color: #e74c3c;">Error al verificar DNI</div>';
-            setTimeout(() => {
-                if (document.head.contains(script)) {
-                    document.head.removeChild(script);
-                }
-                delete window[callbackName];
-            }, 100);
-            resolve(null);
-        };
+    statusElement.innerHTML = '<div style="color: #3498db;">Verificando DNI...</div>';
 
-        document.head.appendChild(script);
-        
-        // Timeout de seguridad
-        setTimeout(() => {
-            if (window[callbackName]) {
-                statusElement.innerHTML = '<div style="color: #e74c3c;">Timeout - No se recibió respuesta</div>';
-                if (document.head.contains(script)) {
-                    document.head.removeChild(script);
-                }
-                delete window[callbackName];
-                resolve(null);
-            }
-        }, 10000);
-    });
+    const result = await consultarDNI(dni);
+
+    if (result === null) {
+        statusElement.innerHTML = '<div style="color: #e74c3c;">Error o timeout al verificar DNI</div>';
+        return null;
+    }
+
+    statusElement.innerHTML = '';
+    return result;
 }
 
 // Función para mostrar información del usuario existente
@@ -1652,64 +1388,29 @@ document.getElementById('btn-nuevo-registro').addEventListener('click', function
 
 // Botón volver a verificación
 document.getElementById('btn-volver-verificacion').addEventListener('click', function() {
-    // Limpiar formulario
-    document.getElementById('registroForm').reset();
-    document.getElementById('preview').style.display = 'none';
-    document.getElementById('ruc-info').style.display = 'none';
-    document.getElementById('dni-status').textContent = '';
-    document.getElementById('dni-error').textContent = '';
-    
+    resetFormulario();
+
     // Habilitar todos los campos
     const inputs = document.querySelectorAll('#registroForm input, #registroForm select, #registroForm textarea');
     inputs.forEach(input => input.disabled = false);
-    
+
     // Mostrar botón de envío
-    document.querySelector('button[type="submit"]').style.display = 'inline-block';
-    
-    // Resetear variables
-    isUpdateMode = false;
-    existingUserData = null;
+    const submitBtn = document.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.style.display = 'inline-block';
+
+    // currentUserData no lo toca resetFormulario (es específico de esta pantalla)
     currentUserData = null;
-    rucActivo = 'No';
-    rucHabido = 'No';
-    
+
     // Limpiar pantalla de verificación
     document.getElementById('dni-verificacion').value = '';
     document.getElementById('verification-status').innerHTML = '';
     document.getElementById('verification-result').style.display = 'none';
     document.getElementById('new-user-result').style.display = 'none';
-    
+
     // Limpiar elementos de foto
-    const photoElements = document.querySelectorAll('.photo-placeholder, .photo-button');
-    photoElements.forEach(element => element.remove());
-    
+    document.querySelectorAll('.photo-placeholder, .photo-button').forEach(el => el.remove());
+
     // Mostrar pantalla de verificación
     document.getElementById('dni-verification-screen').style.display = 'block';
     document.getElementById('registroForm').style.display = 'none';
-    
-    // Restaurar texto del botón
-    const submitBtn = document.querySelector('button[type="submit"]');
-    submitBtn.textContent = 'Enviar Formulario';
-    
-    // Restaurar textos originales de la foto y required
-    const fotoLabel = document.querySelector('label[for="foto"]');
-    if (fotoLabel) {
-        fotoLabel.innerHTML = 'Foto personal para credencial <span class="required"></span>';
-    }
-    
-    // IMPORTANTE: Restaurar el atributo required del campo foto
-    const fotoInput = document.getElementById('foto');
-    if (fotoInput) {
-        fotoInput.setAttribute('required', '');
-    }
-    
-    const fileUploadText = document.querySelector('.file-upload-btn p');
-    if (fileUploadText) {
-        fileUploadText.textContent = 'Haz clic para subir tu foto';
-    }
-    
-    const fileUploadSmall = document.querySelector('.file-upload-btn small');
-    if (fileUploadSmall) {
-        fileUploadSmall.innerHTML = 'Formatos aceptados: JPG, PNG (Máx. 2MB)';
-    }
 });
