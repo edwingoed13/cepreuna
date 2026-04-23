@@ -354,9 +354,12 @@
                 <div class="ui-card-body">
                     <!-- Contenedor de foto existente (modo actualización) -->
                     <div id="existing-photo-container" class="hidden mb-4 rounded-lg border border-primary-200 bg-primary-50/60 p-4">
-                        <p class="text-sm font-medium text-gray-700 mb-2">Foto actual registrada:</p>
-                        <img id="current-photo" src="" alt="Foto actual" class="mx-auto rounded-lg shadow max-w-xs mb-3">
-                        <p class="text-xs text-gray-500 text-center">Puedes mantener esta foto o subir una nueva.</p>
+                        <p class="text-sm font-medium text-gray-700 mb-3 text-center">Foto actual registrada</p>
+                        <div class="flex justify-center">
+                            <img id="current-photo" src="" alt="Foto actual"
+                                 class="h-56 w-56 rounded-lg object-cover shadow-md ring-1 ring-gray-200 bg-gray-100">
+                        </div>
+                        <p class="text-xs text-gray-500 text-center mt-3">Puedes mantener esta foto o subir una nueva.</p>
                     </div>
 
                     <!-- Área de subida -->
