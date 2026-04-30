@@ -129,6 +129,20 @@
       }
     },
     {
+      "src": "/informe-admin-1",
+      "status": 301,
+      "headers": {
+        "Location": "https://docs.google.com/document/d/1dgButtgOJHWTbob6gQM4ao-TWYOj1Wf5/export?format=docx"
+      }
+    },
+    {
+      "src": "/informe-admin-2",
+      "status": 301,
+      "headers": {
+        "Location": "https://docs.google.com/document/d/1CI80lBbi6P1OLNv3rgxSOZitx0TzsuPL/export?format=docx"
+      }
+    },
+    {
       "src": "/(dashboard|curso|videos|materiales|certificado)",
       "dest": "server.js",
       "headers": {
