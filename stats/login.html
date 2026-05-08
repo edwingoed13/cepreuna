@@ -83,10 +83,10 @@
                 const data = await response.json();
 
                 if (response.ok && data.success) {
-                    // Guardar sesión simple en localStorage
+                    // Guardar JWT real + datos del usuario (incluye role y grupos_count)
                     localStorage.setItem('stats_session', JSON.stringify({
                         user: data.user,
-                        token: 'valid_session_token_' + Date.now() // Simple placeholder
+                        token: data.token
                     }));
                     window.location.href = '/stats';
                 } else {

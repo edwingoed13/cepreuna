@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>CEPREUNA - Alumnos · Reporte de Pagos</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#003366",
+                        "primary-light": "#004080",
+                        "primary-blue": "#0381d9",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#0f1923",
+                        "estado-pagada": "#66bb6a",
+                        "estado-parcial": "#f4ff81",
+                        "estado-sinpagar": "#ef5350",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    }
+                },
+            },
+        }
+    </script>
+    <style>
+        .sidebar-item-active {
+            background-color: rgba(0, 51, 102, 0.1);
+            color: #003366;
+            border-right: 4px solid #003366;
+        }
+        .dark .sidebar-item-active {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            border-right-color: #fff;
+        }
+        @media (max-width: 1024px) {
+            .sidebar { display: none; }
+        }
+        .cell-pagada    { background-color: #66bb6a; color: #0a3d10; }
+        .cell-parcial   { background-color: #f4ff81; color: #4a4400; }
+        .cell-sinpagar  { background-color: #ef5350; color: #4a0000; }
+        .table-fixed-head thead th {
+            position: sticky; top: 0; z-index: 5;
+            background-color: #f1f5f9;
+        }
+        .dark .table-fixed-head thead th { background-color: #1e293b; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <script>
+        const sessionDataString = localStorage.getItem('stats_session');
+        if (!sessionDataString) {
+            window.location.href = '/stats/login';
+        }
+        const sessionData = JSON.parse(sessionDataString);
+        // Sin token → forzar relogin (sesiones viejas con placeholder no sirven)
+        if (!sessionData || !sessionData.token || sessionData.token.startsWith('valid_session_token_')) {
+            localStorage.removeItem('stats_session');
+            window.location.href = '/stats/login';
+        }
+    </script>
+
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex">
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white">
+                    <span class="material-symbols-outlined text-2xl">school</span>
+                </div>
+                <div>
+                    <h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1>
+                    <p class="text-slate-500 text-[10px] font-medium uppercase tracking-widest mt-1">Estadísticas</p>
+                </div>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-1">
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats">
+                    <span class="material-symbols-outlined">dashboard</span>
+                    <span class="font-medium">Resumen</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes">
+                    <span class="material-symbols-outlined">description</span>
+                    <span class="font-medium">Reportes</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/alumnos">
+                    <span class="material-symbols-outlined">group</span>
+                    <span class="font-medium">Alumnos</span>
+                </a>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3 p-2">
+                    <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold" id="userInitial">A</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold truncate" id="userNameDisplay">Admin User</p>
+                        <p class="text-[10px] text-slate-500 truncate" id="userEmailDisplay">admin@unap.edu.pe</p>
+                    </div>
+                    <button id="logoutBtn" class="text-slate-400 hover:text-red-500 transition-colors">
+                        <span class="material-symbols-outlined text-sm">logout</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 lg:px-8 sticky top-0 z-10">
+                <div class="flex items-center gap-3 lg:hidden">
+                    <div class="bg-primary text-white p-2 rounded-lg flex items-center justify-center">
+                        <span class="material-symbols-outlined text-xl">school</span>
+                    </div>
+                    <h1 class="text-lg font-bold text-slate-800 dark:text-white">CEPREUNA</h1>
+                </div>
+                <div class="hidden lg:flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary dark:text-white">group</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Alumnos · Reporte de Pagos</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <p class="text-[10px] text-slate-500 hidden sm:block">FIFO · <span id="lastUpdate">Cargando...</span></p>
+                    <button id="refreshBtn" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
+                        <span class="material-symbols-outlined text-xl">refresh</span>
+                    </button>
+                    <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600 transition-colors" title="Cerrar Sesión">
+                        <span class="material-symbols-outlined text-xl">logout</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="p-6 lg:p-8 space-y-6 max-w-[1400px] mx-auto w-full">
+                <!-- KPIs -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Total alumnos</p>
+                        <p class="text-2xl font-black text-primary dark:text-white" id="kpiTotal">—</p>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cuotas pagadas</p>
+                        <p class="text-2xl font-black text-emerald-600" id="kpiPagadas">—</p>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cuotas parciales</p>
+                        <p class="text-2xl font-black text-amber-500" id="kpiParciales">—</p>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cuotas sin pagar</p>
+                        <p class="text-2xl font-black text-red-500" id="kpiSinPagar">—</p>
+                    </div>
+                </div>
+
+                <!-- Filtros -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">filter_alt</span> Filtros
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+                        <div class="lg:col-span-2">
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Buscar (DNI o nombre)</label>
+                            <input id="filtroQ" type="text" placeholder="Ej: 60836542 o Agüero"
+                                class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"/>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Estado inscripción</label>
+                            <select id="filtroEstado" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+                                <option value="">Todos</option>
+                                <option value="1">Inscrito</option>
+                                <option value="0">PreInscrito</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 1</label>
+                            <select data-cuota="1" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+                                <option value="">— sin filtro —</option>
+                                <option value="0">Solo PAGADA</option>
+                                <option value="1">No PAGADA</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 2</label>
+                            <select data-cuota="2" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+                                <option value="">— sin filtro —</option>
+                                <option value="0">Solo PAGADA</option>
+                                <option value="1">No PAGADA</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 3</label>
+                            <select data-cuota="3" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+                                <option value="">— sin filtro —</option>
+                                <option value="0">Solo PAGADA</option>
+                                <option value="1">No PAGADA</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 4</label>
+                            <select data-cuota="4" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+                                <option value="">— sin filtro —</option>
+                                <option value="0">Solo PAGADA</option>
+                                <option value="1">No PAGADA</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 mt-4">
+                        <button id="aplicarBtn" class="bg-primary hover:bg-primary-light text-white text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg flex items-center gap-2">
+                            <span class="material-symbols-outlined text-base">search</span> Aplicar
+                        </button>
+                        <button id="limpiarBtn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg">
+                            Limpiar
+                        </button>
+                        <div class="flex items-center gap-3 ml-auto text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#66bb6a"></span> Pagada</span>
+                            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#f4ff81"></span> Parcial</span>
+                            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#ef5350"></span> Sin pagar</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grupos -->
+                <div id="gruposPanel" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6 hidden">
+                    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                        <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                            <span class="material-symbols-outlined text-base">groups</span>
+                            Grupos asignados <span id="gruposPanelCount" class="text-primary dark:text-white">(0)</span>
+                        </h3>
+                        <div class="flex items-center gap-2">
+                            <input id="gruposBuscar" type="text" placeholder="Filtrar por nombre…"
+                                class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/40"/>
+                            <button id="gruposLimpiarSel" class="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-primary px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                                Limpiar selección
+                            </button>
+                        </div>
+                    </div>
+                    <div id="gruposBotones" class="flex flex-wrap gap-2 max-h-72 overflow-y-auto pr-1"></div>
+                </div>
+
+                <!-- Tabla -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                    <div class="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+                        <p class="text-xs font-bold uppercase tracking-widest text-slate-500" id="contador">Cargando…</p>
+                        <div class="flex items-center gap-2">
+                            <label class="text-[10px] font-bold uppercase text-slate-500">Filas / página</label>
+                            <select id="pageSize" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs">
+                                <option value="25">25</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="250">250</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="overflow-auto max-h-[65vh]">
+                        <table class="w-full text-[11px] table-fixed-head">
+                            <thead>
+                                <tr class="text-left text-slate-600 dark:text-slate-400 uppercase tracking-tight">
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap">DNI</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Apellidos y Nombres</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Sede</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Área</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Turno</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Grupo</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Tipo Col.</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">1ra</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">2da</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">3ra</th>
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">4ta</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody" class="divide-y divide-slate-100 dark:divide-slate-800">
+                                <tr><td colspan="11" class="text-center py-12 text-slate-400 text-xs">Cargando…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="flex items-center justify-between p-3 border-t border-slate-100 dark:border-slate-800">
+                        <button id="prevPage" class="px-3 py-1.5 rounded-lg text-xs font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40">‹ Anterior</button>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500" id="pageInfo">—</p>
+                        <button id="nextPage" class="px-3 py-1.5 rounded-lg text-xs font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-40">Siguiente ›</button>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="p-8 text-center text-slate-400">
+                <p class="text-xs font-bold uppercase tracking-widest">© 2026 CEPREUNA</p>
+                <p class="text-[10px] mt-1 uppercase tracking-tight">Reporte FIFO · Centro Pre Universitario UNA</p>
+            </footer>
+        </main>
+
+        <!-- Bottom Nav (Mobile) -->
+        <nav class="fixed bottom-0 left-0 right-0 bg-white dark:bg-background-dark border-t border-slate-200 dark:border-slate-800 px-6 pb-6 pt-3 flex justify-between items-center z-50 lg:hidden shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
+            <a class="flex flex-col items-center gap-1 text-slate-400" href="/stats">
+                <span class="material-symbols-outlined">dashboard</span>
+                <span class="text-[9px] font-bold uppercase">Resumen</span>
+            </a>
+            <a class="flex flex-col items-center gap-1 text-slate-400" href="/stats/reportes">
+                <span class="material-symbols-outlined">bar_chart</span>
+                <span class="text-[9px] font-bold uppercase">Reportes</span>
+            </a>
+            <a class="flex flex-col items-center gap-1 text-primary dark:text-white" href="/stats/alumnos">
+                <span class="material-symbols-outlined font-black">group</span>
+                <span class="text-[9px] font-bold uppercase">Alumnos</span>
+            </a>
+            <a class="flex flex-col items-center gap-1 text-slate-400" href="/">
+                <span class="material-symbols-outlined">home</span>
+                <span class="text-[9px] font-bold uppercase">Portal</span>
+            </a>
+        </nav>
+    </div>
+
+    <script>
+        if (sessionData && sessionData.user) {
+            const u = sessionData.user;
+            document.getElementById('userNameDisplay').textContent = u.name || 'Usuario';
+            document.getElementById('userEmailDisplay').textContent = u.email || 'admin@unap.edu.pe';
+            document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('stats_session');
+            window.location.href = '/stats/login';
+        }
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        document.querySelectorAll('.logout-trigger').forEach(btn => btn.addEventListener('click', handleLogout));
+
+        // Estado
+        let registros = [];           // todo lo que devolvió el servidor
+        let pagina = 1;
+        let pageSize = 50;
+        let gruposResumen = [];       // [{id, label, count}] derivado de registros
+        const gruposSeleccionados = new Set();  // ids seleccionados (filtro client)
+        let gruposBuscarTerm = '';
+
+        const fmtMoney = (v) => {
+            if (v === null || v === undefined) return '—';
+            const n = Number(v);
+            if (Number.isNaN(n)) return '—';
+            return n.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        };
+
+        const claseEstado = (estado) => {
+            if (estado === 'PAGADA') return 'cell-pagada';
+            if (estado === 'PARCIAL') return 'cell-parcial';
+            if (estado === 'SIN_PAGAR') return 'cell-sinpagar';
+            return '';
+        };
+
+        function buildQueryString() {
+            const params = new URLSearchParams();
+            const q = document.getElementById('filtroQ').value.trim();
+            const estado = document.getElementById('filtroEstado').value;
+            if (q) params.set('q', q);
+            if (estado) params.set('estado', estado);
+            document.querySelectorAll('.filtroCuota').forEach(sel => {
+                if (sel.value) params.set('cuota' + sel.dataset.cuota, sel.value);
+            });
+            const s = params.toString();
+            return s ? '?' + s : '';
+        }
+
+        function derivarGrupos(rows) {
+            // Cada grupo_aulas_id = 1 botón. Uso sede_aula (sede real del aula
+            // vía aulas→locales→sedes), no la sede de la inscripción del alumno.
+            const map = new Map();
+            for (const r of rows) {
+                if (r.grupo_aulas_id == null) continue;
+                const id = Number(r.grupo_aulas_id);
+                if (map.has(id)) { map.get(id).count++; continue; }
+                const partes = [r.grupo, r.area, r.turno].filter(Boolean);
+                const label = partes.length ? partes.join(' · ') : `#${id}`;
+                const sede = r.sede_aula || r.sede || '';
+                map.set(id, { key: id, id, label, sede, ids: [id], count: 1 });
+            }
+            gruposResumen = [...map.values()].sort((a, b) => {
+                if (a.sede !== b.sede) return a.sede.localeCompare(b.sede, 'es');
+                return a.label.localeCompare(b.label, 'es');
+            });
+        }
+
+        function pintarGruposBotones() {
+            const panel = document.getElementById('gruposPanel');
+            const cont = document.getElementById('gruposBotones');
+            if (gruposResumen.length === 0) {
+                panel.classList.add('hidden');
+                return;
+            }
+            panel.classList.remove('hidden');
+            document.getElementById('gruposPanelCount').textContent = `(${gruposResumen.length})`;
+
+            // Limpiar selecciones que ya no aplican (por filtros nuevos)
+            const validKeys = new Set(gruposResumen.map(g => g.key));
+            for (const k of gruposSeleccionados) {
+                if (!validKeys.has(k)) gruposSeleccionados.delete(k);
+            }
+
+            const term = gruposBuscarTerm.trim().toLowerCase();
+            const filtrados = term
+                ? gruposResumen.filter(g =>
+                    g.label.toLowerCase().includes(term) || g.sede.toLowerCase().includes(term))
+                : gruposResumen;
+
+            cont.innerHTML = filtrados.map((g, i) => {
+                const sel = gruposSeleccionados.has(g.key);
+                const cls = sel
+                    ? 'bg-primary text-white border-primary'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-primary hover:text-primary';
+                return `
+                    <button type="button" data-grupo-idx="${gruposResumen.indexOf(g)}"
+                        class="grupo-btn flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${cls}">
+                        <span>${g.label}</span>
+                        <span class="text-[10px] font-bold ${sel ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-700'} px-1.5 py-0.5 rounded">${g.count}</span>
+                        ${g.sede ? `<span class="text-[9px] uppercase opacity-70">${g.sede}</span>` : ''}
+                    </button>`;
+            }).join('') || `<p class="text-xs text-slate-400 italic">Sin grupos que coincidan con "${gruposBuscarTerm}".</p>`;
+
+            cont.querySelectorAll('.grupo-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const idx = Number(btn.dataset.grupoIdx);
+                    const g = gruposResumen[idx];
+                    if (!g) return;
+                    if (gruposSeleccionados.has(g.key)) gruposSeleccionados.delete(g.key);
+                    else gruposSeleccionados.add(g.key);
+                    pintarGruposBotones();
+                    pagina = 1;
+                    pintarTabla();
+                });
+            });
+        }
+
+        function registrosFiltradosPorGrupo() {
+            if (gruposSeleccionados.size === 0) return registros;
+            // Aplanar todos los grupo_aulas_id de los grupos lógicos seleccionados
+            const allowed = new Set();
+            for (const g of gruposResumen) {
+                if (gruposSeleccionados.has(g.key)) {
+                    g.ids.forEach(id => allowed.add(id));
+                }
+            }
+            return registros.filter(r => allowed.has(Number(r.grupo_aulas_id)));
+        }
+
+        function pintarKPIs(rows) {
+            document.getElementById('kpiTotal').textContent = rows.length.toLocaleString('es-PE');
+            let pagadas = 0, parciales = 0, sin = 0;
+            for (const r of rows) {
+                ['estado_cuota1','estado_cuota2','estado_cuota3','estado_cuota4'].forEach(k => {
+                    if (r[k] === 'PAGADA') pagadas++;
+                    else if (r[k] === 'PARCIAL') parciales++;
+                    else if (r[k] === 'SIN_PAGAR') sin++;
+                });
+            }
+            document.getElementById('kpiPagadas').textContent = pagadas.toLocaleString('es-PE');
+            document.getElementById('kpiParciales').textContent = parciales.toLocaleString('es-PE');
+            document.getElementById('kpiSinPagar').textContent = sin.toLocaleString('es-PE');
+        }
+
+        function pintarTabla() {
+            const tbody = document.getElementById('tbody');
+            const filtrados = registrosFiltradosPorGrupo();
+            pintarKPIs(filtrados);
+            const total = filtrados.length;
+            if (total === 0) {
+                tbody.innerHTML = `<tr><td colspan="11" class="text-center py-12 text-slate-400 text-xs">Sin resultados con esos filtros.</td></tr>`;
+                document.getElementById('pageInfo').textContent = '0 / 0';
+                document.getElementById('contador').textContent = '0 alumnos';
+                document.getElementById('prevPage').disabled = true;
+                document.getElementById('nextPage').disabled = true;
+                return;
+            }
+
+            const totalPaginas = Math.max(1, Math.ceil(total / pageSize));
+            if (pagina > totalPaginas) pagina = totalPaginas;
+            const inicio = (pagina - 1) * pageSize;
+            const fin    = Math.min(inicio + pageSize, total);
+            const slice  = filtrados.slice(inicio, fin);
+
+            const filas = slice.map(r => `
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-3 py-2 font-mono whitespace-nowrap">${r.nro_documento || ''}</td>
+                        <td class="px-3 py-2 font-semibold whitespace-nowrap">${[r.paterno, r.materno, r.nombres].filter(Boolean).join(' ')}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${r.sede || ''}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${r.area || '—'}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${r.turno || '—'}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${r.grupo || '—'}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${r.tipo_colegio || ''}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota1)}">${fmtMoney(r.primera_mensualidad)}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota2)}">${fmtMoney(r.segunda_mensualidad)}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota3)}">${fmtMoney(r.tercera_mensualidad)}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota4)}">${fmtMoney(r.cuarta_mensualidad)}</td>
+                    </tr>
+                `).join('');
+
+            tbody.innerHTML = filas;
+            document.getElementById('pageInfo').textContent = `Página ${pagina} de ${totalPaginas} · mostrando ${inicio + 1}-${fin} de ${total}`;
+            document.getElementById('contador').textContent = `${total.toLocaleString('es-PE')} alumnos`;
+            document.getElementById('prevPage').disabled = pagina <= 1;
+            document.getElementById('nextPage').disabled = pagina >= totalPaginas;
+        }
+
+        async function cargar() {
+            try {
+                document.getElementById('tbody').innerHTML = `<tr><td colspan="11" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>`;
+                const resp = await fetch('/api/stats/reporte-pagos' + buildQueryString(), {
+                    headers: { 'Authorization': 'Bearer ' + sessionData.token }
+                });
+                if (resp.status === 401) {
+                    localStorage.removeItem('stats_session');
+                    window.location.href = '/stats/login';
+                    return;
+                }
+                const data = await resp.json();
+                registros = data.registros || [];
+                derivarGrupos(registros);
+                pintarGruposBotones();
+                pagina = 1;
+                pintarTabla();
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('es-PE');
+            } catch (e) {
+                console.error(e);
+                document.getElementById('tbody').innerHTML = `<tr><td colspan="11" class="text-center py-12 text-red-500 text-xs">Error al cargar el reporte.</td></tr>`;
+            }
+        }
+
+        // Eventos
+        document.getElementById('aplicarBtn').addEventListener('click', cargar);
+        document.getElementById('refreshBtn').addEventListener('click', cargar);
+        document.getElementById('limpiarBtn').addEventListener('click', () => {
+            document.getElementById('filtroQ').value = '';
+            document.getElementById('filtroEstado').value = '';
+            document.querySelectorAll('.filtroCuota').forEach(s => s.value = '');
+            cargar();
+        });
+        document.getElementById('filtroQ').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') cargar();
+        });
+        document.getElementById('pageSize').addEventListener('change', (e) => {
+            pageSize = parseInt(e.target.value, 10) || 50;
+            pagina = 1;
+            pintarTabla();
+        });
+        document.getElementById('prevPage').addEventListener('click', () => { if (pagina > 1) { pagina--; pintarTabla(); } });
+        document.getElementById('nextPage').addEventListener('click', () => { pagina++; pintarTabla(); });
+        document.getElementById('gruposLimpiarSel').addEventListener('click', () => {
+            gruposSeleccionados.clear();
+            pintarGruposBotones();
+            pagina = 1;
+            pintarTabla();
+        });
+        document.getElementById('gruposBuscar').addEventListener('input', (e) => {
+            gruposBuscarTerm = e.target.value || '';
+            pintarGruposBotones();
+        });
+
+        cargar();
+    </script>
+</body>
+</html>

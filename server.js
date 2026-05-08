@@ -4,7 +4,65 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
+
+// JWT secret para firmar tokens del panel /stats. En producción setear en .env.
+const JWT_SECRET = process.env.JWT_SECRET || 'cepreuna-stats-dev-secret-change-me';
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  JWT_SECRET no está definido en .env — usando fallback de desarrollo. NO usar en producción.');
+}
+const JWT_EXPIRES_IN = '8h';
+
+// Middleware: exige Authorization: Bearer <jwt> y agrega req.user = { sub, role, grupos }
+function requireStatsAuth(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) {
+    return res.status(401).json({ error: 'Token requerido', code: 'NO_TOKEN' });
+  }
+  try {
+    req.user = jwt.verify(m[1], JWT_SECRET);
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Token inválido o expirado', code: 'BAD_TOKEN' });
+  }
+}
+
+// Calcula los grupo_aulas_ids permitidos según rol del usuario.
+// Devuelve null si tiene acceso total (admin), [] si no tiene grupos asignados,
+// o un array de ids si está restringido.
+async function calcularGruposPermitidos(connection, userId, roleName) {
+  if (!roleName) return [];
+  if (roleName === 'Super Admin' || roleName === 'Administrador') return null;
+
+  if (roleName.startsWith('Auxiliar')) {
+    const [rows] = await connection.query(`
+      SELECT ag.grupo_aulas_id
+      FROM auxiliares a
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = a.id
+      WHERE a.users_id = ?
+    `, [userId]);
+    return rows.map(r => Number(r.grupo_aulas_id));
+  }
+
+  if (roleName === 'Coordinador Auxiliar') {
+    // OJO: en la BD la tabla `coordinador_grupos` tiene nombres engañosos:
+    //   - coordinador_id → users.id  (NO auxiliares.id)
+    //   - grupos_id      → grupo_aulas.id  (NO grupos.id)
+    // Este es el control fino: un coordinador puede supervisar solo un subset
+    // de los grupos de un auxiliar; la cadena auxiliar_coordinadores → auxiliar_grupos
+    // sobre-incluye grupos.
+    const [rows] = await connection.query(`
+      SELECT DISTINCT cg.grupos_id AS grupo_aulas_id
+      FROM coordinador_grupos cg
+      WHERE cg.coordinador_id = ?
+    `, [userId]);
+    return rows.map(r => Number(r.grupo_aulas_id));
+  }
+
+  return [];
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -97,6 +155,18 @@ app.get('/stats', (req, res) => {
 app.get('/stats/reportes', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'reportes', 'index.html'));
 });
+
+app.get('/stats/alumnos', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'alumnos', 'index.html'));
+});
+
+// SQL base del reporte de pagos (cargado una vez al iniciar; sin ORDER BY ni `;` final
+// para poder envolverlo en un SELECT * FROM (...) y aplicar filtros dinámicos.)
+const REPORTE_PAGOS_SQL_BASE = require('fs')
+  .readFileSync(require('path').join(__dirname, 'reporte-pagos.sql'), 'utf8')
+  .replace(/ORDER\s+BY[\s\S]*$/i, '')
+  .replace(/;\s*$/, '')
+  .trim();
 
 // Configuración de la base de datos
 const dbConfig = {
@@ -1960,6 +2030,75 @@ app.get('/api/stats-inscripciones/reporte-sedes', cacheMiddleware(300), async (r
   }
 });
 
+// 11. Reporte de Pagos Efectuados (FIFO) — alumnos
+//
+// Lee `reporte-pagos.sql` y aplica filtros opcionales:
+//   - estado: '0' (PreInscrito) | '1' (Inscrito)
+//   - cuotaN: '0' (PAGADA) | '1' (no PAGADA)  para N ∈ {1,2,3,4}
+//   - q: búsqueda libre por DNI o nombre completo
+//
+// El SQL base no tiene WHERE; lo envolvemos en `SELECT * FROM (...) AS t` para
+// poder filtrar por las columnas alias (estado_cuota1, etc.) sin tocar el SQL fuente.
+app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
+  let connection;
+  try {
+    const { estado, cuota1, cuota2, cuota3, cuota4, q } = req.query;
+    const { grupos: gruposPermitidos } = req.user;
+
+    // Si tiene una lista vacía de grupos, no puede ver nada.
+    if (Array.isArray(gruposPermitidos) && gruposPermitidos.length === 0) {
+      return res.json({ total: 0, registros: [], timestamp: new Date().toISOString() });
+    }
+
+    const conditions = [];
+    const params = [];
+
+    // Filtro por rol: si grupos es array (no admin), restringir a esos grupo_aulas_id
+    if (Array.isArray(gruposPermitidos)) {
+      const placeholders = gruposPermitidos.map(() => '?').join(',');
+      conditions.push(`grupo_aulas_id IN (${placeholders})`);
+      params.push(...gruposPermitidos);
+    }
+
+    if (estado === '0' || estado === '1') {
+      conditions.push('estado = ?');
+      params.push(estado);
+    }
+    const cuotaFilter = (val, col) => {
+      if (val === '0') conditions.push(`${col} = 'PAGADA'`);
+      else if (val === '1') conditions.push(`${col} <> 'PAGADA'`);
+    };
+    cuotaFilter(cuota1, 'estado_cuota1');
+    cuotaFilter(cuota2, 'estado_cuota2');
+    cuotaFilter(cuota3, 'estado_cuota3');
+    cuotaFilter(cuota4, 'estado_cuota4');
+
+    if (q && String(q).trim().length > 0) {
+      conditions.push("(nro_documento LIKE ? OR CONCAT_WS(' ', paterno, materno, nombres) LIKE ?)");
+      const term = `%${String(q).trim()}%`;
+      params.push(term, term);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT * FROM (${REPORTE_PAGOS_SQL_BASE}) AS t ${where} ORDER BY paterno, materno, nombres`;
+
+    connection = await pool.getConnection();
+    const [rows] = await connection.query(sql, params);
+    connection.release();
+
+    res.json({
+      total: rows.length,
+      registros: rows,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error reporte-pagos:', error);
+    res.status(500).json({ error: 'Error al generar reporte de pagos', message: error.message });
+  }
+});
+
 // ============ ENDPOINT DE AUTENTICACIÓN ============
 
 // Endpoint para autenticar participantes
@@ -2029,8 +2168,9 @@ app.post('/api/stats/login', async (req, res) => {
     return res.status(400).json({ error: 'Email y contraseña son requeridos' });
   }
 
+  let connection;
   try {
-    const connection = await pool.getConnection();
+    connection = await pool.getConnection();
 
     // Buscar usuario por email
     const [users] = await connection.query(
@@ -2038,9 +2178,8 @@ app.post('/api/stats/login', async (req, res) => {
       [email]
     );
 
-    connection.release();
-
     if (users.length === 0) {
+      connection.release();
       return res.status(401).json({ error: 'Usuario no encontrado o inactivo' });
     }
 
@@ -2052,20 +2191,53 @@ app.post('/api/stats/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, normalizedHash);
 
     if (!isMatch) {
+      connection.release();
       return res.status(401).json({ error: 'Contraseña incorrecta' });
     }
 
-    // Login exitoso
+    // Buscar rol asignado al usuario (Spatie permission). Tomamos el primero del guard 'web'.
+    const [roleRows] = await connection.query(`
+      SELECT r.id, r.name
+      FROM model_has_roles mhr
+      JOIN roles r ON r.id = mhr.role_id
+      WHERE mhr.model_id = ?
+        AND mhr.model_type LIKE '%User%'
+        AND r.guard_name = 'web'
+      ORDER BY r.id
+      LIMIT 1
+    `, [user.id]);
+    const role = roleRows[0]?.name || null;
+
+    // Resolver grupos permitidos según rol
+    const grupos = await calcularGruposPermitidos(connection, user.id, role);
+
+    connection.release();
+
+    if (!role) {
+      return res.status(403).json({ error: 'Usuario sin rol asignado' });
+    }
+
+    // Firmar JWT
+    const token = jwt.sign(
+      { sub: user.id, role, grupos },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
     res.json({
       success: true,
+      token,
       user: {
         id: user.id,
         name: user.name,
-        email: user.email
+        email: user.email,
+        role,
+        grupos_count: grupos === null ? null : grupos.length,
       }
     });
 
   } catch (error) {
+    if (connection) connection.release();
     console.error('Error en login stats:', error);
     res.status(500).json({ error: 'Error interno del servidor', message: error.message });
   }
