@@ -88,7 +88,10 @@
                         user: data.user,
                         token: data.token
                     }));
-                    window.location.href = '/stats';
+                    // Admin va al Resumen; auxiliares/coordinadores directo a /stats/alumnos
+                    const role = data.user?.role;
+                    const isAdmin = role === 'Administrador' || role === 'Super Admin';
+                    window.location.href = isAdmin ? '/stats' : '/stats/alumnos';
                 } else {
                     errorMessage.textContent = data.error || 'Error al iniciar sesión';
                     errorMessage.classList.remove('hidden');
@@ -102,10 +105,14 @@
             }
         });
 
-        // Check if already logged in
+        // Check if already logged in — admin va a Resumen, el resto a Alumnos
         const session = localStorage.getItem('stats_session');
         if (session) {
-            window.location.href = '/stats';
+            try {
+                const role = JSON.parse(session)?.user?.role;
+                const isAdmin = role === 'Administrador' || role === 'Super Admin';
+                window.location.href = isAdmin ? '/stats' : '/stats/alumnos';
+            } catch { window.location.href = '/stats/alumnos'; }
         }
     </script>
 </body>
