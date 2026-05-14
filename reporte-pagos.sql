@@ -66,24 +66,40 @@ SELECT
         WHEN COALESCE(t4.pagado,0) >= COALESCE(t4.monto,0) THEN 'PAGADA'
         WHEN COALESCE(t4.pagado,0) = 0 THEN 'SIN_PAGAR'
         ELSE 'PARCIAL'
-    END AS estado_cuota4
+    END AS estado_cuota4,
+
+    -- Flags: la modalidad/tipo_estudiante de la cuota difiere de la inscripción.
+    -- Esto delata alumnos que cambiaron de modalidad o tipo a mitad del ciclo:
+    -- la cuota se cobró bajo otra modalidad/tipo y queda registrada así en tarifa.
+    CASE WHEN t1.id IS NOT NULL AND (t1.modalidad <> i.modalidad OR t1.tipo_estudiante <> i.tipo_estudiante) THEN 1 ELSE 0 END AS cambio_mod_1,
+    CASE WHEN t2.id IS NOT NULL AND (t2.modalidad <> i.modalidad OR t2.tipo_estudiante <> i.tipo_estudiante) THEN 1 ELSE 0 END AS cambio_mod_2,
+    CASE WHEN t3.id IS NOT NULL AND (t3.modalidad <> i.modalidad OR t3.tipo_estudiante <> i.tipo_estudiante) THEN 1 ELSE 0 END AS cambio_mod_3,
+    CASE WHEN t4.id IS NOT NULL AND (t4.modalidad <> i.modalidad OR t4.tipo_estudiante <> i.tipo_estudiante) THEN 1 ELSE 0 END AS cambio_mod_4
 
 FROM inscripciones i
 JOIN estudiantes e ON e.id = i.estudiantes_id
 
--- Tarifas por cuota, filtradas por modalidad + tipo_estudiante de la inscripción
+-- Tarifas por cuota: JOIN solo por (estudiantes_id, nro_cuota).
+--
+-- Históricamente se filtraba también por modalidad + tipo_estudiante para
+-- "no mezclar periodos", pero hoy:
+--   - Hay un solo periodo activo (filtrado por WHERE i.periodos_id = 1).
+--   - 0 estudiantes tienen más de una fila de tarifa para la misma cuota
+--     (verificado con consulta de impacto), así que no hay riesgo de
+--     duplicación.
+--   - Alumnos que cambian de modalidad (presencial ↔ virtual) durante el
+--     ciclo dejan `inscripciones.modalidad` y `tarifa_estudiantes.modalidad`
+--     desincronizados. El filtro estricto los mostraba como SIN_PAGAR 0 en
+--     todas las cuotas. La cobranza real vive en `tarifa.pagado`, no
+--     depende de qué modalidad esté declarada.
 LEFT JOIN tarifa_estudiantes t1
     ON t1.estudiantes_id = e.id AND t1.nro_cuota = 1
-   AND t1.modalidad = i.modalidad AND t1.tipo_estudiante = i.tipo_estudiante
 LEFT JOIN tarifa_estudiantes t2
     ON t2.estudiantes_id = e.id AND t2.nro_cuota = 2
-   AND t2.modalidad = i.modalidad AND t2.tipo_estudiante = i.tipo_estudiante
 LEFT JOIN tarifa_estudiantes t3
     ON t3.estudiantes_id = e.id AND t3.nro_cuota = 3
-   AND t3.modalidad = i.modalidad AND t3.tipo_estudiante = i.tipo_estudiante
 LEFT JOIN tarifa_estudiantes t4
     ON t4.estudiantes_id = e.id AND t4.nro_cuota = 4
-   AND t4.modalidad = i.modalidad AND t4.tipo_estudiante = i.tipo_estudiante
 
 -- Catálogos de presentación
 JOIN sedes s ON s.id = i.sedes_id

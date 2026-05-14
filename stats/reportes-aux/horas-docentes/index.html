@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>CEPREUNA - Horas Pago Docentes</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: { extend: { colors: {
+                "primary": "#003366", "primary-light": "#004080",
+                "background-light": "#f5f7f8", "background-dark": "#0f1923",
+            }, fontFamily: { "display": ["Inter", "sans-serif"] } } },
+        }
+    </script>
+    <style>
+        .sidebar-item-active {
+            background-color: rgba(0, 51, 102, 0.1); color: #003366; border-right: 4px solid #003366;
+        }
+        .dark .sidebar-item-active { background-color: rgba(255, 255, 255, 0.05); color: #fff; border-right-color: #fff; }
+        @media (max-width: 1024px) { .sidebar { display: none; } }
+        select[multiple] { min-height: 80px; }
+        .table-fixed-head thead th {
+            position: sticky; top: 0; z-index: 5; background-color: #f1f5f9;
+        }
+        .dark .table-fixed-head thead th { background-color: #1e293b; }
+        /* Sortable column headers */
+        th[data-sort] { cursor: pointer; user-select: none; }
+        th[data-sort]:hover { background-color: #e2e8f0; }
+        .dark th[data-sort]:hover { background-color: #334155; }
+        .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.3; font-size: 9px; vertical-align: middle; }
+        .sort-arrow.active { opacity: 1; color: #003366; }
+        .dark .sort-arrow.active { color: #fff; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <script>
+        const sessionDataString = localStorage.getItem('stats_session');
+        if (!sessionDataString) window.location.href = '/stats/login';
+        const sessionData = JSON.parse(sessionDataString);
+        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_')) {
+            localStorage.removeItem('stats_session');
+            window.location.href = '/stats/login';
+        }
+        // Solo administradores pueden acceder a /stats/reportes-aux
+        const _role = sessionData?.user?.role;
+        if (_role !== 'Administrador' && _role !== 'Super Admin') {
+            alert('Acceso restringido a administradores.');
+            window.location.href = '/stats';
+        }
+    </script>
+
+    <div class="flex h-screen overflow-hidden">
+        <aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex">
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white">
+                    <span class="material-symbols-outlined text-2xl">school</span>
+                </div>
+                <div>
+                    <h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1>
+                    <p class="text-slate-500 text-[10px] font-medium uppercase tracking-widest mt-1">Estadísticas</p>
+                </div>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-1">
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats"><span class="material-symbols-outlined">dashboard</span><span class="font-medium">Resumen</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes"><span class="material-symbols-outlined">description</span><span class="font-medium">Reportes</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos"><span class="material-symbols-outlined">group</span><span class="font-medium">Alumnos</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/reportes-aux"><span class="material-symbols-outlined">supervisor_account</span><span class="font-medium">Reportes auxiliares</span></a>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3 p-2">
+                    <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold" id="userInitial">A</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold truncate" id="userNameDisplay">Admin User</p>
+                        <p class="text-[10px] text-slate-500 truncate" id="userEmailDisplay">admin@unap.edu.pe</p>
+                    </div>
+                    <button id="logoutBtn" class="text-slate-400 hover:text-red-500 transition-colors">
+                        <span class="material-symbols-outlined text-sm">logout</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 lg:px-8 sticky top-0 z-10">
+                <div class="flex items-center gap-2">
+                    <a href="/stats/reportes-aux" class="text-slate-400 hover:text-primary"><span class="material-symbols-outlined">arrow_back</span></a>
+                    <span class="material-symbols-outlined text-primary dark:text-white">payments</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Horas pago por docentes</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600 transition-colors" title="Cerrar Sesión">
+                        <span class="material-symbols-outlined text-xl">logout</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto w-full">
+                <!-- Filtros -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">filter_alt</span> Filtros
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Desde</label>
+                            <input id="fDesde" type="date" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"/>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Hasta</label>
+                            <input id="fHasta" type="date" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"/>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Tipo de carga</label>
+                            <select id="fTipoCarga" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+                                <option value="">Ambos (titular + suplente)</option>
+                                <option value="1">Solo titulares</option>
+                                <option value="2">Solo suplentes</option>
+                            </select>
+                        </div>
+                        <div></div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Sede</label>
+                            <select id="fSedes" multiple class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Turno</label>
+                            <select id="fTurnos" multiple class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Área</label>
+                            <select id="fAreas" multiple class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Grupo</label>
+                            <select id="fGrupos" multiple class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Coordinador</label>
+                            <select id="fCoordinadores" multiple class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Auxiliar</label>
+                            <select id="fAuxiliares" multiple class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 mt-4">
+                        <button id="aplicarBtn" class="bg-primary hover:bg-primary-light text-white text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg flex items-center gap-2">
+                            <span class="material-symbols-outlined text-base">search</span> Generar reporte
+                        </button>
+                        <button id="limpiarBtn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg">Limpiar</button>
+                        <p class="text-[10px] text-slate-400 ml-auto">Tip: Ctrl+Click para seleccionar varios</p>
+                    </div>
+                </div>
+
+                <!-- KPIs -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Horas pago</p>
+                        <p class="text-2xl font-black text-primary dark:text-white" id="kpiHoras">—</p>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Horas dictadas</p>
+                        <p class="text-2xl font-black text-emerald-600" id="kpiDictadas">—</p>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Filas (grupos)</p>
+                        <p class="text-2xl font-black text-slate-700 dark:text-slate-300" id="kpiFilas">—</p>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Rango</p>
+                        <p class="text-sm font-bold text-slate-700 dark:text-slate-300" id="kpiRango">—</p>
+                    </div>
+                </div>
+
+                <!-- Tabla -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                    <div class="overflow-auto max-h-[65vh]">
+                        <table class="w-full text-xs table-fixed-head">
+                            <thead id="thead"></thead>
+                            <tbody id="tbody" class="divide-y divide-slate-100 dark:divide-slate-800">
+                                <tr><td colspan="9" class="text-center py-12 text-slate-400 text-xs">Selecciona filtros y dale a "Generar reporte"</td></tr>
+                            </tbody>
+                            <tfoot class="bg-slate-50 dark:bg-slate-800/50 sticky bottom-0">
+                                <tr class="text-slate-700 dark:text-slate-300 font-bold text-[11px]">
+                                    <td colspan="7" class="px-3 py-2 text-right">TOTAL</td>
+                                    <td class="px-3 py-2 text-right font-mono" id="tfDictadas">—</td>
+                                    <td class="px-3 py-2 text-right font-mono text-primary dark:text-white" id="tfPago">—</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="p-8 text-center text-slate-400 mt-auto">
+                <p class="text-xs font-bold uppercase tracking-widest">© 2026 CEPREUNA · Reporte FIFO</p>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        if (sessionData && sessionData.user) {
+            const u = sessionData.user;
+            document.getElementById('userNameDisplay').textContent = u.name || 'Usuario';
+            document.getElementById('userEmailDisplay').textContent = u.email || 'admin@unap.edu.pe';
+            document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
+        }
+        function handleLogout() { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        document.querySelectorAll('.logout-trigger').forEach(b => b.addEventListener('click', handleLogout));
+
+        const authHeaders = { 'Authorization': 'Bearer ' + sessionData.token };
+
+        async function apiGet(url) {
+            const r = await fetch(url, { headers: authHeaders });
+            if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; throw new Error('401'); }
+            return await r.json();
+        }
+
+        function setOptions(sel, items, fmt) {
+            sel.innerHTML = items.map(it => `<option value="${it.id || it.grupo_aulas_id}">${fmt(it)}</option>`).join('');
+        }
+        function selectedValues(sel) { return [...sel.selectedOptions].map(o => o.value); }
+
+        // Default: mes actual
+        function setDefaultDates() {
+            const now = new Date();
+            const first = new Date(now.getFullYear(), now.getMonth(), 1);
+            const fmt = d => d.toISOString().slice(0, 10);
+            document.getElementById('fDesde').value = fmt(first);
+            document.getElementById('fHasta').value = fmt(now);
+        }
+
+        // Catálogos en memoria + mapa user_id → grupo_aulas_ids para cascada
+        let catSedes = [], catTurnos = [], catAreas = [], catGrupos = [];
+        let catCoords = [], catAuxes = [];
+        const gruposDeAuxiliar = {};   // user_id → Set<grupo_aulas_id>
+        const gruposDeCoord    = {};
+
+        async function cargarCatalogos() {
+            const [sedes, turnos, areas, grupos, coords, auxes] = await Promise.all([
+                apiGet('/api/stats/catalogos/sedes'),
+                apiGet('/api/stats/catalogos/turnos'),
+                apiGet('/api/stats/catalogos/areas'),
+                apiGet('/api/stats/catalogos/grupos'),
+                apiGet('/api/stats/catalogos/coordinadores'),
+                apiGet('/api/stats/catalogos/auxiliares'),
+            ]);
+            catSedes = sedes; catTurnos = turnos; catAreas = areas;
+            catGrupos = grupos; catCoords = coords; catAuxes = auxes;
+            for (const a of auxes) gruposDeAuxiliar[a.id] = new Set(a.grupos || []);
+            for (const c of coords) gruposDeCoord[c.id] = new Set(c.grupos || []);
+
+            setOptions(document.getElementById('fCoordinadores'), coords, x => x.nombre);
+            setOptions(document.getElementById('fAuxiliares'), auxes, x => x.nombre);
+            // sede/turno/area/grupo se llenan vía cascada (sin filtros iniciales = todos)
+            refiltrarCascada();
+        }
+
+        // ====== Cascada de filtros: auxiliar/coordinador → sede → turno → area → grupo ======
+        // Recalcula las opciones disponibles según los grupos accesibles por la persona
+        // (auxiliar/coordinador) seleccionada. Sin selección = todas las opciones.
+        function refiltrarCascada() {
+            const auxSel  = selectedValues(document.getElementById('fAuxiliares')).map(Number);
+            const coordSel = selectedValues(document.getElementById('fCoordinadores')).map(Number);
+
+            // Set de grupo_aulas_ids permitidos por la(s) persona(s) seleccionada(s).
+            // Si hay auxiliares Y coordinadores → unión de ambos.
+            let permitidos = null;  // null = todos
+            if (auxSel.length || coordSel.length) {
+                permitidos = new Set();
+                for (const u of auxSel)   for (const g of (gruposDeAuxiliar[u] || [])) permitidos.add(g);
+                for (const u of coordSel) for (const g of (gruposDeCoord[u]    || [])) permitidos.add(g);
+            }
+
+            // Filtrar catGrupos por permitidos + filtros sede/turno/area seleccionados.
+            const sedeSel  = new Set(selectedValues(document.getElementById('fSedes')).map(s => String(s)));
+            const turnoSel = new Set(selectedValues(document.getElementById('fTurnos')).map(s => String(s)));
+            const areaSel  = new Set(selectedValues(document.getElementById('fAreas')).map(s => String(s)));
+
+            // Base: grupos permitidos por la persona.
+            const gruposBase = permitidos
+                ? catGrupos.filter(g => permitidos.has(Number(g.grupo_aulas_id)))
+                : catGrupos;
+
+            // Aplicamos sede/turno/area como filtros adicionales para acotar grupos.
+            const gruposVisibles = gruposBase.filter(g => {
+                if (sedeSel.size  && !sedeSel.has(String(g.sede_id  || g.sede)))   return false;
+                if (turnoSel.size && !turnoSel.has(String(g.turno_id || g.turno))) return false;
+                if (areaSel.size  && !areaSel.has(String(g.area_id  || g.area)))   return false;
+                return true;
+            });
+
+            // Derivar conjuntos disponibles en gruposBase (para sede/turno/area)
+            // y en gruposVisibles (para grupo).
+            const sedesDispo  = new Set(gruposBase.map(g => String(g.sede)));
+            const turnosDispo = new Set(gruposBase.map(g => String(g.turno)));
+            const areasDispo  = new Set(gruposBase.map(g => String(g.area)));
+
+            // Repoblar selects respetando selección previa.
+            function repoblar(selId, items, fmt, keyFn, dispo) {
+                const sel = document.getElementById(selId);
+                const previas = new Set(selectedValues(sel));
+                sel.innerHTML = items
+                    .filter(it => !dispo || dispo.has(keyFn(it)))
+                    .map(it => `<option value="${it.id || it.grupo_aulas_id}"${previas.has(String(it.id || it.grupo_aulas_id)) ? ' selected' : ''}>${fmt(it)}</option>`)
+                    .join('');
+            }
+
+            repoblar('fSedes',  catSedes,  x => x.denominacion, x => x.denominacion, permitidos ? sedesDispo  : null);
+            repoblar('fTurnos', catTurnos, x => x.denominacion, x => x.denominacion, permitidos ? turnosDispo : null);
+            repoblar('fAreas',  catAreas,  x => x.denominacion, x => x.denominacion, permitidos ? areasDispo  : null);
+
+            // Grupo se repuebla con gruposVisibles (todos los filtros aplicados).
+            const selG = document.getElementById('fGrupos');
+            const previasG = new Set(selectedValues(selG));
+            selG.innerHTML = gruposVisibles
+                .map(g => `<option value="${g.grupo_aulas_id}"${previasG.has(String(g.grupo_aulas_id)) ? ' selected' : ''}>${g.grupo} · ${g.area} · ${g.turno} · ${g.sede}</option>`)
+                .join('');
+        }
+
+        const fmtNum = n => n == null ? '—' : Number(n).toLocaleString('es-PE', { maximumFractionDigits: 2 });
+
+        // ====== Ordenamiento por columna ======
+        let lastFilas = [];
+        let sortBy = null;
+        let sortDir = 'asc';
+
+        function valorParaSort(r, key) {
+            switch (key) {
+                case 'coordinador': return (r.coordinador || '~').toLowerCase();
+                case 'auxiliar':    return (r.auxiliar    || '~').toLowerCase();
+                case 'sede':        return (r.sede        || '').toLowerCase();
+                case 'turno':       return (r.turno       || '').toLowerCase();
+                case 'area':        return (r.area        || '').toLowerCase();
+                case 'grupo':       return (r.grupo       || '').toLowerCase();
+                case 'asistencias': return Number(r.asistencias) || 0;
+                case 'h_dictadas':  return Number(r.total_horas_dictadas) || 0;
+                case 'h_pago':      return Number(r.total_horas_pago) || 0;
+            }
+            return 0;
+        }
+        function ordenarFilas(filas) {
+            if (!sortBy) return filas;
+            const mult = sortDir === 'asc' ? 1 : -1;
+            return [...filas].sort((a, b) => {
+                const va = valorParaSort(a, sortBy), vb = valorParaSort(b, sortBy);
+                if (typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb, 'es') * mult;
+                if (va < vb) return -1 * mult;
+                if (va > vb) return  1 * mult;
+                return 0;
+            });
+        }
+        function arrowFor(key) {
+            const active = sortBy === key;
+            const cls = active ? 'sort-arrow active' : 'sort-arrow';
+            const sym = active ? (sortDir === 'asc' ? '▲' : '▼') : '⇅';
+            return `<span class="${cls}">${sym}</span>`;
+        }
+        function renderThead() {
+            document.getElementById('thead').innerHTML = `
+                <tr class="text-left text-slate-600 dark:text-slate-400 uppercase tracking-tight">
+                    <th data-sort="coordinador" class="px-3 py-2 font-bold whitespace-nowrap">Coordinador${arrowFor('coordinador')}</th>
+                    <th data-sort="auxiliar"    class="px-3 py-2 font-bold whitespace-nowrap">Auxiliar${arrowFor('auxiliar')}</th>
+                    <th data-sort="sede"        class="px-3 py-2 font-bold whitespace-nowrap">Sede${arrowFor('sede')}</th>
+                    <th data-sort="turno"       class="px-3 py-2 font-bold whitespace-nowrap">Turno${arrowFor('turno')}</th>
+                    <th data-sort="area"        class="px-3 py-2 font-bold whitespace-nowrap">Área${arrowFor('area')}</th>
+                    <th data-sort="grupo"       class="px-3 py-2 font-bold whitespace-nowrap">Grupo${arrowFor('grupo')}</th>
+                    <th data-sort="asistencias" class="px-3 py-2 font-bold whitespace-nowrap text-right">Asist.${arrowFor('asistencias')}</th>
+                    <th data-sort="h_dictadas"  class="px-3 py-2 font-bold whitespace-nowrap text-right">H. dict.${arrowFor('h_dictadas')}</th>
+                    <th data-sort="h_pago"      class="px-3 py-2 font-bold whitespace-nowrap text-right">H. pago${arrowFor('h_pago')}</th>
+                </tr>`;
+            document.querySelectorAll('#thead th[data-sort]').forEach(th => {
+                th.addEventListener('click', () => {
+                    const key = th.dataset.sort;
+                    if (sortBy === key) sortDir = (sortDir === 'asc' ? 'desc' : 'asc');
+                    else { sortBy = key; sortDir = 'asc'; }
+                    renderTbody();
+                });
+            });
+        }
+        function renderTbody() {
+            const filas = ordenarFilas(lastFilas);
+            if (filas.length === 0) {
+                document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-12 text-slate-400 text-xs">Sin resultados para esos filtros</td></tr>';
+                return;
+            }
+            document.getElementById('tbody').innerHTML = filas.map(r => `
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="px-3 py-2 ${r.coordinador ? '' : 'text-slate-400 italic'}">${r.coordinador || '— sin coord. —'}</td>
+                    <td class="px-3 py-2 ${r.auxiliar ? '' : 'text-slate-400 italic'}">${r.auxiliar || '— sin aux. —'}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">${r.sede || ''}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">${r.turno || ''}</td>
+                    <td class="px-3 py-2 whitespace-nowrap">${r.area || ''}</td>
+                    <td class="px-3 py-2 whitespace-nowrap font-semibold">${r.grupo || ''}</td>
+                    <td class="px-3 py-2 text-right font-mono">${r.asistencias}</td>
+                    <td class="px-3 py-2 text-right font-mono">${fmtNum(r.total_horas_dictadas)}</td>
+                    <td class="px-3 py-2 text-right font-mono font-bold text-primary dark:text-white">${fmtNum(r.total_horas_pago)}</td>
+                </tr>`).join('');
+            renderThead();  // refresca las flechas
+        }
+
+        async function generar() {
+            const desde = document.getElementById('fDesde').value;
+            const hasta = document.getElementById('fHasta').value;
+            if (!desde || !hasta) { alert('Selecciona rango de fechas'); return; }
+            const params = new URLSearchParams({ desde, hasta });
+            const tipo = document.getElementById('fTipoCarga').value;
+            if (tipo) params.set('tipo_carga', tipo);
+            const addList = (key, sel) => {
+                const v = selectedValues(document.getElementById(sel));
+                if (v.length) params.set(key, v.join(','));
+            };
+            addList('sedes', 'fSedes');
+            addList('turnos', 'fTurnos');
+            addList('areas', 'fAreas');
+            addList('grupos', 'fGrupos');
+            addList('coordinadores', 'fCoordinadores');
+            addList('auxiliares', 'fAuxiliares');
+
+            document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>';
+            try {
+                const data = await apiGet('/api/stats/reportes-aux/horas-docentes?' + params.toString());
+                pintar(data, desde, hasta);
+            } catch (e) {
+                document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-12 text-red-500 text-xs">Error al cargar el reporte</td></tr>';
+            }
+        }
+
+        function pintar(data, desde, hasta) {
+            lastFilas = data.filas || [];
+            document.getElementById('kpiHoras').textContent = fmtNum(data.totales.horas_pago);
+            document.getElementById('kpiDictadas').textContent = fmtNum(data.totales.horas_dictadas);
+            document.getElementById('kpiFilas').textContent = fmtNum(data.totales.registros);
+            document.getElementById('kpiRango').textContent = `${desde} → ${hasta}`;
+            document.getElementById('tfPago').textContent = fmtNum(data.totales.horas_pago);
+            document.getElementById('tfDictadas').textContent = fmtNum(data.totales.horas_dictadas);
+            renderThead();
+            renderTbody();
+        }
+
+        document.getElementById('aplicarBtn').addEventListener('click', generar);
+        document.getElementById('limpiarBtn').addEventListener('click', () => {
+            setDefaultDates();
+            ['fSedes','fTurnos','fAreas','fGrupos','fCoordinadores','fAuxiliares'].forEach(id => {
+                [...document.getElementById(id).options].forEach(o => o.selected = false);
+            });
+            document.getElementById('fTipoCarga').value = '';
+            sortBy = null; sortDir = 'asc';
+            refiltrarCascada();
+        });
+
+        // Listeners de cascada: cuando cambias cualquier filtro estructural,
+        // re-poblar los siguientes selects con las opciones disponibles.
+        ['fAuxiliares','fCoordinadores','fSedes','fTurnos','fAreas'].forEach(id => {
+            document.getElementById(id).addEventListener('change', refiltrarCascada);
+        });
+
+        setDefaultDates();
+        renderThead();  // pinta el header vacío para que se vea la tabla con sus flechas
+        cargarCatalogos();
+    </script>
+</body>
+</html>

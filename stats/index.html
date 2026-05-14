@@ -80,6 +80,10 @@
                     <span class="material-symbols-outlined">group</span>
                     <span class="font-medium">Alumnos</span>
                 </a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes-aux">
+                    <span class="material-symbols-outlined">supervisor_account</span>
+                    <span class="font-medium">Reportes auxiliares</span>
+                </a>
             </nav>
             <div class="p-4 border-t border-slate-200 dark:border-slate-800">
                 <div class="flex items-center gap-3 p-2">
@@ -269,6 +273,12 @@
             document.getElementById('userNameDisplay').textContent = user.name || 'Usuario';
             document.getElementById('userEmailDisplay').textContent = user.email || 'admin@unap.edu.pe';
             document.getElementById('userInitial').textContent = (user.name || 'A').charAt(0).toUpperCase();
+        }
+
+        // Mostrar elementos data-role="admin" solo si el usuario es admin
+        const _role = sessionData?.user?.role;
+        if (_role === 'Administrador' || _role === 'Super Admin') {
+            document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
         }
 
         // Logout Function

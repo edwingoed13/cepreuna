@@ -29,6 +29,22 @@ function requireStatsAuth(req, res, next) {
   }
 }
 
+// Helper: el rol corresponde a un administrador con acceso global
+function esAdmin(role) {
+  return role === 'Administrador' || role === 'Super Admin';
+}
+
+// Middleware: encadena requireStatsAuth y luego exige rol admin
+function requireAdmin(req, res, next) {
+  requireStatsAuth(req, res, (err) => {
+    if (err) return; // requireStatsAuth ya respondió
+    if (!esAdmin(req.user?.role)) {
+      return res.status(403).json({ error: 'Acceso restringido a administradores', code: 'FORBIDDEN' });
+    }
+    next();
+  });
+}
+
 // Calcula los grupo_aulas_ids permitidos según rol del usuario.
 // Devuelve null si tiene acceso total (admin), [] si no tiene grupos asignados,
 // o un array de ids si está restringido.
@@ -158,6 +174,16 @@ app.get('/stats/reportes', (req, res) => {
 
 app.get('/stats/alumnos', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'alumnos', 'index.html'));
+});
+
+app.get('/stats/reportes-aux', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'index.html'));
+});
+app.get('/stats/reportes-aux/horas-docentes', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'horas-docentes', 'index.html'));
+});
+app.get('/stats/reportes-aux/cobertura-grupos', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'cobertura-grupos', 'index.html'));
 });
 
 // SQL base del reporte de pagos (cargado una vez al iniciar; sin ORDER BY ni `;` final
@@ -2096,6 +2122,332 @@ app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
     if (connection) connection.release();
     console.error('Error reporte-pagos:', error);
     res.status(500).json({ error: 'Error al generar reporte de pagos', message: error.message });
+  }
+});
+
+// ============ REPORTES AUXILIARES (horas docentes + cobertura) ============
+
+// Helper: parsea un parámetro multi-valor (acepta array o CSV) y devuelve array limpio.
+function parseList(v) {
+  if (!v) return [];
+  const arr = Array.isArray(v) ? v : String(v).split(',');
+  return arr.map(x => String(x).trim()).filter(Boolean);
+}
+
+// Catálogos para los filtros de los reportes
+app.get('/api/stats/catalogos/sedes', requireStatsAuth, cacheMiddleware(600), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`SELECT id, denominacion FROM sedes WHERE estado = '1' ORDER BY denominacion`);
+    conn.release();
+    res.json(rows);
+  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/stats/catalogos/turnos', requireStatsAuth, cacheMiddleware(600), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`SELECT id, denominacion FROM turnos WHERE estado = '1' ORDER BY id`);
+    conn.release();
+    res.json(rows);
+  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/stats/catalogos/areas', requireStatsAuth, cacheMiddleware(600), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`SELECT id, denominacion FROM areas ORDER BY denominacion`);
+    conn.release();
+    res.json(rows);
+  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+});
+
+// Grupos: opcionalmente filtra por sede/turno/area; respeta restricción por rol.
+app.get('/api/stats/catalogos/grupos', requireStatsAuth, async (req, res) => {
+  let conn;
+  try {
+    const { sede_id, turno_id, area_id } = req.query;
+    const allowedGrupos = req.user.grupos;
+
+    const conditions = ['ga.periodos_id = 1'];
+    const params = [];
+    if (Array.isArray(allowedGrupos)) {
+      if (allowedGrupos.length === 0) return res.json([]);
+      conditions.push(`ga.id IN (${allowedGrupos.map(() => '?').join(',')})`);
+      params.push(...allowedGrupos);
+    }
+    if (sede_id) { conditions.push('s.id = ?'); params.push(sede_id); }
+    if (turno_id) { conditions.push('ga.turnos_id = ?'); params.push(turno_id); }
+    if (area_id) { conditions.push('ga.areas_id = ?'); params.push(area_id); }
+
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT ga.id AS grupo_aulas_id,
+             g.id   AS grupo_id,   g.denominacion  AS grupo,
+             ar.id  AS area_id,    ar.denominacion AS area,
+             t.id   AS turno_id,   t.denominacion  AS turno,
+             s.id   AS sede_id,    s.denominacion  AS sede
+      FROM grupo_aulas ga
+      JOIN grupos g ON g.id = ga.grupos_id
+      JOIN areas ar ON ar.id = ga.areas_id
+      JOIN turnos t ON t.id = ga.turnos_id
+      JOIN aulas au ON au.id = ga.aulas_id
+      JOIN locales l ON l.id = au.locales_id
+      JOIN sedes s ON s.id = l.sedes_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY s.denominacion, t.denominacion, ar.denominacion, g.denominacion
+    `, params);
+    conn.release();
+    res.json(rows);
+  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/stats/catalogos/coordinadores', requireAdmin, cacheMiddleware(600), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT u.id,
+             CONCAT_WS(' ', u.paterno, u.materno, u.name) AS nombre,
+             (SELECT GROUP_CONCAT(DISTINCT cg.grupos_id)
+                FROM coordinador_grupos cg
+               WHERE cg.coordinador_id = u.id) AS grupos_csv
+      FROM users u
+      WHERE u.id IN (SELECT DISTINCT coordinador_id FROM coordinador_grupos)
+        AND u.estado = '1'
+      ORDER BY u.paterno, u.materno, u.name
+    `);
+    conn.release();
+    res.json(rows.map(r => ({
+      id: r.id,
+      nombre: r.nombre,
+      grupos: r.grupos_csv ? r.grupos_csv.split(',').map(Number) : []
+    })));
+  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/stats/catalogos/auxiliares', requireAdmin, cacheMiddleware(600), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT u.id,
+             CONCAT_WS(' ', u.paterno, u.materno, u.name) AS nombre,
+             (SELECT GROUP_CONCAT(ag.grupo_aulas_id)
+                FROM auxiliares a2
+                JOIN auxiliar_grupos ag ON ag.auxiliares_id = a2.id
+               WHERE a2.users_id = u.id) AS grupos_csv
+      FROM users u
+      JOIN auxiliares a ON a.users_id = u.id
+      WHERE u.estado = '1'
+      ORDER BY u.paterno, u.materno, u.name
+    `);
+    conn.release();
+    // Convertir grupos_csv (string) → array de números para usar como mapa en frontend.
+    res.json(rows.map(r => ({
+      id: r.id,
+      nombre: r.nombre,
+      grupos: r.grupos_csv ? r.grupos_csv.split(',').map(Number) : []
+    })));
+  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+});
+
+// Reporte 1 — Horas pago por docentes (solo admin)
+app.get('/api/stats/reportes-aux/horas-docentes', requireAdmin, async (req, res) => {
+  let conn;
+  try {
+    const { desde, hasta, tipo_carga } = req.query;
+    if (!desde || !hasta) return res.status(400).json({ error: 'Parámetros desde/hasta son requeridos' });
+
+    const sedes = parseList(req.query.sedes);
+    const turnos = parseList(req.query.turnos);
+    const areas = parseList(req.query.areas);
+    const grupos = parseList(req.query.grupos);
+    const coordinadores = parseList(req.query.coordinadores);
+    const auxiliares = parseList(req.query.auxiliares);
+
+    const conditions = ['a.fecha BETWEEN ? AND ?'];
+    const params = [desde, hasta];
+
+    // Restricción por rol — mismo patrón que /api/stats/reporte-pagos
+    const allowedGrupos = req.user.grupos;
+    if (Array.isArray(allowedGrupos)) {
+      if (allowedGrupos.length === 0) {
+        return res.json({ filas: [], totales: { horas_pago: 0, registros: 0 } });
+      }
+      conditions.push(`ga.id IN (${allowedGrupos.map(() => '?').join(',')})`);
+      params.push(...allowedGrupos);
+    }
+
+    const inFilter = (arr, col) => {
+      if (arr.length === 0) return;
+      conditions.push(`${col} IN (${arr.map(() => '?').join(',')})`);
+      params.push(...arr);
+    };
+    inFilter(sedes, 's.id');
+    inFilter(turnos, 't.id');
+    inFilter(areas, 'ar_grupo.id');
+    inFilter(grupos, 'ga.id');
+    inFilter(coordinadores, 'u_coord.id');
+    inFilter(auxiliares, 'u_aux.id');
+    if (tipo_carga === '1' || tipo_carga === '2') {
+      conditions.push('ca.tipo = ?');
+      params.push(tipo_carga);
+    }
+
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT
+        u_coord.id AS coordinador_id,
+        CONCAT_WS(' ', u_coord.paterno, u_coord.materno, u_coord.name) AS coordinador,
+        u_aux.id   AS auxiliar_id,
+        CONCAT_WS(' ', u_aux.paterno, u_aux.materno, u_aux.name) AS auxiliar,
+        s.id AS sede_id,     s.denominacion AS sede,
+        t.id AS turno_id,    t.denominacion AS turno,
+        ar_grupo.id AS area_id, ar_grupo.denominacion AS area,
+        g.id AS grupo_id,    g.denominacion AS grupo,
+        ga.id AS grupo_aulas_id,
+        SUM(a.horas_pago) AS total_horas_pago,
+        SUM(a.cantidad_horas) AS total_horas_dictadas,
+        COUNT(DISTINCT a.docentes_id) AS docentes_distintos,
+        COUNT(*) AS asistencias
+      FROM asistencia_docentes a
+      JOIN carga_academicas ca ON a.carga_academicas_id = ca.id
+      JOIN grupo_aulas ga ON ca.grupo_aulas_id = ga.id
+      JOIN grupos    g        ON ga.grupos_id = g.id
+      JOIN areas     ar_grupo ON ga.areas_id  = ar_grupo.id
+      JOIN turnos    t        ON ga.turnos_id = t.id
+      JOIN aulas     au       ON ga.aulas_id  = au.id
+      JOIN locales   l        ON au.locales_id = l.id
+      JOIN sedes     s        ON l.sedes_id   = s.id
+      LEFT JOIN coordinador_grupos cg ON ga.id = cg.grupos_id
+      LEFT JOIN users          u_coord ON cg.coordinador_id = u_coord.id
+      LEFT JOIN auxiliar_grupos ag    ON ga.id = ag.grupo_aulas_id
+      LEFT JOIN auxiliares     aux    ON ag.auxiliares_id = aux.id
+      LEFT JOIN users          u_aux  ON aux.users_id = u_aux.id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY
+        u_coord.id, u_aux.id, s.id, t.id, ar_grupo.id, g.id, ga.id
+      ORDER BY coordinador, auxiliar, sede, turno, area, grupo
+    `, params);
+    conn.release();
+
+    const totales = rows.reduce((acc, r) => {
+      acc.horas_pago += Number(r.total_horas_pago || 0);
+      acc.horas_dictadas += Number(r.total_horas_dictadas || 0);
+      return acc;
+    }, { horas_pago: 0, horas_dictadas: 0, registros: rows.length });
+
+    res.json({
+      filas: rows,
+      totales,
+      filtros_aplicados: { desde, hasta, sedes, turnos, areas, grupos, coordinadores, auxiliares, tipo_carga: tipo_carga || null }
+    });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error horas-docentes:', e);
+    res.status(500).json({ error: 'Error al generar el reporte', message: e.message });
+  }
+});
+
+// Reporte 2 — Cobertura de asistencia por grupos
+// Devuelve los grupos filtrados + sus asistencias en el rango.
+// El frontend pivota a vista semanal (DAYOFWEEK) o dinámica (1 col por fecha).
+app.get('/api/stats/reportes-aux/cobertura-grupos', requireAdmin, async (req, res) => {
+  let conn;
+  try {
+    const { desde, hasta } = req.query;
+    if (!desde || !hasta) return res.status(400).json({ error: 'Parámetros desde/hasta son requeridos' });
+
+    const sedes = parseList(req.query.sedes);
+    const turnos = parseList(req.query.turnos);
+    const areas = parseList(req.query.areas);
+    const grupos = parseList(req.query.grupos);
+    const auxiliares = parseList(req.query.auxiliares);
+
+    const conditions = ['ga.periodos_id = 1'];
+    const params = [];
+
+    const allowedGrupos = req.user.grupos;
+    if (Array.isArray(allowedGrupos)) {
+      if (allowedGrupos.length === 0) return res.json({ grupos: [], asistencias: [], desde, hasta });
+      conditions.push(`ga.id IN (${allowedGrupos.map(() => '?').join(',')})`);
+      params.push(...allowedGrupos);
+    }
+    const inFilter = (arr, col) => {
+      if (arr.length === 0) return;
+      conditions.push(`${col} IN (${arr.map(() => '?').join(',')})`);
+      params.push(...arr);
+    };
+    inFilter(sedes, 's.id');
+    inFilter(turnos, 't.id');
+    inFilter(areas, 'ar.id');
+    inFilter(grupos, 'ga.id');
+    if (auxiliares.length > 0) {
+      conditions.push(`ga.id IN (
+        SELECT ag2.grupo_aulas_id FROM auxiliar_grupos ag2
+        JOIN auxiliares a2 ON a2.id = ag2.auxiliares_id
+        WHERE a2.users_id IN (${auxiliares.map(() => '?').join(',')})
+      )`);
+      params.push(...auxiliares);
+    }
+
+    conn = await pool.getConnection();
+    const [gruposRows] = await conn.query(`
+      SELECT
+        ga.id AS grupo_aulas_id,
+        g.denominacion AS grupo,
+        ar.denominacion AS area, ar.id AS area_id,
+        t.denominacion AS turno, t.id AS turno_id,
+        s.denominacion AS sede, s.id AS sede_id,
+        (SELECT GROUP_CONCAT(DISTINCT CONCAT_WS(' ', u.paterno, u.materno, u.name) ORDER BY u.paterno SEPARATOR ', ')
+           FROM auxiliar_grupos ag2
+           JOIN auxiliares a2 ON a2.id = ag2.auxiliares_id
+           JOIN users u ON u.id = a2.users_id
+          WHERE ag2.grupo_aulas_id = ga.id) AS auxiliares_asignados
+      FROM grupo_aulas ga
+      JOIN grupos g ON g.id = ga.grupos_id
+      JOIN areas ar ON ar.id = ga.areas_id
+      JOIN turnos t ON t.id = ga.turnos_id
+      JOIN aulas au ON au.id = ga.aulas_id
+      JOIN locales l ON l.id = au.locales_id
+      JOIN sedes s ON s.id = l.sedes_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY s.denominacion, t.denominacion, ar.denominacion, g.denominacion
+    `, params);
+
+    if (gruposRows.length === 0) {
+      conn.release();
+      return res.json({ grupos: [], asistencias: [], desde, hasta });
+    }
+
+    const ids = gruposRows.map(g => g.grupo_aulas_id);
+    const [asistRows] = await conn.query(`
+      SELECT
+        ae.grupo_aulas_id,
+        DATE_FORMAT(ae.fecha, '%Y-%m-%d') AS fecha,
+        GROUP_CONCAT(DISTINCT CONCAT_WS(' ', u.paterno, u.materno, u.name) ORDER BY u.paterno SEPARATOR ', ') AS tomada_por
+      FROM asistencia_estudiantes ae
+      JOIN users u ON u.id = ae.users_id
+      WHERE ae.fecha BETWEEN ? AND ?
+        AND ae.grupo_aulas_id IN (${ids.map(() => '?').join(',')})
+      GROUP BY ae.grupo_aulas_id, ae.fecha
+    `, [desde, hasta, ...ids]);
+    conn.release();
+
+    res.json({
+      grupos: gruposRows,
+      asistencias: asistRows,
+      desde, hasta,
+      filtros_aplicados: { sedes, turnos, areas, grupos, auxiliares }
+    });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error cobertura-grupos:', e);
+    res.status(500).json({ error: 'Error al generar el reporte', message: e.message });
   }
 });
 

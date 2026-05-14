@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>CEPREUNA - Reportes Auxiliares</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#003366",
+                        "primary-light": "#004080",
+                        "background-light": "#f5f7f8",
+                        "background-dark": "#0f1923",
+                    },
+                    fontFamily: { "display": ["Inter", "sans-serif"] }
+                },
+            },
+        }
+    </script>
+    <style>
+        .sidebar-item-active {
+            background-color: rgba(0, 51, 102, 0.1);
+            color: #003366;
+            border-right: 4px solid #003366;
+        }
+        .dark .sidebar-item-active { background-color: rgba(255, 255, 255, 0.05); color: #fff; border-right-color: #fff; }
+        @media (max-width: 1024px) { .sidebar { display: none; } }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <script>
+        const sessionDataString = localStorage.getItem('stats_session');
+        if (!sessionDataString) window.location.href = '/stats/login';
+        const sessionData = JSON.parse(sessionDataString);
+        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_')) {
+            localStorage.removeItem('stats_session');
+            window.location.href = '/stats/login';
+        }
+        // Solo administradores pueden acceder a /stats/reportes-aux
+        const _role = sessionData?.user?.role;
+        if (_role !== 'Administrador' && _role !== 'Super Admin') {
+            alert('Acceso restringido a administradores.');
+            window.location.href = '/stats';
+        }
+    </script>
+
+    <div class="flex h-screen overflow-hidden">
+        <aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex">
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white">
+                    <span class="material-symbols-outlined text-2xl">school</span>
+                </div>
+                <div>
+                    <h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1>
+                    <p class="text-slate-500 text-[10px] font-medium uppercase tracking-widest mt-1">Estadísticas</p>
+                </div>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-1">
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats">
+                    <span class="material-symbols-outlined">dashboard</span><span class="font-medium">Resumen</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes">
+                    <span class="material-symbols-outlined">description</span><span class="font-medium">Reportes</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos">
+                    <span class="material-symbols-outlined">group</span><span class="font-medium">Alumnos</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/reportes-aux">
+                    <span class="material-symbols-outlined">supervisor_account</span><span class="font-medium">Reportes auxiliares</span>
+                </a>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3 p-2">
+                    <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold" id="userInitial">A</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold truncate" id="userNameDisplay">Admin User</p>
+                        <p class="text-[10px] text-slate-500 truncate" id="userEmailDisplay">admin@unap.edu.pe</p>
+                    </div>
+                    <button id="logoutBtn" class="text-slate-400 hover:text-red-500 transition-colors">
+                        <span class="material-symbols-outlined text-sm">logout</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 lg:px-8 sticky top-0 z-10">
+                <div class="hidden lg:flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary dark:text-white">supervisor_account</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Reportes Auxiliares</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600 transition-colors" title="Cerrar Sesión">
+                        <span class="material-symbols-outlined text-xl">logout</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="p-6 lg:p-8 max-w-6xl mx-auto w-full">
+                <p class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-6">Selecciona un reporte</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <a href="/stats/reportes-aux/horas-docentes" class="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 lg:p-8 shadow-sm hover:shadow-lg hover:border-primary transition-all">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="w-12 h-12 bg-primary/10 dark:bg-primary/20 rounded-xl flex items-center justify-center text-primary dark:text-white group-hover:scale-110 transition-transform">
+                                <span class="material-symbols-outlined text-2xl">payments</span>
+                            </div>
+                            <span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors">arrow_forward</span>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100 group-hover:text-primary dark:group-hover:text-white">Horas pago por docentes</h3>
+                        <p class="text-sm text-slate-500 dark:text-slate-400 mt-2">Total de horas a pagar agrupadas por coordinador, auxiliar, sede, turno, área y grupo. Filtrable por rango de fechas y tipo de carga.</p>
+                        <div class="flex items-center gap-2 mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                            <span class="material-symbols-outlined text-xs">calendar_month</span>
+                            <span>Rango de fechas</span>
+                            <span class="text-slate-300">·</span>
+                            <span>multi-select</span>
+                        </div>
+                    </a>
+
+                    <a href="/stats/reportes-aux/cobertura-grupos" class="group bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 lg:p-8 shadow-sm hover:shadow-lg hover:border-primary transition-all">
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform">
+                                <span class="material-symbols-outlined text-2xl">grid_view</span>
+                            </div>
+                            <span class="material-symbols-outlined text-slate-300 group-hover:text-primary transition-colors">arrow_forward</span>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100 group-hover:text-primary dark:group-hover:text-white">Cobertura de asistencia</h3>
+                        <p class="text-sm text-slate-500 dark:text-slate-400 mt-2">Matriz SI/NO por grupo y día para detectar grupos sin cobertura. Toggle entre vista semanal (Lun-Vie) y vista dinámica (1 columna por fecha).</p>
+                        <div class="flex items-center gap-2 mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                            <span class="material-symbols-outlined text-xs">grid_on</span>
+                            <span>Matriz</span>
+                            <span class="text-slate-300">·</span>
+                            <span>% cumplimiento</span>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            <footer class="p-8 text-center text-slate-400 mt-auto">
+                <p class="text-xs font-bold uppercase tracking-widest">© 2026 CEPREUNA</p>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        if (sessionData && sessionData.user) {
+            const u = sessionData.user;
+            document.getElementById('userNameDisplay').textContent = u.name || 'Usuario';
+            document.getElementById('userEmailDisplay').textContent = u.email || 'admin@unap.edu.pe';
+            document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
+        }
+        function handleLogout() {
+            localStorage.removeItem('stats_session');
+            window.location.href = '/stats/login';
+        }
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        document.querySelectorAll('.logout-trigger').forEach(b => b.addEventListener('click', handleLogout));
+    </script>
+</body>
+</html>

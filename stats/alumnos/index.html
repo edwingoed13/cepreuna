@@ -46,6 +46,14 @@
         .cell-pagada    { background-color: #66bb6a; color: #0a3d10; }
         .cell-parcial   { background-color: #f4ff81; color: #4a4400; }
         .cell-sinpagar  { background-color: #ef5350; color: #4a0000; }
+        /* Cuota pagada bajo distinta modalidad/tipo que la inscripción actual */
+        .cell-cambio-mod { position: relative; box-shadow: inset 0 0 0 2px #6366f1; }
+        .cell-cambio-mod::after {
+            content: '';
+            position: absolute; top: 3px; right: 3px;
+            width: 7px; height: 7px; border-radius: 50%;
+            background: #6366f1;
+        }
         .table-fixed-head thead th {
             position: sticky; top: 0; z-index: 5;
             background-color: #f1f5f9;
@@ -91,6 +99,10 @@
                 <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/alumnos">
                     <span class="material-symbols-outlined">group</span>
                     <span class="font-medium">Alumnos</span>
+                </a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes-aux">
+                    <span class="material-symbols-outlined">supervisor_account</span>
+                    <span class="font-medium">Reportes auxiliares</span>
                 </a>
             </nav>
             <div class="p-4 border-t border-slate-200 dark:border-slate-800">
@@ -215,6 +227,7 @@
                             <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#66bb6a"></span> Pagada</span>
                             <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#f4ff81"></span> Parcial</span>
                             <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#ef5350"></span> Sin pagar</span>
+                            <span class="flex items-center gap-1.5" title="Cuota pagada con una modalidad/tipo distinto al de la inscripción actual"><span class="w-3 h-3 rounded-full" style="background:#6366f1"></span> Cambio modalidad</span>
                         </div>
                     </div>
                 </div>
@@ -316,6 +329,12 @@
             document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
         }
 
+        // Mostrar elementos data-role="admin" solo si el usuario es admin
+        const _role = sessionData?.user?.role;
+        if (_role === 'Administrador' || _role === 'Super Admin') {
+            document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
+        }
+
         function handleLogout() {
             localStorage.removeItem('stats_session');
             window.location.href = '/stats/login';
@@ -336,6 +355,13 @@
             const n = Number(v);
             if (Number.isNaN(n)) return '—';
             return n.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        };
+
+        const claseCelda = (estado, cambioMod) => {
+            const base = estado === 'PAGADA' ? 'cell-pagada'
+                : estado === 'PARCIAL' ? 'cell-parcial'
+                : estado === 'SIN_PAGAR' ? 'cell-sinpagar' : '';
+            return cambioMod ? `${base} cell-cambio-mod` : base;
         };
 
         const claseEstado = (estado) => {
@@ -483,10 +509,10 @@
                         <td class="px-3 py-2 whitespace-nowrap">${r.turno || '—'}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${r.grupo || '—'}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${r.tipo_colegio || ''}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota1)}">${fmtMoney(r.primera_mensualidad)}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota2)}">${fmtMoney(r.segunda_mensualidad)}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota3)}">${fmtMoney(r.tercera_mensualidad)}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseEstado(r.estado_cuota4)}">${fmtMoney(r.cuarta_mensualidad)}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota1, Number(r.cambio_mod_1))}">${fmtMoney(r.primera_mensualidad)}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota2, Number(r.cambio_mod_2))}">${fmtMoney(r.segunda_mensualidad)}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota3, Number(r.cambio_mod_3))}">${fmtMoney(r.tercera_mensualidad)}</td>
+                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota4, Number(r.cambio_mod_4))}">${fmtMoney(r.cuarta_mensualidad)}</td>
                     </tr>
                 `).join('');
 
