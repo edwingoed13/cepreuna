@@ -281,10 +281,13 @@
         }
 
         // Mostrar elementos data-role="admin" solo si el usuario es admin
-        const _role = sessionData?.user?.role;
-        if (_role === 'Administrador' || _role === 'Super Admin') {
-            document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
-        }
+        // (IIFE para no redeclarar _role, ya declarado en el guard del <head>)
+        (function () {
+            const r = sessionData?.user?.role;
+            if (r === 'Administrador' || r === 'Super Admin') {
+                document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
+            }
+        })();
 
         // Logout Function
         function handleLogout() {
