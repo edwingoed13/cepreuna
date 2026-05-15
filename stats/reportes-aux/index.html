@@ -154,6 +154,13 @@
             document.getElementById('userEmailDisplay').textContent = u.email || 'admin@unap.edu.pe';
             document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
         }
+        // Solo admin llega a esta página (guard en el <head>): revelar links admin del sidebar
+        (function () {
+            const r = sessionData?.user?.role;
+            if (r === 'Administrador' || r === 'Super Admin') {
+                document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
+            }
+        })();
         function handleLogout() {
             localStorage.removeItem('stats_session');
             window.location.href = '/stats/login';
