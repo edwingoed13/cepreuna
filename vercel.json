@@ -143,6 +143,20 @@
       }
     },
     {
+      "src": "/informe-docente-unap",
+      "status": 301,
+      "headers": {
+        "Location": "https://docs.google.com/document/d/1WCwDK3RpGIJk7Px5KXuOUk2IKDa0_kYm/export?format=docx"
+      }
+    },
+    {
+      "src": "/informe-docente-particular",
+      "status": 301,
+      "headers": {
+        "Location": "https://docs.google.com/document/d/1yscb5vWaY_bImLPrRw0vQO1w56KWmzkp/export?format=docx"
+      }
+    },
+    {
       "src": "/(dashboard|curso|videos|materiales|certificado)",
       "dest": "server.js",
       "headers": {
