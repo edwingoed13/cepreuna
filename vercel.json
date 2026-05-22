@@ -157,6 +157,13 @@
       }
     },
     {
+      "src": "/informe-docente-particular-seminario",
+      "status": 301,
+      "headers": {
+        "Location": "https://docs.google.com/document/d/1dxbodIDAk4O-Za0bCjB9e0zEN_TYo9No/export?format=docx"
+      }
+    },
+    {
       "src": "/(dashboard|curso|videos|materiales|certificado)",
       "dest": "server.js",
       "headers": {
