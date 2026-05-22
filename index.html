@@ -239,8 +239,9 @@
                     }
                 };
 
-                const areaNum = datos.area || '1';
-                const areaInfo = areaDescripciones[areaNum] || areaDescripciones['1'];
+                // Docente apto sin inscripción al curso no tiene área: queda vacía
+                const areaNum = datos.area != null ? String(datos.area) : null;
+                const areaInfo = (areaNum && areaDescripciones[areaNum]) || { corto: '', largo: '' };
 
                 // Formatear datos para el localStorage
                 const estudiante = {
@@ -249,7 +250,8 @@
                         : datos.nombre || 'N/A',
                     dni: datos.nro_documento,
                     area: areaInfo.largo,
-                    areaCorto: areaInfo.corto
+                    areaCorto: areaInfo.corto,
+                    inscrito: datos.inscrito === true // solo inscritos al curso ven el certificado
                 };
 
                 // Guardar datos del estudiante

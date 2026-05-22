@@ -2470,39 +2470,54 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Consultar API de cepreuna.info internamente
-    const response = await fetch('https://cepreuna.info/api/listado-curso/inscritos');
+    // Validar contra la lista de docentes aptos del periodo actual.
+    const connection = await pool.getConnection();
+    let docente = null;
+    let area = null;
+    let inscrito = false; // ¿siguió el curso? (solo los inscritos pueden ver el certificado)
+    try {
+      const [rows] = await connection.query(
+        `SELECT d.nombres, d.paterno, d.materno, d.nro_documento, d.email, d.celular
+         FROM docente_aptos da
+         JOIN docentes d ON d.id = da.docentes_id
+         WHERE da.periodos_id = 1 AND d.nro_documento = ?
+         LIMIT 1`,
+        [dni]
+      );
+      docente = rows[0] || null;
 
-    if (!response.ok) {
-      throw new Error('Error al consultar el servicio de inscripciones');
+      // Inscripción al curso: define el área y el acceso al certificado.
+      if (docente) {
+        const [insc] = await connection.query(
+          `SELECT area FROM inscripcion_curso_tallers WHERE nro_documento = ? LIMIT 1`,
+          [dni]
+        );
+        inscrito = insc.length > 0;
+        if (inscrito && insc[0].area != null) area = parseInt(insc[0].area);
+      }
+    } finally {
+      connection.release();
     }
 
-    const data = await response.json();
-
-    // Buscar inscrito por DNI
-    const inscrito = (data.listado || []).find(
-      item => item.nro_documento === dni
-    );
-
-    if (!inscrito) {
+    if (!docente) {
       return res.status(404).json({
         success: false,
-        error: 'No se encontró ningún registro con este DNI'
+        error: 'No se encontró un docente apto con este DNI'
       });
     }
 
-    // Devolver datos del inscrito (sin exponer el endpoint externo)
     res.json({
       success: true,
       data: {
-        nombres: inscrito.nombres,
-        paterno: inscrito.paterno,
-        materno: inscrito.materno,
-        nombre: inscrito.nombre,
-        nro_documento: inscrito.nro_documento,
-        area: inscrito.area,
-        email: inscrito.email,
-        telefono: inscrito.telefono
+        nombres: docente.nombres,
+        paterno: docente.paterno,
+        materno: docente.materno,
+        nombre: `${docente.paterno || ''} ${docente.materno || ''}, ${docente.nombres || ''}`.trim().replace(/^,\s*/, ''),
+        nro_documento: String(docente.nro_documento).trim(),
+        area: area,
+        inscrito: inscrito,
+        email: docente.email || '',
+        telefono: docente.celular || ''
       }
     });
 

@@ -202,6 +202,11 @@
             window.location.href = '/';
         }
 
+        // Ocultar acceso al certificado para docentes no inscritos al curso
+        if (estudiante && estudiante.inscrito === false) {
+            document.querySelectorAll('a[href="/certificado"]').forEach(el => el.style.display = 'none');
+        }
+
         document.getElementById('userName').textContent = estudiante.nombre || 'N/A';
 
         // Mostrar área con efecto marquee en mobile

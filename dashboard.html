@@ -429,6 +429,11 @@
 
             // Cargar comunicado de presentación de informes (si existe para este DNI)
             cargarInformeDocente(estudiante.dni);
+
+            // Ocultar acceso al certificado para docentes no inscritos al curso
+            if (estudiante.inscrito === false) {
+                document.querySelectorAll('a[href="/certificado"]').forEach(el => el.style.display = 'none');
+            }
         }
 
         // ===== Comunicado de Presentación de Informes =====

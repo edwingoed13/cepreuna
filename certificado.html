@@ -196,6 +196,9 @@
         const estudiante = JSON.parse(localStorage.getItem('estudiante'));
         if (!estudiante) {
             window.location.href = '/';
+        } else if (estudiante.inscrito === false) {
+            // Docente que no siguió el curso: no tiene certificado
+            window.location.replace('/dashboard');
         }
 
         // Mostrar información
