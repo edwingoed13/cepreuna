@@ -156,6 +156,10 @@ app.use(compression({
   }
 }));
 
+// Bloquear acceso estático a /data (contiene datos personales de docentes).
+// Debe ir ANTES de express.static para interceptar la descarga directa del JSON.
+app.use('/data', (req, res) => res.status(404).send('Not found'));
+
 // Servir archivos estáticos (HTML, CSS, JS)
 app.use(express.static(__dirname));
 
@@ -2510,6 +2514,32 @@ app.post('/api/auth/login', async (req, res) => {
       message: error.message
     });
   }
+});
+
+// Mapa DNI -> mensaje de informe (semanas 1-8, ciclo marzo-julio 2026).
+// Se carga una vez al iniciar; el JSON vive en /data (no servido estáticamente).
+let informesDocentes = {};
+try {
+  informesDocentes = require('./data/informes-docentes-2026.json');
+  console.log(`📄 Informes docentes cargados: ${Object.keys(informesDocentes).length}`);
+} catch (e) {
+  console.warn('⚠️  No se pudo cargar data/informes-docentes-2026.json:', e.message);
+}
+
+// Devuelve el mensaje de informe correspondiente a un DNI (o 404 si no existe).
+app.get('/api/informe-docente/:dni', (req, res) => {
+  const dni = String(req.params.dni || '').trim();
+
+  if (!/^\d{7,8}$/.test(dni)) {
+    return res.status(400).json({ success: false, error: 'DNI inválido' });
+  }
+
+  const mensaje = informesDocentes[dni];
+  if (!mensaje) {
+    return res.status(404).json({ success: false, error: 'Sin comunicado para este DNI' });
+  }
+
+  res.json({ success: true, mensaje });
 });
 
 // Endpoint para login de administradores (Dashboard Stats)

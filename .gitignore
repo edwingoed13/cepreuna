@@ -27,3 +27,6 @@ npm-debug.log*
 
 # Cache
 .cache/
+
+# Archivos fuente de datos (Excel de origen; el JSON generado en data/ sí se versiona)
+*.xlsx
