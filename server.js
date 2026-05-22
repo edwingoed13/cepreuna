@@ -2645,6 +2645,45 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// ===== Descarga de modelos de informe (.docx) =====
+// Short URLs que descargan el modelo de informe. Se proxean a través de
+// nuestro dominio (en vez de redirigir a docs.google.com) para que en móvil
+// la app de Google Docs no intercepte el enlace y lo abra en modo "vista":
+// el servidor baja el .docx de Google y lo reenvía como descarga forzada.
+const INFORME_DOCS = {
+  'informe-admin-1': '1dgButtgOJHWTbob6gQM4ao-TWYOj1Wf5',
+  'informe-admin-2': '1CI80lBbi6P1OLNv3rgxSOZitx0TzsuPL',
+  'informe-docente-unap': '1WCwDK3RpGIJk7Px5KXuOUk2IKDa0_kYm',
+  'informe-docente-particular': '1yscb5vWaY_bImLPrRw0vQO1w56KWmzkp',
+  'informe-docente-particular-seminario': '1dxbodIDAk4O-Za0bCjB9e0zEN_TYo9No',
+};
+
+app.get(
+  Object.keys(INFORME_DOCS).map(slug => `/${slug}`),
+  async (req, res) => {
+    const slug = req.path.replace(/^\//, '');
+    const docId = INFORME_DOCS[slug];
+    const googleUrl = `https://docs.google.com/document/d/${docId}/export?format=docx`;
+
+    try {
+      const upstream = await fetch(googleUrl);
+      if (!upstream.ok) throw new Error(`Google respondió ${upstream.status}`);
+
+      const buffer = Buffer.from(await upstream.arrayBuffer());
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${slug}.docx"`);
+      res.setHeader('Content-Length', buffer.length);
+      // No cachear: el modelo puede editarse y debe llegar siempre actualizado.
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(buffer);
+    } catch (error) {
+      console.error(`Error al descargar informe "${slug}":`, error.message);
+      // Fallback: si falla el proxy, redirigir directo a Google (al menos abre).
+      res.redirect(302, googleUrl);
+    }
+  }
+);
+
 // Servir index.html en la raíz
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/index.html');

@@ -136,38 +136,10 @@
       }
     },
     {
-      "src": "/informe-admin-1",
-      "status": 301,
+      "src": "/(informe-admin-1|informe-admin-2|informe-docente-unap|informe-docente-particular|informe-docente-particular-seminario)",
+      "dest": "server.js",
       "headers": {
-        "Location": "https://docs.google.com/document/d/1dgButtgOJHWTbob6gQM4ao-TWYOj1Wf5/export?format=docx"
-      }
-    },
-    {
-      "src": "/informe-admin-2",
-      "status": 301,
-      "headers": {
-        "Location": "https://docs.google.com/document/d/1CI80lBbi6P1OLNv3rgxSOZitx0TzsuPL/export?format=docx"
-      }
-    },
-    {
-      "src": "/informe-docente-unap",
-      "status": 301,
-      "headers": {
-        "Location": "https://docs.google.com/document/d/1WCwDK3RpGIJk7Px5KXuOUk2IKDa0_kYm/export?format=docx"
-      }
-    },
-    {
-      "src": "/informe-docente-particular",
-      "status": 301,
-      "headers": {
-        "Location": "https://docs.google.com/document/d/1yscb5vWaY_bImLPrRw0vQO1w56KWmzkp/export?format=docx"
-      }
-    },
-    {
-      "src": "/informe-docente-particular-seminario",
-      "status": 301,
-      "headers": {
-        "Location": "https://docs.google.com/document/d/1dxbodIDAk4O-Za0bCjB9e0zEN_TYo9No/export?format=docx"
+        "Cache-Control": "no-store"
       }
     },
     {
