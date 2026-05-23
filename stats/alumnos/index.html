@@ -59,6 +59,13 @@
             background-color: #f1f5f9;
         }
         .dark .table-fixed-head thead th { background-color: #1e293b; }
+        /* Sortable column headers */
+        th[data-sort] { cursor: pointer; user-select: none; }
+        th[data-sort]:hover { background-color: #e2e8f0; }
+        .dark th[data-sort]:hover { background-color: #334155; }
+        .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.3; font-size: 9px; vertical-align: middle; }
+        .sort-arrow.active { opacity: 1; color: #003366; }
+        .dark .sort-arrow.active { color: #fff; }
     </style>
 </head>
 <body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
@@ -169,19 +176,11 @@
                     <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
                         <span class="material-symbols-outlined text-base">filter_alt</span> Filtros
                     </h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
-                        <div class="lg:col-span-2">
-                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Buscar (DNI o nombre)</label>
-                            <input id="filtroQ" type="text" placeholder="Ej: 60836542 o Agüero"
-                                class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"/>
-                        </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                         <div>
-                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Estado inscripción</label>
-                            <select id="filtroEstado" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
-                                <option value="">Todos</option>
-                                <option value="1">Inscrito</option>
-                                <option value="0">PreInscrito</option>
-                            </select>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Buscar por DNI</label>
+                            <input id="filtroQ" type="text" inputmode="numeric" placeholder="Ej: 60836542"
+                                class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"/>
                         </div>
                         <div>
                             <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 1</label>
@@ -267,22 +266,23 @@
                     <div class="overflow-auto max-h-[65vh]">
                         <table class="w-full text-[11px] table-fixed-head">
                             <thead>
-                                <tr class="text-left text-slate-600 dark:text-slate-400 uppercase tracking-tight">
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap">DNI</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Apellidos y Nombres</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Sede</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Área</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Turno</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Grupo</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap">Tipo Col.</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">1ra</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">2da</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">3ra</th>
-                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">4ta</th>
+                                <tr class="text-left text-slate-600 dark:text-slate-400 uppercase tracking-tight" id="theadRow">
+                                    <th class="px-3 py-2 font-bold whitespace-nowrap text-right">N°</th>
+                                    <th data-sort="dni"   class="px-3 py-2 font-bold whitespace-nowrap">DNI<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="nombre" class="px-3 py-2 font-bold whitespace-nowrap">Apellidos y Nombres<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="sede"  class="px-3 py-2 font-bold whitespace-nowrap">Sede<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="area"  class="px-3 py-2 font-bold whitespace-nowrap">Área<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="turno" class="px-3 py-2 font-bold whitespace-nowrap">Turno<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="grupo" class="px-3 py-2 font-bold whitespace-nowrap">Grupo<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="tipo_colegio" class="px-3 py-2 font-bold whitespace-nowrap">Tipo Col.<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="c1" class="px-3 py-2 font-bold whitespace-nowrap text-right">1ra<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="c2" class="px-3 py-2 font-bold whitespace-nowrap text-right">2da<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="c3" class="px-3 py-2 font-bold whitespace-nowrap text-right">3ra<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="c4" class="px-3 py-2 font-bold whitespace-nowrap text-right">4ta<span class="sort-arrow">⇅</span></th>
                                 </tr>
                             </thead>
                             <tbody id="tbody" class="divide-y divide-slate-100 dark:divide-slate-800">
-                                <tr><td colspan="11" class="text-center py-12 text-slate-400 text-xs">Cargando…</td></tr>
+                                <tr><td colspan="12" class="text-center py-12 text-slate-400 text-xs">Cargando…</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -374,9 +374,7 @@
         function buildQueryString() {
             const params = new URLSearchParams();
             const q = document.getElementById('filtroQ').value.trim();
-            const estado = document.getElementById('filtroEstado').value;
             if (q) params.set('q', q);
-            if (estado) params.set('estado', estado);
             document.querySelectorAll('.filtroCuota').forEach(sel => {
                 if (sel.value) params.set('cuota' + sel.dataset.cuota, sel.value);
             });
@@ -465,6 +463,51 @@
             return registros.filter(r => allowed.has(Number(r.grupo_aulas_id)));
         }
 
+        // ====== Ordenamiento por columna ======
+        let sortBy = null;   // 'dni' | 'nombre' | 'sede' | 'area' | 'turno' | 'grupo' | 'tipo_colegio' | 'c1'..'c4'
+        let sortDir = 'asc';
+
+        function valorParaSort(r, key) {
+            switch (key) {
+                case 'dni':          return (r.nro_documento || '');
+                case 'nombre':       return [r.paterno, r.materno, r.nombres].filter(Boolean).join(' ').toLowerCase();
+                case 'sede':         return (r.sede || '').toLowerCase();
+                case 'area':         return (r.area || '').toLowerCase();
+                case 'turno':        return (r.turno || '').toLowerCase();
+                case 'grupo':        return (r.grupo || '').toLowerCase();
+                case 'tipo_colegio': return (r.tipo_colegio || '').toLowerCase();
+                case 'c1':           return Number(r.primera_mensualidad) || 0;
+                case 'c2':           return Number(r.segunda_mensualidad) || 0;
+                case 'c3':           return Number(r.tercera_mensualidad) || 0;
+                case 'c4':           return Number(r.cuarta_mensualidad) || 0;
+            }
+            return 0;
+        }
+        function ordenarFilas(filas) {
+            if (!sortBy) return filas;
+            const mult = sortDir === 'asc' ? 1 : -1;
+            return [...filas].sort((a, b) => {
+                const va = valorParaSort(a, sortBy), vb = valorParaSort(b, sortBy);
+                if (typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb, 'es') * mult;
+                if (va < vb) return -1 * mult;
+                if (va > vb) return  1 * mult;
+                return 0;
+            });
+        }
+        function actualizarFlechas() {
+            document.querySelectorAll('#theadRow th[data-sort]').forEach(th => {
+                const arrow = th.querySelector('.sort-arrow');
+                if (!arrow) return;
+                if (th.dataset.sort === sortBy) {
+                    arrow.textContent = sortDir === 'asc' ? '▲' : '▼';
+                    arrow.classList.add('active');
+                } else {
+                    arrow.textContent = '⇅';
+                    arrow.classList.remove('active');
+                }
+            });
+        }
+
         function pintarKPIs(rows) {
             document.getElementById('kpiTotal').textContent = rows.length.toLocaleString('es-PE');
             let pagadas = 0, parciales = 0, sin = 0;
@@ -482,11 +525,12 @@
 
         function pintarTabla() {
             const tbody = document.getElementById('tbody');
-            const filtrados = registrosFiltradosPorGrupo();
+            const filtrados = ordenarFilas(registrosFiltradosPorGrupo());
             pintarKPIs(filtrados);
+            actualizarFlechas();
             const total = filtrados.length;
             if (total === 0) {
-                tbody.innerHTML = `<tr><td colspan="11" class="text-center py-12 text-slate-400 text-xs">Sin resultados con esos filtros.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="12" class="text-center py-12 text-slate-400 text-xs">Sin resultados con esos filtros.</td></tr>`;
                 document.getElementById('pageInfo').textContent = '0 / 0';
                 document.getElementById('contador').textContent = '0 alumnos';
                 document.getElementById('prevPage').disabled = true;
@@ -500,8 +544,9 @@
             const fin    = Math.min(inicio + pageSize, total);
             const slice  = filtrados.slice(inicio, fin);
 
-            const filas = slice.map(r => `
+            const filas = slice.map((r, i) => `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-3 py-2 text-right font-mono text-slate-400">${inicio + i + 1}</td>
                         <td class="px-3 py-2 font-mono whitespace-nowrap">${r.nro_documento || ''}</td>
                         <td class="px-3 py-2 font-semibold whitespace-nowrap">${[r.paterno, r.materno, r.nombres].filter(Boolean).join(' ')}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${r.sede || ''}</td>
@@ -525,7 +570,7 @@
 
         async function cargar() {
             try {
-                document.getElementById('tbody').innerHTML = `<tr><td colspan="11" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>`;
+                document.getElementById('tbody').innerHTML = `<tr><td colspan="12" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>`;
                 const resp = await fetch('/api/stats/reporte-pagos' + buildQueryString(), {
                     headers: { 'Authorization': 'Bearer ' + sessionData.token }
                 });
@@ -543,16 +588,25 @@
                 document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('es-PE');
             } catch (e) {
                 console.error(e);
-                document.getElementById('tbody').innerHTML = `<tr><td colspan="11" class="text-center py-12 text-red-500 text-xs">Error al cargar el reporte.</td></tr>`;
+                document.getElementById('tbody').innerHTML = `<tr><td colspan="12" class="text-center py-12 text-red-500 text-xs">Error al cargar el reporte.</td></tr>`;
             }
         }
 
         // Eventos
         document.getElementById('aplicarBtn').addEventListener('click', cargar);
         document.getElementById('refreshBtn').addEventListener('click', cargar);
+        // Click en encabezados ordenables → ordenar asc/desc
+        document.querySelectorAll('#theadRow th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.dataset.sort;
+                if (sortBy === key) sortDir = (sortDir === 'asc' ? 'desc' : 'asc');
+                else { sortBy = key; sortDir = 'asc'; }
+                pagina = 1;
+                pintarTabla();
+            });
+        });
         document.getElementById('limpiarBtn').addEventListener('click', () => {
             document.getElementById('filtroQ').value = '';
-            document.getElementById('filtroEstado').value = '';
             document.querySelectorAll('.filtroCuota').forEach(s => s.value = '');
             cargar();
         });

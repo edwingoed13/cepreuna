@@ -117,7 +117,9 @@ LEFT JOIN sedes sede_aula ON sede_aula.id = local_aula.sedes_id
 JOIN colegios cl ON cl.id = e.colegios_id
 JOIN tipo_colegios tc ON tc.id = cl.tipo_colegios_id
 
--- Solo el ciclo actual
+-- Solo el ciclo actual y solo alumnos inscritos (estado = '1').
+-- Se excluyen pre-inscritos ('0') y retirados.
 WHERE i.periodos_id = 1
+  AND i.estado = '1'
 
 ORDER BY e.paterno, e.materno, e.nombres;

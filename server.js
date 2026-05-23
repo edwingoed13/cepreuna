@@ -2072,7 +2072,7 @@ app.get('/api/stats-inscripciones/reporte-sedes', cacheMiddleware(300), async (r
 app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
   let connection;
   try {
-    const { estado, cuota1, cuota2, cuota3, cuota4, q } = req.query;
+    const { cuota1, cuota2, cuota3, cuota4, q } = req.query;
     const { grupos: gruposPermitidos } = req.user;
 
     // Si tiene una lista vacía de grupos, no puede ver nada.
@@ -2090,10 +2090,7 @@ app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
       params.push(...gruposPermitidos);
     }
 
-    if (estado === '0' || estado === '1') {
-      conditions.push('estado = ?');
-      params.push(estado);
-    }
+    // Nota: el filtro de "solo inscritos" (estado='1') vive en el SQL base.
     const cuotaFilter = (val, col) => {
       if (val === '0') conditions.push(`${col} = 'PAGADA'`);
       else if (val === '1') conditions.push(`${col} <> 'PAGADA'`);
@@ -2103,10 +2100,10 @@ app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
     cuotaFilter(cuota3, 'estado_cuota3');
     cuotaFilter(cuota4, 'estado_cuota4');
 
+    // Búsqueda solo por DNI
     if (q && String(q).trim().length > 0) {
-      conditions.push("(nro_documento LIKE ? OR CONCAT_WS(' ', paterno, materno, nombres) LIKE ?)");
-      const term = `%${String(q).trim()}%`;
-      params.push(term, term);
+      conditions.push('nro_documento LIKE ?');
+      params.push(`%${String(q).trim()}%`);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
