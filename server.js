@@ -2151,7 +2151,32 @@ const CALIFICACIONES_SQL_BASE = `
     m.grupo_aulas_id,
     sede_aula.denominacion AS sede_aula,
     COALESCE(tc.total_docentes, 0)         AS total_docentes,
-    COALESCE(cal.docentes_calificados, 0)  AS docentes_calificados
+    COALESCE(cal.docentes_calificados, 0)  AS docentes_calificados,
+    -- Solo para PARCIALES (0 < X < Y): cursos de los docentes que aún no calificó.
+    -- El CASE evita correr el subquery pesado en las ~7000 filas restantes.
+    CASE
+      WHEN COALESCE(cal.docentes_calificados, 0) > 0
+       AND COALESCE(cal.docentes_calificados, 0) < COALESCE(tc.total_docentes, 0)
+      THEN (
+        SELECT GROUP_CONCAT(DISTINCT c2.denominacion ORDER BY c2.denominacion SEPARATOR ', ')
+        FROM carga_academicas ca3
+        JOIN cursos c2 ON c2.id = ca3.cursos_id
+        WHERE ca3.grupo_aulas_id = m.grupo_aulas_id
+          AND ca3.periodos_id = 1 AND ca3.estado = '1'
+          AND ca3.docentes_id IS NOT NULL
+          AND ca3.docentes_id NOT IN (
+            SELECT ca4.docentes_id
+            FROM calificacion_docente_detalles d2
+            JOIN calificacion_docentes cd2 ON cd2.id = d2.calificacion_docentes_id
+            JOIN carga_academicas ca4      ON ca4.id = cd2.carga_academicas_id
+            WHERE d2.estudiantes_id = e.id
+              AND ca4.grupo_aulas_id = m.grupo_aulas_id
+              AND ca4.periodos_id = 1 AND ca4.estado = '1'
+              AND ca4.docentes_id IS NOT NULL
+          )
+      )
+      ELSE NULL
+    END AS cursos_faltantes
   FROM inscripciones i
   JOIN estudiantes e ON e.id = i.estudiantes_id
   JOIN sedes s ON s.id = i.sedes_id

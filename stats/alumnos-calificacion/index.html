@@ -319,12 +319,24 @@
             return 'completo';
         }
 
+        const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
         function celdaCalif(r) {
             const y = Number(r.total_docentes) || 0;
             const x = Number(r.docentes_calificados) || 0;
-            const cls = { completo: 'cell-completo', parcial: 'cell-parcial', sin: 'cell-sin', nada: 'cell-nada' }[clasificarCalif(r)];
+            const estado = clasificarCalif(r);
+            const cls = { completo: 'cell-completo', parcial: 'cell-parcial', sin: 'cell-sin', nada: 'cell-nada' }[estado];
             const texto = y === 0 ? 'Sin docentes' : `${x} de ${y}`;
-            return `<span class="inline-block px-2.5 py-1 rounded-full font-bold ${cls}" title="Docentes calificados">${texto}</span>`;
+
+            // En parciales, tooltip con los cursos que aún le faltan calificar (lista con guiones)
+            let title = 'Docentes calificados';
+            let extra = '';
+            if (estado === 'parcial' && r.cursos_faltantes) {
+                const lista = r.cursos_faltantes.split(', ').map(c => '- ' + c).join('\n');
+                title = 'Le falta calificar:\n' + lista;
+                extra = ' cursor-help underline decoration-dotted decoration-1 underline-offset-2';
+            }
+            return `<span class="inline-block px-2.5 py-1 rounded-full font-bold ${cls}${extra}" title="${escAttr(title)}">${texto}</span>`;
         }
 
         function buildQueryString() {
