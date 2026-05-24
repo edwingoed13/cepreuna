@@ -180,6 +180,10 @@ app.get('/stats/alumnos', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'alumnos', 'index.html'));
 });
 
+app.get('/stats/alumnos-calificacion', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'alumnos-calificacion', 'index.html'));
+});
+
 app.get('/stats/reportes-aux', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'index.html'));
 });
@@ -2123,6 +2127,100 @@ app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
     if (connection) connection.release();
     console.error('Error reporte-pagos:', error);
     res.status(500).json({ error: 'Error al generar reporte de pagos', message: error.message });
+  }
+});
+
+// ============ ALUMNOS · CALIFICACIÓN DOCENTE ============
+// Por estudiante: a cuántos docentes calificó (X) de los docentes de su grupo (Y).
+//   Y = COUNT(DISTINCT docentes_id) en carga_academicas del grupo del alumno.
+//   X = COUNT(DISTINCT docentes_id) de esos docentes que el alumno evaluó
+//       (calificacion_docente_detalles → calificacion_docentes → carga_academicas).
+// Se cuenta por DOCENTE (no por curso) porque en algunas áreas un mismo docente
+// dicta varios cursos; contar docentes es más estable y representa "calificó al docente".
+// Misma auth y restricción por rol (grupo_aulas_id) que /api/stats/reporte-pagos.
+const CALIFICACIONES_SQL_BASE = `
+  SELECT
+    e.nro_documento,
+    e.paterno,
+    e.materno,
+    e.nombres,
+    s.denominacion        AS sede,
+    areas.denominacion     AS area,
+    turnos.denominacion    AS turno,
+    grupos.denominacion    AS grupo,
+    m.grupo_aulas_id,
+    sede_aula.denominacion AS sede_aula,
+    COALESCE(tc.total_docentes, 0)         AS total_docentes,
+    COALESCE(cal.docentes_calificados, 0)  AS docentes_calificados
+  FROM inscripciones i
+  JOIN estudiantes e ON e.id = i.estudiantes_id
+  JOIN sedes s ON s.id = i.sedes_id
+  LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+  LEFT JOIN grupo_aulas ga ON ga.id = m.grupo_aulas_id
+  LEFT JOIN areas  ON areas.id  = ga.areas_id
+  LEFT JOIN grupos ON grupos.id = ga.grupos_id
+  LEFT JOIN turnos ON turnos.id = ga.turnos_id
+  LEFT JOIN aulas aula_real     ON aula_real.id   = ga.aulas_id
+  LEFT JOIN locales local_aula  ON local_aula.id  = aula_real.locales_id
+  LEFT JOIN sedes sede_aula     ON sede_aula.id   = local_aula.sedes_id
+  -- Y: total de docentes del grupo (mismo para todos los alumnos del grupo)
+  LEFT JOIN (
+    SELECT grupo_aulas_id, COUNT(DISTINCT docentes_id) AS total_docentes
+    FROM carga_academicas
+    WHERE periodos_id = 1 AND estado = '1'
+    GROUP BY grupo_aulas_id
+  ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
+  -- X: docentes del grupo que el alumno efectivamente calificó
+  LEFT JOIN (
+    SELECT d.estudiantes_id, ca.grupo_aulas_id,
+           COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
+    FROM calificacion_docente_detalles d
+    JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+    JOIN carga_academicas ca      ON ca.id = cd.carga_academicas_id
+    WHERE ca.periodos_id = 1 AND ca.estado = '1'
+    GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+  ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+  WHERE i.periodos_id = 1 AND i.estado = '1'
+`;
+
+app.get('/api/stats/calificaciones', requireStatsAuth, async (req, res) => {
+  let connection;
+  try {
+    const { q } = req.query;
+    const { grupos: gruposPermitidos } = req.user;
+
+    // Lista vacía de grupos → no ve nada (auxiliar/coordinador sin asignaciones).
+    if (Array.isArray(gruposPermitidos) && gruposPermitidos.length === 0) {
+      return res.json({ total: 0, registros: [], timestamp: new Date().toISOString() });
+    }
+
+    const conditions = [];
+    const params = [];
+
+    // Restricción por rol: si grupos es array (no admin), limitar a esos grupo_aulas_id.
+    if (Array.isArray(gruposPermitidos)) {
+      conditions.push(`grupo_aulas_id IN (${gruposPermitidos.map(() => '?').join(',')})`);
+      params.push(...gruposPermitidos);
+    }
+
+    // Búsqueda por DNI.
+    if (q && String(q).trim().length > 0) {
+      conditions.push('nro_documento LIKE ?');
+      params.push(`%${String(q).trim()}%`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT * FROM (${CALIFICACIONES_SQL_BASE}) AS t ${where} ORDER BY paterno, materno, nombres`;
+
+    connection = await pool.getConnection();
+    const [rows] = await connection.query(sql, params);
+    connection.release();
+
+    res.json({ total: rows.length, registros: rows, timestamp: new Date().toISOString() });
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error calificaciones:', error);
+    res.status(500).json({ error: 'Error al generar el reporte de calificaciones', message: error.message });
   }
 });
 

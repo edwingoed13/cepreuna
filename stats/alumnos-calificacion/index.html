@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>CEPREUNA - Alumnos · Reporte de Pagos</title>
+    <title>CEPREUNA - Alumnos · Calificación Docente</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
@@ -18,13 +18,8 @@
                         "primary-blue": "#0381d9",
                         "background-light": "#f5f7f8",
                         "background-dark": "#0f1923",
-                        "estado-pagada": "#66bb6a",
-                        "estado-parcial": "#f4ff81",
-                        "estado-sinpagar": "#ef5350",
                     },
-                    fontFamily: {
-                        "display": ["Inter", "sans-serif"]
-                    }
+                    fontFamily: { "display": ["Inter", "sans-serif"] }
                 },
             },
         }
@@ -40,26 +35,16 @@
             color: #fff;
             border-right-color: #fff;
         }
-        @media (max-width: 1024px) {
-            .sidebar { display: none; }
-        }
-        .cell-pagada    { background-color: #66bb6a; color: #0a3d10; }
+        @media (max-width: 1024px) { .sidebar { display: none; } }
+        .cell-completo  { background-color: #66bb6a; color: #0a3d10; }
         .cell-parcial   { background-color: #f4ff81; color: #4a4400; }
-        .cell-sinpagar  { background-color: #ef5350; color: #4a0000; }
-        /* Cuota pagada bajo distinta modalidad/tipo que la inscripción actual */
-        .cell-cambio-mod { position: relative; box-shadow: inset 0 0 0 2px #6366f1; }
-        .cell-cambio-mod::after {
-            content: '';
-            position: absolute; top: 3px; right: 3px;
-            width: 7px; height: 7px; border-radius: 50%;
-            background: #6366f1;
-        }
+        .cell-sin       { background-color: #ef5350; color: #4a0000; }
+        .cell-nada      { background-color: #e2e8f0; color: #64748b; }
         .table-fixed-head thead th {
             position: sticky; top: 0; z-index: 5;
             background-color: #f1f5f9;
         }
         .dark .table-fixed-head thead th { background-color: #1e293b; }
-        /* Sortable column headers */
         th[data-sort] { cursor: pointer; user-select: none; }
         th[data-sort]:hover { background-color: #e2e8f0; }
         .dark th[data-sort]:hover { background-color: #334155; }
@@ -75,7 +60,6 @@
             window.location.href = '/stats/login';
         }
         const sessionData = JSON.parse(sessionDataString);
-        // Sin token → forzar relogin (sesiones viejas con placeholder no sirven)
         if (!sessionData || !sessionData.token || sessionData.token.startsWith('valid_session_token_')) {
             localStorage.removeItem('stats_session');
             window.location.href = '/stats/login';
@@ -103,11 +87,11 @@
                     <span class="material-symbols-outlined">description</span>
                     <span class="font-medium">Reportes</span>
                 </a>
-                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/alumnos">
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos">
                     <span class="material-symbols-outlined">group</span>
                     <span class="font-medium">Alumnos</span>
                 </a>
-                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos-calificacion">
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/alumnos-calificacion">
                     <span class="material-symbols-outlined">grading</span>
                     <span class="font-medium">Alumnos-Calificación</span>
                 </a>
@@ -140,11 +124,11 @@
                     <h1 class="text-lg font-bold text-slate-800 dark:text-white">CEPREUNA</h1>
                 </div>
                 <div class="hidden lg:flex items-center gap-2">
-                    <span class="material-symbols-outlined text-primary dark:text-white">group</span>
-                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Alumnos · Reporte de Pagos</h2>
+                    <span class="material-symbols-outlined text-primary dark:text-white">grading</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Alumnos · Calificación Docente</h2>
                 </div>
                 <div class="flex items-center gap-3">
-                    <p class="text-[10px] text-slate-500 hidden sm:block">FIFO · <span id="lastUpdate">Cargando...</span></p>
+                    <p class="text-[10px] text-slate-500 hidden sm:block"><span id="lastUpdate">Cargando...</span></p>
                     <button id="refreshBtn" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
                         <span class="material-symbols-outlined text-xl">refresh</span>
                     </button>
@@ -162,16 +146,16 @@
                         <p class="text-2xl font-black text-primary dark:text-white" id="kpiTotal">—</p>
                     </div>
                     <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cuotas pagadas</p>
-                        <p class="text-2xl font-black text-emerald-600" id="kpiPagadas">—</p>
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Calificación completa</p>
+                        <p class="text-2xl font-black text-emerald-600" id="kpiCompleto">—</p>
                     </div>
                     <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cuotas parciales</p>
-                        <p class="text-2xl font-black text-amber-500" id="kpiParciales">—</p>
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Calificación parcial</p>
+                        <p class="text-2xl font-black text-amber-500" id="kpiParcial">—</p>
                     </div>
                     <div class="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cuotas sin pagar</p>
-                        <p class="text-2xl font-black text-red-500" id="kpiSinPagar">—</p>
+                        <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 mb-1">Sin calificar</p>
+                        <p class="text-2xl font-black text-red-500" id="kpiSin">—</p>
                     </div>
                 </div>
 
@@ -180,42 +164,19 @@
                     <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
                         <span class="material-symbols-outlined text-base">filter_alt</span> Filtros
                     </h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
                             <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Buscar por DNI</label>
                             <input id="filtroQ" type="text" inputmode="numeric" placeholder="Ej: 60836542"
                                 class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"/>
                         </div>
                         <div>
-                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 1</label>
-                            <select data-cuota="1" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
-                                <option value="">— sin filtro —</option>
-                                <option value="0">Solo PAGADA</option>
-                                <option value="1">No PAGADA</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 2</label>
-                            <select data-cuota="2" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
-                                <option value="">— sin filtro —</option>
-                                <option value="0">Solo PAGADA</option>
-                                <option value="1">No PAGADA</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 3</label>
-                            <select data-cuota="3" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
-                                <option value="">— sin filtro —</option>
-                                <option value="0">Solo PAGADA</option>
-                                <option value="1">No PAGADA</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cuota 4</label>
-                            <select data-cuota="4" class="filtroCuota w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
-                                <option value="">— sin filtro —</option>
-                                <option value="0">Solo PAGADA</option>
-                                <option value="1">No PAGADA</option>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Estado de calificación</label>
+                            <select id="filtroEstado" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+                                <option value="">— todos —</option>
+                                <option value="completo">Completa (todos los docentes)</option>
+                                <option value="parcial">Parcial</option>
+                                <option value="sin">Sin calificar (0)</option>
                             </select>
                         </div>
                     </div>
@@ -227,10 +188,9 @@
                             Limpiar
                         </button>
                         <div class="flex items-center gap-3 ml-auto text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#66bb6a"></span> Pagada</span>
+                            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#66bb6a"></span> Completa</span>
                             <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#f4ff81"></span> Parcial</span>
-                            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#ef5350"></span> Sin pagar</span>
-                            <span class="flex items-center gap-1.5" title="Cuota pagada con una modalidad/tipo distinto al de la inscripción actual"><span class="w-3 h-3 rounded-full" style="background:#6366f1"></span> Cambio modalidad</span>
+                            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#ef5350"></span> Sin calificar</span>
                         </div>
                     </div>
                 </div>
@@ -278,15 +238,11 @@
                                     <th data-sort="area"  class="px-3 py-2 font-bold whitespace-nowrap">Área<span class="sort-arrow">⇅</span></th>
                                     <th data-sort="turno" class="px-3 py-2 font-bold whitespace-nowrap">Turno<span class="sort-arrow">⇅</span></th>
                                     <th data-sort="grupo" class="px-3 py-2 font-bold whitespace-nowrap">Grupo<span class="sort-arrow">⇅</span></th>
-                                    <th data-sort="tipo_colegio" class="px-3 py-2 font-bold whitespace-nowrap">Tipo Col.<span class="sort-arrow">⇅</span></th>
-                                    <th data-sort="c1" class="px-3 py-2 font-bold whitespace-nowrap text-right">1ra<span class="sort-arrow">⇅</span></th>
-                                    <th data-sort="c2" class="px-3 py-2 font-bold whitespace-nowrap text-right">2da<span class="sort-arrow">⇅</span></th>
-                                    <th data-sort="c3" class="px-3 py-2 font-bold whitespace-nowrap text-right">3ra<span class="sort-arrow">⇅</span></th>
-                                    <th data-sort="c4" class="px-3 py-2 font-bold whitespace-nowrap text-right">4ta<span class="sort-arrow">⇅</span></th>
+                                    <th data-sort="calif" class="px-3 py-2 font-bold whitespace-nowrap text-center">Calificación<span class="sort-arrow">⇅</span></th>
                                 </tr>
                             </thead>
                             <tbody id="tbody" class="divide-y divide-slate-100 dark:divide-slate-800">
-                                <tr><td colspan="12" class="text-center py-12 text-slate-400 text-xs">Cargando…</td></tr>
+                                <tr><td colspan="8" class="text-center py-12 text-slate-400 text-xs">Cargando…</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -300,7 +256,7 @@
 
             <footer class="p-8 text-center text-slate-400">
                 <p class="text-xs font-bold uppercase tracking-widest">© 2026 CEPREUNA</p>
-                <p class="text-[10px] mt-1 uppercase tracking-tight">Reporte FIFO · Centro Pre Universitario UNA</p>
+                <p class="text-[10px] mt-1 uppercase tracking-tight">Calificación docente · Centro Pre Universitario UNA</p>
             </footer>
         </main>
 
@@ -310,16 +266,12 @@
                 <span class="material-symbols-outlined">dashboard</span>
                 <span class="text-[9px] font-bold uppercase">Resumen</span>
             </a>
-            <a data-role="admin" style="display:none" class="flex flex-col items-center gap-1 text-slate-400" href="/stats/reportes">
-                <span class="material-symbols-outlined">bar_chart</span>
-                <span class="text-[9px] font-bold uppercase">Reportes</span>
-            </a>
-            <a class="flex flex-col items-center gap-1 text-primary dark:text-white" href="/stats/alumnos">
-                <span class="material-symbols-outlined font-black">group</span>
+            <a class="flex flex-col items-center gap-1 text-slate-400" href="/stats/alumnos">
+                <span class="material-symbols-outlined">group</span>
                 <span class="text-[9px] font-bold uppercase">Alumnos</span>
             </a>
-            <a class="flex flex-col items-center gap-1 text-slate-400" href="/stats/alumnos-calificacion">
-                <span class="material-symbols-outlined">grading</span>
+            <a class="flex flex-col items-center gap-1 text-primary dark:text-white" href="/stats/alumnos-calificacion">
+                <span class="material-symbols-outlined font-black">grading</span>
                 <span class="text-[9px] font-bold uppercase">Calificación</span>
             </a>
             <a class="flex flex-col items-center gap-1 text-slate-400" href="/">
@@ -337,7 +289,6 @@
             document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
         }
 
-        // Mostrar elementos data-role="admin" solo si el usuario es admin
         const _role = sessionData?.user?.role;
         if (_role === 'Administrador' || _role === 'Super Admin') {
             document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
@@ -351,48 +302,40 @@
         document.querySelectorAll('.logout-trigger').forEach(btn => btn.addEventListener('click', handleLogout));
 
         // Estado
-        let registros = [];           // todo lo que devolvió el servidor
+        let registros = [];
         let pagina = 1;
         let pageSize = 50;
-        let gruposResumen = [];       // [{id, label, count}] derivado de registros
-        const gruposSeleccionados = new Set();  // ids seleccionados (filtro client)
+        let gruposResumen = [];
+        const gruposSeleccionados = new Set();
         let gruposBuscarTerm = '';
 
-        const fmtMoney = (v) => {
-            if (v === null || v === undefined) return '—';
-            const n = Number(v);
-            if (Number.isNaN(n)) return '—';
-            return n.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-        };
+        // Clasificación de calificación: completo / parcial / sin / nada (sin docentes)
+        function clasificarCalif(r) {
+            const y = Number(r.total_docentes) || 0;
+            const x = Number(r.docentes_calificados) || 0;
+            if (y === 0) return 'nada';
+            if (x === 0) return 'sin';
+            if (x < y) return 'parcial';
+            return 'completo';
+        }
 
-        const claseCelda = (estado, cambioMod) => {
-            const base = estado === 'PAGADA' ? 'cell-pagada'
-                : estado === 'PARCIAL' ? 'cell-parcial'
-                : estado === 'SIN_PAGAR' ? 'cell-sinpagar' : '';
-            return cambioMod ? `${base} cell-cambio-mod` : base;
-        };
-
-        const claseEstado = (estado) => {
-            if (estado === 'PAGADA') return 'cell-pagada';
-            if (estado === 'PARCIAL') return 'cell-parcial';
-            if (estado === 'SIN_PAGAR') return 'cell-sinpagar';
-            return '';
-        };
+        function celdaCalif(r) {
+            const y = Number(r.total_docentes) || 0;
+            const x = Number(r.docentes_calificados) || 0;
+            const cls = { completo: 'cell-completo', parcial: 'cell-parcial', sin: 'cell-sin', nada: 'cell-nada' }[clasificarCalif(r)];
+            const texto = y === 0 ? 'Sin docentes' : `${x} de ${y}`;
+            return `<span class="inline-block px-2.5 py-1 rounded-full font-bold ${cls}" title="Docentes calificados">${texto}</span>`;
+        }
 
         function buildQueryString() {
             const params = new URLSearchParams();
             const q = document.getElementById('filtroQ').value.trim();
             if (q) params.set('q', q);
-            document.querySelectorAll('.filtroCuota').forEach(sel => {
-                if (sel.value) params.set('cuota' + sel.dataset.cuota, sel.value);
-            });
             const s = params.toString();
             return s ? '?' + s : '';
         }
 
         function derivarGrupos(rows) {
-            // Cada grupo_aulas_id = 1 botón. Uso sede_aula (sede real del aula
-            // vía aulas→locales→sedes), no la sede de la inscripción del alumno.
             const map = new Map();
             for (const r of rows) {
                 if (r.grupo_aulas_id == null) continue;
@@ -412,14 +355,10 @@
         function pintarGruposBotones() {
             const panel = document.getElementById('gruposPanel');
             const cont = document.getElementById('gruposBotones');
-            if (gruposResumen.length === 0) {
-                panel.classList.add('hidden');
-                return;
-            }
+            if (gruposResumen.length === 0) { panel.classList.add('hidden'); return; }
             panel.classList.remove('hidden');
             document.getElementById('gruposPanelCount').textContent = `(${gruposResumen.length})`;
 
-            // Limpiar selecciones que ya no aplican (por filtros nuevos)
             const validKeys = new Set(gruposResumen.map(g => g.key));
             for (const k of gruposSeleccionados) {
                 if (!validKeys.has(k)) gruposSeleccionados.delete(k);
@@ -427,11 +366,10 @@
 
             const term = gruposBuscarTerm.trim().toLowerCase();
             const filtrados = term
-                ? gruposResumen.filter(g =>
-                    g.label.toLowerCase().includes(term) || g.sede.toLowerCase().includes(term))
+                ? gruposResumen.filter(g => g.label.toLowerCase().includes(term) || g.sede.toLowerCase().includes(term))
                 : gruposResumen;
 
-            cont.innerHTML = filtrados.map((g, i) => {
+            cont.innerHTML = filtrados.map((g) => {
                 const sel = gruposSeleccionados.has(g.key);
                 const cls = sel
                     ? 'bg-primary text-white border-primary'
@@ -460,34 +398,36 @@
         }
 
         function registrosFiltradosPorGrupo() {
-            if (gruposSeleccionados.size === 0) return registros;
-            // Aplanar todos los grupo_aulas_id de los grupos lógicos seleccionados
-            const allowed = new Set();
-            for (const g of gruposResumen) {
-                if (gruposSeleccionados.has(g.key)) {
-                    g.ids.forEach(id => allowed.add(id));
+            let base = registros;
+            if (gruposSeleccionados.size > 0) {
+                const allowed = new Set();
+                for (const g of gruposResumen) {
+                    if (gruposSeleccionados.has(g.key)) g.ids.forEach(id => allowed.add(id));
                 }
+                base = base.filter(r => allowed.has(Number(r.grupo_aulas_id)));
             }
-            return registros.filter(r => allowed.has(Number(r.grupo_aulas_id)));
+            const estado = document.getElementById('filtroEstado').value;
+            if (estado) base = base.filter(r => clasificarCalif(r) === estado);
+            return base;
         }
 
         // ====== Ordenamiento por columna ======
-        let sortBy = null;   // 'dni' | 'nombre' | 'sede' | 'area' | 'turno' | 'grupo' | 'tipo_colegio' | 'c1'..'c4'
+        let sortBy = null;
         let sortDir = 'asc';
 
         function valorParaSort(r, key) {
             switch (key) {
-                case 'dni':          return (r.nro_documento || '');
-                case 'nombre':       return [r.paterno, r.materno, r.nombres].filter(Boolean).join(' ').toLowerCase();
-                case 'sede':         return (r.sede || '').toLowerCase();
-                case 'area':         return (r.area || '').toLowerCase();
-                case 'turno':        return (r.turno || '').toLowerCase();
-                case 'grupo':        return (r.grupo || '').toLowerCase();
-                case 'tipo_colegio': return (r.tipo_colegio || '').toLowerCase();
-                case 'c1':           return Number(r.primera_mensualidad) || 0;
-                case 'c2':           return Number(r.segunda_mensualidad) || 0;
-                case 'c3':           return Number(r.tercera_mensualidad) || 0;
-                case 'c4':           return Number(r.cuarta_mensualidad) || 0;
+                case 'dni':    return (r.nro_documento || '');
+                case 'nombre': return [r.paterno, r.materno, r.nombres].filter(Boolean).join(' ').toLowerCase();
+                case 'sede':   return (r.sede || '').toLowerCase();
+                case 'area':   return (r.area || '').toLowerCase();
+                case 'turno':  return (r.turno || '').toLowerCase();
+                case 'grupo':  return (r.grupo || '').toLowerCase();
+                case 'calif': {
+                    const y = Number(r.total_docentes) || 0;
+                    const x = Number(r.docentes_calificados) || 0;
+                    return y === 0 ? -1 : x / y; // ratio de avance; sin docentes al fondo
+                }
             }
             return 0;
         }
@@ -518,17 +458,16 @@
 
         function pintarKPIs(rows) {
             document.getElementById('kpiTotal').textContent = rows.length.toLocaleString('es-PE');
-            let pagadas = 0, parciales = 0, sin = 0;
+            let completos = 0, parciales = 0, sin = 0;
             for (const r of rows) {
-                ['estado_cuota1','estado_cuota2','estado_cuota3','estado_cuota4'].forEach(k => {
-                    if (r[k] === 'PAGADA') pagadas++;
-                    else if (r[k] === 'PARCIAL') parciales++;
-                    else if (r[k] === 'SIN_PAGAR') sin++;
-                });
+                const c = clasificarCalif(r);
+                if (c === 'completo') completos++;
+                else if (c === 'parcial') parciales++;
+                else if (c === 'sin') sin++;
             }
-            document.getElementById('kpiPagadas').textContent = pagadas.toLocaleString('es-PE');
-            document.getElementById('kpiParciales').textContent = parciales.toLocaleString('es-PE');
-            document.getElementById('kpiSinPagar').textContent = sin.toLocaleString('es-PE');
+            document.getElementById('kpiCompleto').textContent = completos.toLocaleString('es-PE');
+            document.getElementById('kpiParcial').textContent = parciales.toLocaleString('es-PE');
+            document.getElementById('kpiSin').textContent = sin.toLocaleString('es-PE');
         }
 
         function pintarTabla() {
@@ -538,7 +477,7 @@
             actualizarFlechas();
             const total = filtrados.length;
             if (total === 0) {
-                tbody.innerHTML = `<tr><td colspan="12" class="text-center py-12 text-slate-400 text-xs">Sin resultados con esos filtros.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-12 text-slate-400 text-xs">Sin resultados con esos filtros.</td></tr>`;
                 document.getElementById('pageInfo').textContent = '0 / 0';
                 document.getElementById('contador').textContent = '0 alumnos';
                 document.getElementById('prevPage').disabled = true;
@@ -552,7 +491,7 @@
             const fin    = Math.min(inicio + pageSize, total);
             const slice  = filtrados.slice(inicio, fin);
 
-            const filas = slice.map((r, i) => `
+            tbody.innerHTML = slice.map((r, i) => `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <td class="px-3 py-2 text-right font-mono text-slate-400">${inicio + i + 1}</td>
                         <td class="px-3 py-2 font-mono whitespace-nowrap">${r.nro_documento || ''}</td>
@@ -561,15 +500,10 @@
                         <td class="px-3 py-2 whitespace-nowrap">${r.area || '—'}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${r.turno || '—'}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${r.grupo || '—'}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${r.tipo_colegio || ''}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota1, Number(r.cambio_mod_1))}">${fmtMoney(r.primera_mensualidad)}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota2, Number(r.cambio_mod_2))}">${fmtMoney(r.segunda_mensualidad)}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota3, Number(r.cambio_mod_3))}">${fmtMoney(r.tercera_mensualidad)}</td>
-                        <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota4, Number(r.cambio_mod_4))}">${fmtMoney(r.cuarta_mensualidad)}</td>
+                        <td class="px-3 py-2 text-center whitespace-nowrap">${celdaCalif(r)}</td>
                     </tr>
                 `).join('');
 
-            tbody.innerHTML = filas;
             document.getElementById('pageInfo').textContent = `Página ${pagina} de ${totalPaginas} · mostrando ${inicio + 1}-${fin} de ${total}`;
             document.getElementById('contador').textContent = `${total.toLocaleString('es-PE')} alumnos`;
             document.getElementById('prevPage').disabled = pagina <= 1;
@@ -578,8 +512,8 @@
 
         async function cargar() {
             try {
-                document.getElementById('tbody').innerHTML = `<tr><td colspan="12" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>`;
-                const resp = await fetch('/api/stats/reporte-pagos' + buildQueryString(), {
+                document.getElementById('tbody').innerHTML = `<tr><td colspan="8" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>`;
+                const resp = await fetch('/api/stats/calificaciones' + buildQueryString(), {
                     headers: { 'Authorization': 'Bearer ' + sessionData.token }
                 });
                 if (resp.status === 401) {
@@ -593,17 +527,17 @@
                 pintarGruposBotones();
                 pagina = 1;
                 pintarTabla();
-                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('es-PE');
+                document.getElementById('lastUpdate').textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-PE');
             } catch (e) {
                 console.error(e);
-                document.getElementById('tbody').innerHTML = `<tr><td colspan="12" class="text-center py-12 text-red-500 text-xs">Error al cargar el reporte.</td></tr>`;
+                document.getElementById('tbody').innerHTML = `<tr><td colspan="8" class="text-center py-12 text-red-500 text-xs">Error al cargar el reporte.</td></tr>`;
             }
         }
 
         // Eventos
         document.getElementById('aplicarBtn').addEventListener('click', cargar);
         document.getElementById('refreshBtn').addEventListener('click', cargar);
-        // Click en encabezados ordenables → ordenar asc/desc
+        document.getElementById('filtroEstado').addEventListener('change', () => { pagina = 1; pintarTabla(); });
         document.querySelectorAll('#theadRow th[data-sort]').forEach(th => {
             th.addEventListener('click', () => {
                 const key = th.dataset.sort;
@@ -615,12 +549,10 @@
         });
         document.getElementById('limpiarBtn').addEventListener('click', () => {
             document.getElementById('filtroQ').value = '';
-            document.querySelectorAll('.filtroCuota').forEach(s => s.value = '');
+            document.getElementById('filtroEstado').value = '';
             cargar();
         });
-        document.getElementById('filtroQ').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') cargar();
-        });
+        document.getElementById('filtroQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') cargar(); });
         document.getElementById('pageSize').addEventListener('change', (e) => {
             pageSize = parseInt(e.target.value, 10) || 50;
             pagina = 1;
