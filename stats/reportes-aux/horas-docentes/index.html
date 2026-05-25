@@ -153,6 +153,9 @@
                             <span class="material-symbols-outlined text-base">search</span> Generar reporte
                         </button>
                         <button id="limpiarBtn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg">Limpiar</button>
+                        <button id="excelBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span class="material-symbols-outlined text-base">download</span> Descargar Excel
+                        </button>
                         <p class="text-[10px] text-slate-400 ml-auto">Tip: Ctrl+Click para seleccionar varios</p>
                     </div>
                 </div>
@@ -412,10 +415,12 @@
             renderThead();  // refresca las flechas
         }
 
-        async function generar() {
+        // Construye los query params según los filtros actuales (reutilizado por
+        // "Generar reporte" y "Descargar Excel"). Devuelve null si falta el rango.
+        function buildParams() {
             const desde = document.getElementById('fDesde').value;
             const hasta = document.getElementById('fHasta').value;
-            if (!desde || !hasta) { alert('Selecciona rango de fechas'); return; }
+            if (!desde || !hasta) { alert('Selecciona rango de fechas'); return null; }
             const params = new URLSearchParams({ desde, hasta });
             const tipo = document.getElementById('fTipoCarga').value;
             if (tipo) params.set('tipo_carga', tipo);
@@ -429,13 +434,49 @@
             addList('grupos', 'fGrupos');
             addList('coordinadores', 'fCoordinadores');
             addList('auxiliares', 'fAuxiliares');
+            return { params, desde, hasta };
+        }
 
+        async function generar() {
+            const built = buildParams();
+            if (!built) return;
             document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>';
             try {
-                const data = await apiGet('/api/stats/reportes-aux/horas-docentes?' + params.toString());
-                pintar(data, desde, hasta);
+                const data = await apiGet('/api/stats/reportes-aux/horas-docentes?' + built.params.toString());
+                pintar(data, built.desde, built.hasta);
             } catch (e) {
                 document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-12 text-red-500 text-xs">Error al cargar el reporte</td></tr>';
+            }
+        }
+
+        async function descargarExcel() {
+            const built = buildParams();
+            if (!built) return;
+            const btn = document.getElementById('excelBtn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span> Generando…';
+            try {
+                const resp = await fetch('/api/stats/reportes-aux/horas-docentes/excel?' + built.params.toString(), {
+                    headers: authHeaders
+                });
+                if (resp.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `horas-docentes_${built.desde}_a_${built.hasta}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error(e);
+                alert('No se pudo generar el Excel. Intenta de nuevo.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
             }
         }
 
@@ -452,6 +493,7 @@
         }
 
         document.getElementById('aplicarBtn').addEventListener('click', generar);
+        document.getElementById('excelBtn').addEventListener('click', descargarExcel);
         document.getElementById('limpiarBtn').addEventListener('click', () => {
             setDefaultDates();
             ['fSedes','fTurnos','fAreas','fGrupos','fCoordinadores','fAuxiliares'].forEach(id => {

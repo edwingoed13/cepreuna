@@ -206,11 +206,21 @@
                             <select id="fAuxiliares" multiple class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select>
                         </div>
                     </div>
+                    <!-- Rangos rápidos -->
+                    <div class="flex flex-wrap items-center gap-2 mt-4">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Rango rápido:</span>
+                        <button class="rango-btn text-[11px] font-semibold px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700 hover:border-primary hover:text-primary transition-colors" data-rango="semana">Semana actual</button>
+                        <button class="rango-btn text-[11px] font-semibold px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700 hover:border-primary hover:text-primary transition-colors" data-rango="mes">Este mes</button>
+                        <button class="rango-btn text-[11px] font-semibold px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700 hover:border-primary hover:text-primary transition-colors" data-rango="ciclo">Todo el ciclo</button>
+                    </div>
                     <div class="flex flex-wrap items-center gap-2 mt-4">
                         <button id="aplicarBtn" class="bg-primary hover:bg-primary-light text-white text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg flex items-center gap-2">
                             <span class="material-symbols-outlined text-base">search</span> Generar
                         </button>
                         <button id="limpiarBtn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg">Limpiar</button>
+                        <button id="excelBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span class="material-symbols-outlined text-base">download</span> Descargar Excel
+                        </button>
 
                         <!-- Toggle vista -->
                         <div class="ml-auto flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
@@ -405,6 +415,9 @@
 
         const DOW_LABELS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 
+        const fmtFecha = d => d.toISOString().slice(0, 10);
+        let rangoCiclo = null;  // { min_fecha, max_fecha } cargado del backend
+
         // Default: semana actual (Lun-Vie)
         function setDefaultDates() {
             const now = new Date();
@@ -412,9 +425,30 @@
             const diffToMonday = dow === 0 ? -6 : 1 - dow;
             const monday = new Date(now); monday.setDate(now.getDate() + diffToMonday);
             const friday = new Date(monday); friday.setDate(monday.getDate() + 4);
-            const fmt = d => d.toISOString().slice(0, 10);
-            document.getElementById('fDesde').value = fmt(monday);
-            document.getElementById('fHasta').value = fmt(friday);
+            document.getElementById('fDesde').value = fmtFecha(monday);
+            document.getElementById('fHasta').value = fmtFecha(friday);
+        }
+
+        // Aplica un rango rápido: 'semana' | 'mes' | 'ciclo'
+        async function aplicarRangoRapido(tipo) {
+            const now = new Date();
+            if (tipo === 'semana') {
+                setDefaultDates();
+            } else if (tipo === 'mes') {
+                const first = new Date(now.getFullYear(), now.getMonth(), 1);
+                document.getElementById('fDesde').value = fmtFecha(first);
+                document.getElementById('fHasta').value = fmtFecha(now);
+            } else if (tipo === 'ciclo') {
+                if (!rangoCiclo) {
+                    try { rangoCiclo = await apiGet('/api/stats/reportes-aux/rango-fechas'); }
+                    catch (e) { return; }
+                }
+                if (rangoCiclo && rangoCiclo.min_fecha) {
+                    document.getElementById('fDesde').value = rangoCiclo.min_fecha;
+                    document.getElementById('fHasta').value = rangoCiclo.max_fecha || fmtFecha(now);
+                }
+            }
+            generar();
         }
 
         async function cargarCatalogos() {
@@ -447,6 +481,8 @@
             if (key === 'turno')   return (fila.g.turno   || '').toLowerCase();
             if (key === 'sede')    return (fila.g.sede    || '').toLowerCase();
             if (key === 'aux')     return (fila.g.auxiliares_asignados || '~').toLowerCase(); // sin asignar al final
+            if (key === 'coord')   return (fila.g.coordinadores_asignados || '~').toLowerCase();
+            if (key === 'semana')  return fila.semanaNum || 0;
             if (key === 'tomados') return fila.tomados;
             if (key === 'pct')     return fila.pct;
             if (key && key.startsWith('dia:')) {
@@ -491,10 +527,11 @@
             return out;
         }
 
-        async function generar() {
+        // Arma los params según filtros actuales. Devuelve null si falta el rango.
+        function buildParams() {
             const desde = document.getElementById('fDesde').value;
             const hasta = document.getElementById('fHasta').value;
-            if (!desde || !hasta) { alert('Selecciona rango'); return; }
+            if (!desde || !hasta) { alert('Selecciona rango'); return null; }
             const params = new URLSearchParams({ desde, hasta });
             const addList = (key, sel) => {
                 const v = selectedValues(document.getElementById(sel));
@@ -505,7 +542,12 @@
             addList('areas', 'fAreas');
             addList('grupos', 'fGrupos');
             addList('auxiliares', 'fAuxiliares');
+            return params;
+        }
 
+        async function generar() {
+            const params = buildParams();
+            if (!params) return;
             document.getElementById('tbody').innerHTML = '<tr><td colspan="20" class="text-center py-12 text-slate-400 text-xs">Consultando…</td></tr>';
             try {
                 lastData = await apiGet('/api/stats/reportes-aux/cobertura-grupos?' + params.toString());
@@ -515,92 +557,153 @@
             }
         }
 
+        async function descargarExcel() {
+            const params = buildParams();
+            if (!params) return;
+            params.set('vista', vista);  // 'semanal' | 'dinamica' según el toggle activo
+            const btn = document.getElementById('excelBtn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span> Generando…';
+            try {
+                const resp = await fetch('/api/stats/reportes-aux/cobertura-grupos/excel?' + params.toString(), { headers: authHeaders });
+                if (resp.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `cobertura-grupos_${vista}_${params.get('desde')}_a_${params.get('hasta')}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error(e);
+                alert('No se pudo generar el Excel. Intenta de nuevo.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        }
+
+        // Lunes (ISO) de la semana de una fecha ISO
+        function lunesDe(iso) {
+            const d = new Date(iso + 'T00:00:00');
+            const dow = d.getDay();
+            const diff = dow === 0 ? -6 : 1 - dow;
+            d.setDate(d.getDate() + diff);
+            return d.toISOString().slice(0, 10);
+        }
+
         function pintar() {
             if (!lastData) return;
             const { grupos, asistencias, desde, hasta } = lastData;
             const soloHabiles = document.getElementById('fDiasHabiles').value === 'habiles';
             const estadoFiltro = document.getElementById('fEstado').value;
+            const esSemanal = vista === 'semanal';
 
             // Index asistencias por grupo + fecha
             const idx = new Map();
-            for (const a of asistencias) {
-                const k = `${a.grupo_aulas_id}|${a.fecha}`;
-                idx.set(k, a.tomada_por);
+            for (const a of asistencias) idx.set(`${a.grupo_aulas_id}|${a.fecha}`, a.tomada_por);
+
+            const fechas = getFechasRango(desde, hasta, soloHabiles); // [{fecha, dow}]
+
+            // Columnas de días de la matriz
+            let columnasMatriz;
+            if (esSemanal) {
+                const dowsPresentes = [...new Set(fechas.map(f => f.dow))].sort();
+                columnasMatriz = dowsPresentes.map(dow => ({ dow, label: DOW_LABELS[dow].slice(0, 3) }));
+            } else {
+                columnasMatriz = fechas.map(f => ({ fecha: f.fecha, dow: f.dow,
+                    label: f.fecha.slice(5) + ' ' + DOW_LABELS[f.dow].slice(0, 3) }));
             }
 
             // Construir filas
-            const fechas = getFechasRango(desde, hasta, soloHabiles);
-            let columnasMatriz;
-            if (vista === 'semanal') {
-                // Pivote por DAYOFWEEK: una columna por cada día de semana presente
-                const dowsPresentes = [...new Set(fechas.map(f => f.dow))].sort();
-                columnasMatriz = dowsPresentes.map(dow => ({ tipo: 'dow', dow, label: DOW_LABELS[dow] }));
-            } else {
-                // Una columna por fecha
-                columnasMatriz = fechas.map(f => ({ tipo: 'fecha', fecha: f.fecha, dow: f.dow,
-                    label: f.fecha.slice(5) + ' ' + DOW_LABELS[f.dow].slice(0,3) }));
-            }
-
-            const filas = grupos.map(g => {
-                const cells = columnasMatriz.map(col => {
-                    if (col.tipo === 'dow') {
-                        // SI si algún día de ese dow tiene asistencia para este grupo
-                        const fechasDow = fechas.filter(f => f.dow === col.dow);
-                        if (fechasDow.length === 0) return { tomado: 'NA' };
-                        const tomadas = fechasDow.filter(f => idx.has(`${g.grupo_aulas_id}|${f.fecha}`));
-                        return tomadas.length > 0
-                            ? { tomado: 'SI', tomada_por: tomadas.map(f => idx.get(`${g.grupo_aulas_id}|${f.fecha}`)).join(' | ') }
-                            : { tomado: 'NO' };
-                    } else {
-                        return idx.has(`${g.grupo_aulas_id}|${col.fecha}`)
-                            ? { tomado: 'SI', tomada_por: idx.get(`${g.grupo_aulas_id}|${col.fecha}`) }
-                            : { tomado: 'NO' };
+            let filas = [];
+            if (esSemanal) {
+                // Una fila por (grupo × semana). Agrupamos fechas por lunes.
+                const semanas = new Map(); // lunesISO -> { dow: fecha }
+                for (const f of fechas) {
+                    const k = lunesDe(f.fecha);
+                    if (!semanas.has(k)) semanas.set(k, {});
+                    semanas.get(k)[f.dow] = f.fecha;
+                }
+                const lunesOrden = [...semanas.keys()].sort();
+                lunesOrden.forEach((lun, si) => {
+                    const dias = semanas.get(lun);
+                    const finSem = Object.values(dias).sort().pop();
+                    for (const g of grupos) {
+                        const cells = columnasMatriz.map(col => {
+                            const fecha = dias[col.dow];
+                            if (!fecha) return { tomado: 'NA' };
+                            return idx.has(`${g.grupo_aulas_id}|${fecha}`)
+                                ? { tomado: 'SI', tomada_por: idx.get(`${g.grupo_aulas_id}|${fecha}`) }
+                                : { tomado: 'NO' };
+                        });
+                        const evaluables = cells.filter(c => c.tomado !== 'NA');
+                        const tomados = evaluables.filter(c => c.tomado === 'SI').length;
+                        const total = evaluables.length;
+                        const pct = total > 0 ? Math.round(100 * tomados / total) : 0;
+                        filas.push({ g, cells, tomados, total, faltantes: total - tomados, pct,
+                                     semanaNum: si + 1, semanaLabel: `Semana ${si + 1}`, semanaRango: `${lun} a ${finSem}` });
                     }
                 });
-                const evaluables = cells.filter(c => c.tomado !== 'NA');
-                const tomados = evaluables.filter(c => c.tomado === 'SI').length;
-                const total = evaluables.length;
-                const pct = total > 0 ? Math.round(100 * tomados / total) : 0;
-                return { g, cells, tomados, total, faltantes: total - tomados, pct };
-            });
+            } else {
+                filas = grupos.map(g => {
+                    const cells = columnasMatriz.map(col =>
+                        idx.has(`${g.grupo_aulas_id}|${col.fecha}`)
+                            ? { tomado: 'SI', tomada_por: idx.get(`${g.grupo_aulas_id}|${col.fecha}`) }
+                            : { tomado: 'NO' });
+                    const tomados = cells.filter(c => c.tomado === 'SI').length;
+                    const total = cells.length;
+                    const pct = total > 0 ? Math.round(100 * tomados / total) : 0;
+                    return { g, cells, tomados, total, faltantes: total - tomados, pct };
+                });
+            }
 
-            // Aplicar filtro de estado
+            // Filtro de estado
             let filtradas = filas;
             if (estadoFiltro === 'faltas') filtradas = filas.filter(f => f.faltantes > 0);
             else if (estadoFiltro === '100') filtradas = filas.filter(f => f.pct === 100);
             else if (estadoFiltro === 'sin') filtradas = filas.filter(f => !f.g.auxiliares_asignados);
 
-            // KPIs
+            // KPIs (grupos únicos, no filas)
+            const gruposUnicos = new Set(filas.map(f => f.g.grupo_aulas_id)).size;
             const conFaltas = filas.filter(f => f.faltantes > 0).length;
-            const sinAsignar = filas.filter(f => !f.g.auxiliares_asignados).length;
+            const sinAsignar = new Set(filas.filter(f => !f.g.auxiliares_asignados).map(f => f.g.grupo_aulas_id)).size;
             const pctProm = filas.length > 0 ? Math.round(filas.reduce((s, f) => s + f.pct, 0) / filas.length) : 0;
-            document.getElementById('kpiGrupos').textContent = filas.length;
+            document.getElementById('kpiGrupos').textContent = gruposUnicos;
             document.getElementById('kpiPct').textContent = pctProm + '%';
             document.getElementById('kpiFaltas').textContent = conFaltas;
             document.getElementById('kpiSinAsignar').textContent = sinAsignar;
 
-            // Ordenar filas según el sort activo
+            // Ordenar
             filtradas = ordenarFilas(filtradas);
 
-            // Header con columnas ordenables
+            // Header
             const baseHeads = `
+                <th class="px-3 py-2 font-bold text-right whitespace-nowrap">N°</th>
                 <th data-sort="grupo" class="px-3 py-2 font-bold whitespace-nowrap">Grupo${arrowFor('grupo')}</th>
                 <th data-sort="area"  class="px-3 py-2 font-bold whitespace-nowrap">Área${arrowFor('area')}</th>
                 <th data-sort="turno" class="px-3 py-2 font-bold whitespace-nowrap">Turno${arrowFor('turno')}</th>
                 <th data-sort="sede"  class="px-3 py-2 font-bold whitespace-nowrap">Sede${arrowFor('sede')}</th>
                 <th data-sort="aux"   class="px-3 py-2 font-bold whitespace-nowrap">Auxiliar(es)${arrowFor('aux')}</th>
+                <th data-sort="coord" class="px-3 py-2 font-bold whitespace-nowrap">Coordinador${arrowFor('coord')}</th>
             `;
             const dayHeads = columnasMatriz.map((c, i) =>
                 `<th data-sort="dia:${i}" class="px-2 py-2 font-bold text-center whitespace-nowrap">${c.label}${arrowFor('dia:' + i)}</th>`
             ).join('');
+            const semanaHead = esSemanal
+                ? `<th data-sort="semana" class="px-3 py-2 font-bold text-center whitespace-nowrap">Semana${arrowFor('semana')}</th>` : '';
             document.getElementById('thead').innerHTML = `
                 <tr class="text-left text-slate-600 dark:text-slate-400 uppercase tracking-tight">
                     ${baseHeads}${dayHeads}
                     <th data-sort="tomados" class="px-3 py-2 font-bold text-center whitespace-nowrap">SI / Total${arrowFor('tomados')}</th>
                     <th data-sort="pct"     class="px-3 py-2 font-bold text-center whitespace-nowrap">%${arrowFor('pct')}</th>
+                    ${semanaHead}
                 </tr>`;
 
-            // Bindear click handlers para sorting (cada vez porque regeneramos el thead)
             document.querySelectorAll('#thead th[data-sort]').forEach(th => {
                 th.addEventListener('click', () => {
                     const key = th.dataset.sort;
@@ -610,35 +713,47 @@
                 });
             });
 
+            const totalCols = 7 + columnasMatriz.length + 2 + (esSemanal ? 1 : 0);
             if (filtradas.length === 0) {
-                document.getElementById('tbody').innerHTML = `<tr><td colspan="${5 + columnasMatriz.length + 2}" class="text-center py-12 text-slate-400 text-xs">Sin resultados</td></tr>`;
+                document.getElementById('tbody').innerHTML = `<tr><td colspan="${totalCols}" class="text-center py-12 text-slate-400 text-xs">Sin resultados</td></tr>`;
                 return;
             }
 
-            document.getElementById('tbody').innerHTML = filtradas.map(f => {
+            document.getElementById('tbody').innerHTML = filtradas.map((f, i) => {
                 const aux = f.g.auxiliares_asignados || '— sin asignar —';
                 const auxCls = f.g.auxiliares_asignados ? '' : 'cell-na';
+                const coord = f.g.coordinadores_asignados || '— sin asignar —';
+                const coordCls = f.g.coordinadores_asignados ? '' : 'cell-na';
                 const dayCells = f.cells.map(c => {
                     if (c.tomado === 'SI') return `<td class="px-2 py-2 text-center cell-si" title="${c.tomada_por || ''}">SI</td>`;
                     if (c.tomado === 'NO') return `<td class="px-2 py-2 text-center cell-no">NO</td>`;
                     return `<td class="px-2 py-2 text-center cell-na">—</td>`;
                 }).join('');
                 const pctCls = f.pct === 100 ? 'text-emerald-600' : (f.pct >= 50 ? 'text-amber-500' : 'text-red-500');
+                const semanaCell = esSemanal
+                    ? `<td class="px-3 py-2 text-center whitespace-nowrap font-semibold" title="${f.semanaRango}">${f.semanaLabel}</td>` : '';
                 return `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-3 py-2 text-right font-mono text-slate-400">${i + 1}</td>
                         <td class="px-3 py-2 whitespace-nowrap font-semibold">${f.g.grupo}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${f.g.area}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${f.g.turno}</td>
                         <td class="px-3 py-2 whitespace-nowrap">${f.g.sede}</td>
                         <td class="px-3 py-2 whitespace-nowrap text-[11px] ${auxCls}">${aux}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-[11px] ${coordCls}">${coord}</td>
                         ${dayCells}
                         <td class="px-3 py-2 text-center font-mono">${f.tomados}/${f.total}</td>
                         <td class="px-3 py-2 text-center font-mono font-bold ${pctCls}">${f.pct}%</td>
+                        ${semanaCell}
                     </tr>`;
             }).join('');
         }
 
         document.getElementById('aplicarBtn').addEventListener('click', generar);
+        document.getElementById('excelBtn').addEventListener('click', descargarExcel);
+        document.querySelectorAll('.rango-btn').forEach(btn => {
+            btn.addEventListener('click', () => aplicarRangoRapido(btn.dataset.rango));
+        });
         document.getElementById('limpiarBtn').addEventListener('click', () => {
             setDefaultDates();
             ['fSedes','fTurnos','fAreas','fGrupos','fAuxiliares'].forEach(id => {

@@ -160,8 +160,16 @@ app.use(compression({
 // Debe ir ANTES de express.static para interceptar la descarga directa del JSON.
 app.use('/data', (req, res) => res.status(404).send('Not found'));
 
-// Servir archivos estáticos (HTML, CSS, JS)
-app.use(express.static(__dirname));
+// Servir archivos estáticos (HTML, CSS, JS).
+// Los .html se sirven con `no-cache` para que el navegador siempre revalide
+// y no muestre versiones viejas tras un deploy/cambio.
+app.use(express.static(__dirname, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+}));
 
 // Rutas amigables para Stats
 app.get('/stats/login', (req, res) => {
@@ -2379,84 +2387,101 @@ app.get('/api/stats/catalogos/auxiliares', requireAdmin, cacheMiddleware(600), a
   } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
 });
 
+// Construye el SQL + params del reporte de horas-docentes a partir de los
+// filtros de la request. Devuelve { sql, params, filtros } o { blocked: true }
+// si el rol no tiene grupos asignados. Lanza Error si faltan desde/hasta.
+function buildHorasDocentesQuery(req) {
+  const { desde, hasta, tipo_carga } = req.query;
+  if (!desde || !hasta) {
+    const err = new Error('Parámetros desde/hasta son requeridos');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const sedes = parseList(req.query.sedes);
+  const turnos = parseList(req.query.turnos);
+  const areas = parseList(req.query.areas);
+  const grupos = parseList(req.query.grupos);
+  const coordinadores = parseList(req.query.coordinadores);
+  const auxiliares = parseList(req.query.auxiliares);
+
+  const conditions = ['a.fecha BETWEEN ? AND ?'];
+  const params = [desde, hasta];
+
+  // Restricción por rol — mismo patrón que /api/stats/reporte-pagos
+  const allowedGrupos = req.user.grupos;
+  if (Array.isArray(allowedGrupos)) {
+    if (allowedGrupos.length === 0) return { blocked: true };
+    conditions.push(`ga.id IN (${allowedGrupos.map(() => '?').join(',')})`);
+    params.push(...allowedGrupos);
+  }
+
+  const inFilter = (arr, col) => {
+    if (arr.length === 0) return;
+    conditions.push(`${col} IN (${arr.map(() => '?').join(',')})`);
+    params.push(...arr);
+  };
+  inFilter(sedes, 's.id');
+  inFilter(turnos, 't.id');
+  inFilter(areas, 'ar_grupo.id');
+  inFilter(grupos, 'ga.id');
+  inFilter(coordinadores, 'u_coord.id');
+  inFilter(auxiliares, 'u_aux.id');
+  if (tipo_carga === '1' || tipo_carga === '2') {
+    conditions.push('ca.tipo = ?');
+    params.push(tipo_carga);
+  }
+
+  const sql = `
+    SELECT
+      u_coord.id AS coordinador_id,
+      CONCAT_WS(' ', u_coord.paterno, u_coord.materno, u_coord.name) AS coordinador,
+      u_aux.id   AS auxiliar_id,
+      CONCAT_WS(' ', u_aux.paterno, u_aux.materno, u_aux.name) AS auxiliar,
+      s.id AS sede_id,     s.denominacion AS sede,
+      t.id AS turno_id,    t.denominacion AS turno,
+      ar_grupo.id AS area_id, ar_grupo.denominacion AS area,
+      g.id AS grupo_id,    g.denominacion AS grupo,
+      ga.id AS grupo_aulas_id,
+      SUM(a.horas_pago) AS total_horas_pago,
+      SUM(a.cantidad_horas) AS total_horas_dictadas,
+      COUNT(DISTINCT a.docentes_id) AS docentes_distintos,
+      COUNT(*) AS asistencias
+    FROM asistencia_docentes a
+    JOIN carga_academicas ca ON a.carga_academicas_id = ca.id
+    JOIN grupo_aulas ga ON ca.grupo_aulas_id = ga.id
+    JOIN grupos    g        ON ga.grupos_id = g.id
+    JOIN areas     ar_grupo ON ga.areas_id  = ar_grupo.id
+    JOIN turnos    t        ON ga.turnos_id = t.id
+    JOIN aulas     au       ON ga.aulas_id  = au.id
+    JOIN locales   l        ON au.locales_id = l.id
+    JOIN sedes     s        ON l.sedes_id   = s.id
+    LEFT JOIN coordinador_grupos cg ON ga.id = cg.grupos_id
+    LEFT JOIN users          u_coord ON cg.coordinador_id = u_coord.id
+    LEFT JOIN auxiliar_grupos ag    ON ga.id = ag.grupo_aulas_id
+    LEFT JOIN auxiliares     aux    ON ag.auxiliares_id = aux.id
+    LEFT JOIN users          u_aux  ON aux.users_id = u_aux.id
+    WHERE ${conditions.join(' AND ')}
+    GROUP BY
+      u_coord.id, u_aux.id, s.id, t.id, ar_grupo.id, g.id, ga.id
+    ORDER BY coordinador, auxiliar, sede, turno, area, grupo
+  `;
+
+  return {
+    sql, params,
+    filtros: { desde, hasta, sedes, turnos, areas, grupos, coordinadores, auxiliares, tipo_carga: tipo_carga || null }
+  };
+}
+
 // Reporte 1 — Horas pago por docentes (solo admin)
 app.get('/api/stats/reportes-aux/horas-docentes', requireAdmin, async (req, res) => {
   let conn;
   try {
-    const { desde, hasta, tipo_carga } = req.query;
-    if (!desde || !hasta) return res.status(400).json({ error: 'Parámetros desde/hasta son requeridos' });
-
-    const sedes = parseList(req.query.sedes);
-    const turnos = parseList(req.query.turnos);
-    const areas = parseList(req.query.areas);
-    const grupos = parseList(req.query.grupos);
-    const coordinadores = parseList(req.query.coordinadores);
-    const auxiliares = parseList(req.query.auxiliares);
-
-    const conditions = ['a.fecha BETWEEN ? AND ?'];
-    const params = [desde, hasta];
-
-    // Restricción por rol — mismo patrón que /api/stats/reporte-pagos
-    const allowedGrupos = req.user.grupos;
-    if (Array.isArray(allowedGrupos)) {
-      if (allowedGrupos.length === 0) {
-        return res.json({ filas: [], totales: { horas_pago: 0, registros: 0 } });
-      }
-      conditions.push(`ga.id IN (${allowedGrupos.map(() => '?').join(',')})`);
-      params.push(...allowedGrupos);
-    }
-
-    const inFilter = (arr, col) => {
-      if (arr.length === 0) return;
-      conditions.push(`${col} IN (${arr.map(() => '?').join(',')})`);
-      params.push(...arr);
-    };
-    inFilter(sedes, 's.id');
-    inFilter(turnos, 't.id');
-    inFilter(areas, 'ar_grupo.id');
-    inFilter(grupos, 'ga.id');
-    inFilter(coordinadores, 'u_coord.id');
-    inFilter(auxiliares, 'u_aux.id');
-    if (tipo_carga === '1' || tipo_carga === '2') {
-      conditions.push('ca.tipo = ?');
-      params.push(tipo_carga);
-    }
+    const q = buildHorasDocentesQuery(req);
+    if (q.blocked) return res.json({ filas: [], totales: { horas_pago: 0, horas_dictadas: 0, registros: 0 } });
 
     conn = await pool.getConnection();
-    const [rows] = await conn.query(`
-      SELECT
-        u_coord.id AS coordinador_id,
-        CONCAT_WS(' ', u_coord.paterno, u_coord.materno, u_coord.name) AS coordinador,
-        u_aux.id   AS auxiliar_id,
-        CONCAT_WS(' ', u_aux.paterno, u_aux.materno, u_aux.name) AS auxiliar,
-        s.id AS sede_id,     s.denominacion AS sede,
-        t.id AS turno_id,    t.denominacion AS turno,
-        ar_grupo.id AS area_id, ar_grupo.denominacion AS area,
-        g.id AS grupo_id,    g.denominacion AS grupo,
-        ga.id AS grupo_aulas_id,
-        SUM(a.horas_pago) AS total_horas_pago,
-        SUM(a.cantidad_horas) AS total_horas_dictadas,
-        COUNT(DISTINCT a.docentes_id) AS docentes_distintos,
-        COUNT(*) AS asistencias
-      FROM asistencia_docentes a
-      JOIN carga_academicas ca ON a.carga_academicas_id = ca.id
-      JOIN grupo_aulas ga ON ca.grupo_aulas_id = ga.id
-      JOIN grupos    g        ON ga.grupos_id = g.id
-      JOIN areas     ar_grupo ON ga.areas_id  = ar_grupo.id
-      JOIN turnos    t        ON ga.turnos_id = t.id
-      JOIN aulas     au       ON ga.aulas_id  = au.id
-      JOIN locales   l        ON au.locales_id = l.id
-      JOIN sedes     s        ON l.sedes_id   = s.id
-      LEFT JOIN coordinador_grupos cg ON ga.id = cg.grupos_id
-      LEFT JOIN users          u_coord ON cg.coordinador_id = u_coord.id
-      LEFT JOIN auxiliar_grupos ag    ON ga.id = ag.grupo_aulas_id
-      LEFT JOIN auxiliares     aux    ON ag.auxiliares_id = aux.id
-      LEFT JOIN users          u_aux  ON aux.users_id = u_aux.id
-      WHERE ${conditions.join(' AND ')}
-      GROUP BY
-        u_coord.id, u_aux.id, s.id, t.id, ar_grupo.id, g.id, ga.id
-      ORDER BY coordinador, auxiliar, sede, turno, area, grupo
-    `, params);
+    const [rows] = await conn.query(q.sql, q.params);
     conn.release();
 
     const totales = rows.reduce((acc, r) => {
@@ -2465,61 +2490,141 @@ app.get('/api/stats/reportes-aux/horas-docentes', requireAdmin, async (req, res)
       return acc;
     }, { horas_pago: 0, horas_dictadas: 0, registros: rows.length });
 
-    res.json({
-      filas: rows,
-      totales,
-      filtros_aplicados: { desde, hasta, sedes, turnos, areas, grupos, coordinadores, auxiliares, tipo_carga: tipo_carga || null }
-    });
+    res.json({ filas: rows, totales, filtros_aplicados: q.filtros });
   } catch (e) {
     if (conn) conn.release();
     console.error('Error horas-docentes:', e);
-    res.status(500).json({ error: 'Error al generar el reporte', message: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el reporte' });
   }
 });
 
-// Reporte 2 — Cobertura de asistencia por grupos
-// Devuelve los grupos filtrados + sus asistencias en el rango.
-// El frontend pivota a vista semanal (DAYOFWEEK) o dinámica (1 col por fecha).
-app.get('/api/stats/reportes-aux/cobertura-grupos', requireAdmin, async (req, res) => {
+// Reporte 1 — descarga Excel con los filtros aplicados (solo admin)
+app.get('/api/stats/reportes-aux/horas-docentes/excel', requireAdmin, async (req, res) => {
   let conn;
   try {
-    const { desde, hasta } = req.query;
-    if (!desde || !hasta) return res.status(400).json({ error: 'Parámetros desde/hasta son requeridos' });
+    const q = buildHorasDocentesQuery(req);
+    const rows = q.blocked ? [] : await (async () => {
+      conn = await pool.getConnection();
+      const [r] = await conn.query(q.sql, q.params);
+      conn.release();
+      return r;
+    })();
 
-    const sedes = parseList(req.query.sedes);
-    const turnos = parseList(req.query.turnos);
-    const areas = parseList(req.query.areas);
-    const grupos = parseList(req.query.grupos);
-    const auxiliares = parseList(req.query.auxiliares);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+    const ws = wb.addWorksheet('Horas docentes');
 
-    const conditions = ['ga.periodos_id = 1'];
-    const params = [];
+    // Título + rango
+    ws.mergeCells('A1:I1');
+    ws.getCell('A1').value = 'Reporte de Horas Pago por Docentes';
+    ws.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+    ws.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+    ws.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 24;
 
-    const allowedGrupos = req.user.grupos;
-    if (Array.isArray(allowedGrupos)) {
-      if (allowedGrupos.length === 0) return res.json({ grupos: [], asistencias: [], desde, hasta });
-      conditions.push(`ga.id IN (${allowedGrupos.map(() => '?').join(',')})`);
-      params.push(...allowedGrupos);
-    }
-    const inFilter = (arr, col) => {
-      if (arr.length === 0) return;
-      conditions.push(`${col} IN (${arr.map(() => '?').join(',')})`);
-      params.push(...arr);
-    };
-    inFilter(sedes, 's.id');
-    inFilter(turnos, 't.id');
-    inFilter(areas, 'ar.id');
-    inFilter(grupos, 'ga.id');
-    if (auxiliares.length > 0) {
-      conditions.push(`ga.id IN (
-        SELECT ag2.grupo_aulas_id FROM auxiliar_grupos ag2
-        JOIN auxiliares a2 ON a2.id = ag2.auxiliares_id
-        WHERE a2.users_id IN (${auxiliares.map(() => '?').join(',')})
-      )`);
-      params.push(...auxiliares);
-    }
+    ws.mergeCells('A2:I2');
+    ws.getCell('A2').value = `Periodo: ${q.filtros ? q.filtros.desde + ' a ' + q.filtros.hasta : ''}`;
+    ws.getCell('A2').font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+    ws.getCell('A2').alignment = { horizontal: 'center' };
 
-    conn = await pool.getConnection();
+    // Cabeceras (fila 4)
+    const headers = ['Coordinador', 'Auxiliar', 'Sede', 'Turno', 'Área', 'Grupo', 'Asistencias', 'H. dictadas', 'H. pago'];
+    const headerRow = ws.getRow(4);
+    headerRow.values = headers;
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+
+    // Datos (desde fila 5)
+    let totHoras = 0, totDictadas = 0;
+    rows.forEach((r, i) => {
+      const row = ws.getRow(5 + i);
+      row.values = [
+        r.coordinador || '— sin coordinador —',
+        r.auxiliar || '— sin auxiliar —',
+        r.sede || '', r.turno || '', r.area || '', r.grupo || '',
+        Number(r.asistencias) || 0,
+        Number(r.total_horas_dictadas) || 0,
+        Number(r.total_horas_pago) || 0,
+      ];
+      totHoras += Number(r.total_horas_pago) || 0;
+      totDictadas += Number(r.total_horas_dictadas) || 0;
+    });
+
+    // Fila de totales
+    const totalRow = ws.getRow(5 + rows.length);
+    totalRow.getCell(6).value = 'TOTAL';
+    totalRow.getCell(8).value = totDictadas;
+    totalRow.getCell(9).value = totHoras;
+    totalRow.eachCell((cell) => { cell.font = { bold: true }; });
+
+    // Ancho de columnas
+    const widths = [34, 34, 16, 12, 16, 14, 12, 12, 12];
+    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const fname = `horas-docentes_${q.filtros.desde}_a_${q.filtros.hasta}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(Buffer.from(buffer));
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error horas-docentes excel:', e);
+    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el Excel' });
+  }
+});
+
+// Obtiene grupos filtrados + sus asistencias en el rango. Reutilizado por
+// el endpoint JSON y el de Excel. Devuelve { grupos, asistencias, desde, hasta, filtros }.
+async function fetchCoberturaData(req) {
+  const { desde, hasta } = req.query;
+  if (!desde || !hasta) {
+    const err = new Error('Parámetros desde/hasta son requeridos');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const sedes = parseList(req.query.sedes);
+  const turnos = parseList(req.query.turnos);
+  const areas = parseList(req.query.areas);
+  const grupos = parseList(req.query.grupos);
+  const auxiliares = parseList(req.query.auxiliares);
+  const filtros = { sedes, turnos, areas, grupos, auxiliares };
+
+  const conditions = ['ga.periodos_id = 1'];
+  const params = [];
+
+  const allowedGrupos = req.user.grupos;
+  if (Array.isArray(allowedGrupos)) {
+    if (allowedGrupos.length === 0) return { grupos: [], asistencias: [], desde, hasta, filtros };
+    conditions.push(`ga.id IN (${allowedGrupos.map(() => '?').join(',')})`);
+    params.push(...allowedGrupos);
+  }
+  const inFilter = (arr, col) => {
+    if (arr.length === 0) return;
+    conditions.push(`${col} IN (${arr.map(() => '?').join(',')})`);
+    params.push(...arr);
+  };
+  inFilter(sedes, 's.id');
+  inFilter(turnos, 't.id');
+  inFilter(areas, 'ar.id');
+  inFilter(grupos, 'ga.id');
+  if (auxiliares.length > 0) {
+    conditions.push(`ga.id IN (
+      SELECT ag2.grupo_aulas_id FROM auxiliar_grupos ag2
+      JOIN auxiliares a2 ON a2.id = ag2.auxiliares_id
+      WHERE a2.users_id IN (${auxiliares.map(() => '?').join(',')})
+    )`);
+    params.push(...auxiliares);
+  }
+
+  const conn = await pool.getConnection();
+  try {
     const [gruposRows] = await conn.query(`
       SELECT
         ga.id AS grupo_aulas_id,
@@ -2531,7 +2636,12 @@ app.get('/api/stats/reportes-aux/cobertura-grupos', requireAdmin, async (req, re
            FROM auxiliar_grupos ag2
            JOIN auxiliares a2 ON a2.id = ag2.auxiliares_id
            JOIN users u ON u.id = a2.users_id
-          WHERE ag2.grupo_aulas_id = ga.id) AS auxiliares_asignados
+          WHERE ag2.grupo_aulas_id = ga.id) AS auxiliares_asignados,
+        -- Coordinador(es): coordinador_grupos.grupos_id apunta a grupo_aulas.id (nombre engañoso)
+        (SELECT GROUP_CONCAT(DISTINCT CONCAT_WS(' ', u.paterno, u.materno, u.name) ORDER BY u.paterno SEPARATOR ', ')
+           FROM coordinador_grupos cg
+           JOIN users u ON u.id = cg.coordinador_id
+          WHERE cg.grupos_id = ga.id) AS coordinadores_asignados
       FROM grupo_aulas ga
       JOIN grupos g ON g.id = ga.grupos_id
       JOIN areas ar ON ar.id = ga.areas_id
@@ -2543,10 +2653,7 @@ app.get('/api/stats/reportes-aux/cobertura-grupos', requireAdmin, async (req, re
       ORDER BY s.denominacion, t.denominacion, ar.denominacion, g.denominacion
     `, params);
 
-    if (gruposRows.length === 0) {
-      conn.release();
-      return res.json({ grupos: [], asistencias: [], desde, hasta });
-    }
+    if (gruposRows.length === 0) return { grupos: [], asistencias: [], desde, hasta, filtros };
 
     const ids = gruposRows.map(g => g.grupo_aulas_id);
     const [asistRows] = await conn.query(`
@@ -2560,18 +2667,230 @@ app.get('/api/stats/reportes-aux/cobertura-grupos', requireAdmin, async (req, re
         AND ae.grupo_aulas_id IN (${ids.map(() => '?').join(',')})
       GROUP BY ae.grupo_aulas_id, ae.fecha
     `, [desde, hasta, ...ids]);
-    conn.release();
 
-    res.json({
-      grupos: gruposRows,
-      asistencias: asistRows,
-      desde, hasta,
-      filtros_aplicados: { sedes, turnos, areas, grupos, auxiliares }
-    });
+    return { grupos: gruposRows, asistencias: asistRows, desde, hasta, filtros };
+  } finally {
+    conn.release();
+  }
+}
+
+// Reporte 2 — Cobertura de asistencia por grupos (JSON)
+// El frontend pivota a vista semanal (DAYOFWEEK) o dinámica (1 col por fecha).
+app.get('/api/stats/reportes-aux/cobertura-grupos', requireAdmin, async (req, res) => {
+  try {
+    const data = await fetchCoberturaData(req);
+    res.json(data);
+  } catch (e) {
+    console.error('Error cobertura-grupos:', e);
+    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el reporte' });
+  }
+});
+
+// Rango de fechas disponible (min/max de asistencias del ciclo) — para el botón "Todo el ciclo"
+app.get('/api/stats/reportes-aux/rango-fechas', requireAdmin, cacheMiddleware(600), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT DATE_FORMAT(MIN(fecha), '%Y-%m-%d') AS min_fecha,
+             DATE_FORMAT(MAX(fecha), '%Y-%m-%d') AS max_fecha
+      FROM asistencia_estudiantes
+    `);
+    conn.release();
+    res.json(rows[0] || { min_fecha: null, max_fecha: null });
   } catch (e) {
     if (conn) conn.release();
-    console.error('Error cobertura-grupos:', e);
-    res.status(500).json({ error: 'Error al generar el reporte', message: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Reporte 2 — descarga Excel.
+//   vista = 'dinamica' → 1 hoja con una columna por fecha hábil del rango.
+//   vista = 'semanal'  → UNA HOJA POR SEMANA (Lun-Vie), para no colapsar
+//                        varias semanas en una sola matriz.
+app.get('/api/stats/reportes-aux/cobertura-grupos/excel', requireAdmin, async (req, res) => {
+  try {
+    const vista = req.query.vista === 'semanal' ? 'semanal' : 'dinamica';
+    const { grupos, asistencias, desde, hasta } = await fetchCoberturaData(req);
+
+    // Index de asistencias por grupo|fecha
+    const idx = new Map();
+    for (const a of asistencias) idx.set(`${a.grupo_aulas_id}|${a.fecha}`, a.tomada_por);
+
+    // Fechas hábiles (Lun-Vie) del rango
+    const fechas = [];
+    {
+      const d = new Date(desde + 'T00:00:00');
+      const end = new Date(hasta + 'T00:00:00');
+      while (d <= end) {
+        const dow = d.getDay(); // 0=Dom..6=Sab
+        if (dow >= 1 && dow <= 5) fechas.push({ iso: d.toISOString().slice(0, 10), dow });
+        d.setDate(d.getDate() + 1);
+      }
+    }
+    const DOW = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const COLOR_SI = 'FF66BB6A', COLOR_NO = 'FFEF5350';
+
+    // Devuelve el lunes (ISO) de la semana de una fecha ISO.
+    const lunesDe = (iso) => {
+      const d = new Date(iso + 'T00:00:00');
+      const dow = d.getDay();
+      const diff = dow === 0 ? -6 : 1 - dow;
+      d.setDate(d.getDate() + diff);
+      return d.toISOString().slice(0, 10);
+    };
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+
+    const DOW_DIAS = [1, 2, 3, 4, 5]; // Lun..Vie
+
+    const aux = (g) => g.auxiliares_asignados || '— sin asignar —';
+    const coord = (g) => g.coordinadores_asignados || '— sin asignar —';
+
+    if (vista === 'semanal') {
+      // ===== Una sola hoja plana: una fila por (grupo × semana) =====
+      // Columnas: Nro | Grupo | Área | Turno | Sede | Auxiliar | Coordinador
+      //           | Lun | Mar | Mié | Jue | Vie | Total % | Semana
+      const ws = wb.addWorksheet('Cobertura semanal');
+      const headers = ['Nro', 'Grupo', 'Área', 'Turno', 'Sede', 'Auxiliar', 'Coordinador',
+        'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Total %', 'Semana'];
+      const lastCol = headers.length;
+
+      ws.mergeCells(1, 1, 1, lastCol);
+      ws.getCell(1, 1).value = 'Cobertura de asistencia por grupos (semanal)';
+      ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+      ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+      ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 24;
+      ws.mergeCells(2, 1, 2, lastCol);
+      ws.getCell(2, 1).value = `Periodo: ${desde} a ${hasta}`;
+      ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+      ws.getCell(2, 1).alignment = { horizontal: 'center' };
+
+      const headerRow = ws.getRow(4);
+      headerRow.values = headers;
+      headerRow.eachCell((cell) => {
+        cell.font = { bold: true, size: 9 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      });
+
+      // Agrupar fechas por semana (lunes)
+      const semanas = new Map(); // lunesISO -> { dow -> fechaISO }
+      for (const f of fechas) {
+        const k = lunesDe(f.iso);
+        if (!semanas.has(k)) semanas.set(k, {});
+        semanas.get(k)[f.dow] = f.iso;
+      }
+      const lunesOrdenados = [...semanas.keys()].sort();
+
+      let r = 5, nro = 1;
+      lunesOrdenados.forEach((lun, si) => {
+        const diasSemana = semanas.get(lun); // { dow: fechaISO }
+        grupos.forEach((g) => {
+          let tomados = 0, evaluables = 0;
+          const estados = DOW_DIAS.map((dow) => {
+            const fechaISO = diasSemana[dow];
+            if (!fechaISO) return null; // ese día no cae en el rango
+            evaluables++;
+            const tomado = idx.has(`${g.grupo_aulas_id}|${fechaISO}`);
+            if (tomado) tomados++;
+            return tomado;
+          });
+          const pct = evaluables ? Math.round(100 * tomados / evaluables) : 0;
+          const row = ws.getRow(r);
+          row.values = [
+            nro, g.grupo, g.area, g.turno, g.sede, aux(g), coord(g),
+            ...estados.map(e => e === null ? '—' : (e ? 'SI' : 'NO')),
+            pct + '%', `Semana ${si + 1}`
+          ];
+          // Colorear Lun-Vie (columnas 8..12)
+          estados.forEach((e, i) => {
+            const cell = row.getCell(8 + i);
+            cell.alignment = { horizontal: 'center' };
+            if (e === null) { cell.font = { color: { argb: 'FF999999' } }; return; }
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: e ? COLOR_SI : COLOR_NO } };
+            cell.font = { bold: true, size: 9, color: { argb: e ? 'FF0A3D10' : 'FF4A0000' } };
+          });
+          r++; nro++;
+        });
+      });
+
+      const widths = [6, 14, 14, 10, 12, 26, 26, 7, 7, 7, 7, 7, 10, 12];
+      widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+      // Congelar cabecera + columnas de identificación
+      ws.views = [{ state: 'frozen', xSplit: 7, ySplit: 4 }];
+    } else {
+      // ===== Vista por fecha (dinámica): 1 hoja, 1 columna por fecha hábil =====
+      const ws = wb.addWorksheet('Detalle por fecha');
+      const fechaCols = fechas.map(f => ({ label: f.iso.slice(5) + ' ' + DOW[f.dow], fecha: f.iso }));
+      const headers = ['Nro', 'Grupo', 'Área', 'Turno', 'Sede', 'Auxiliar', 'Coordinador',
+        ...fechaCols.map(c => c.label), 'Tomados', 'Faltantes', 'Total %'];
+      const lastCol = headers.length;
+
+      ws.mergeCells(1, 1, 1, lastCol);
+      ws.getCell(1, 1).value = 'Cobertura de asistencia por grupos (detalle por fecha)';
+      ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+      ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+      ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 24;
+      ws.mergeCells(2, 1, 2, lastCol);
+      ws.getCell(2, 1).value = `Periodo: ${desde} a ${hasta}`;
+      ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+      ws.getCell(2, 1).alignment = { horizontal: 'center' };
+
+      const headerRow = ws.getRow(4);
+      headerRow.values = headers;
+      headerRow.eachCell((cell) => {
+        cell.font = { bold: true, size: 9 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      });
+
+      grupos.forEach((g, ri) => {
+        const row = ws.getRow(5 + ri);
+        let si = 0;
+        const estados = fechaCols.map(c => {
+          const tomado = idx.has(`${g.grupo_aulas_id}|${c.fecha}`);
+          if (tomado) si++;
+          return tomado;
+        });
+        const total = fechaCols.length;
+        const pct = total ? Math.round(100 * si / total) : 0;
+        row.values = [
+          ri + 1, g.grupo, g.area, g.turno, g.sede, aux(g), coord(g),
+          ...estados.map(e => e ? 'SI' : 'NO'), si, total - si, pct + '%'
+        ];
+        estados.forEach((e, i) => {
+          const cell = row.getCell(8 + i);
+          cell.alignment = { horizontal: 'center' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: e ? COLOR_SI : COLOR_NO } };
+          cell.font = { bold: true, size: 9, color: { argb: e ? 'FF0A3D10' : 'FF4A0000' } };
+        });
+      });
+
+      ws.getColumn(1).width = 6; ws.getColumn(2).width = 14; ws.getColumn(3).width = 14;
+      ws.getColumn(4).width = 10; ws.getColumn(5).width = 12; ws.getColumn(6).width = 26; ws.getColumn(7).width = 26;
+      for (let i = 0; i < fechaCols.length; i++) ws.getColumn(8 + i).width = 11;
+      ws.getColumn(8 + fechaCols.length).width = 10;
+      ws.getColumn(9 + fechaCols.length).width = 10;
+      ws.getColumn(10 + fechaCols.length).width = 10;
+      ws.views = [{ state: 'frozen', xSplit: 7, ySplit: 4 }];
+    }
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const fname = `cobertura-grupos_${vista}_${desde}_a_${hasta}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(Buffer.from(buffer));
+  } catch (e) {
+    console.error('Error cobertura excel:', e);
+    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el Excel' });
   }
 });
 
