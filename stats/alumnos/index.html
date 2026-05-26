@@ -226,6 +226,9 @@
                         <button id="limpiarBtn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg">
                             Limpiar
                         </button>
+                        <button id="excelBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span class="material-symbols-outlined text-base">download</span> Descargar Excel
+                        </button>
                         <div class="flex items-center gap-3 ml-auto text-[10px] font-bold uppercase tracking-widest text-slate-500">
                             <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#66bb6a"></span> Pagada</span>
                             <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm" style="background:#f4ff81"></span> Parcial</span>
@@ -600,9 +603,51 @@
             }
         }
 
+        // Query string para el Excel: filtros server-side + grupos seleccionados en la UI.
+        function buildExcelQuery() {
+            const params = new URLSearchParams(buildQueryString().replace(/^\?/, ''));
+            if (gruposSeleccionados.size > 0) {
+                const ids = [];
+                for (const g of gruposResumen) if (gruposSeleccionados.has(g.key)) ids.push(...g.ids);
+                if (ids.length) params.set('grupos', ids.join(','));
+            }
+            const s = params.toString();
+            return s ? '?' + s : '';
+        }
+
+        async function descargarExcel() {
+            const btn = document.getElementById('excelBtn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span> Generando…';
+            try {
+                const resp = await fetch('/api/stats/reporte-pagos/excel' + buildExcelQuery(), {
+                    headers: { 'Authorization': 'Bearer ' + sessionData.token }
+                });
+                if (resp.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `reporte-pagos_${new Date().toISOString().slice(0,10)}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                console.error(e);
+                alert('No se pudo generar el Excel. Intenta de nuevo.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        }
+
         // Eventos
         document.getElementById('aplicarBtn').addEventListener('click', cargar);
         document.getElementById('refreshBtn').addEventListener('click', cargar);
+        document.getElementById('excelBtn').addEventListener('click', descargarExcel);
         // Click en encabezados ordenables → ordenar asc/desc
         document.querySelectorAll('#theadRow th[data-sort]').forEach(th => {
             th.addEventListener('click', () => {

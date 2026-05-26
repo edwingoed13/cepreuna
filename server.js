@@ -50,7 +50,8 @@ function requireAdmin(req, res, next) {
 // o un array de ids si está restringido.
 async function calcularGruposPermitidos(connection, userId, roleName) {
   if (!roleName) return [];
-  if (roleName === 'Super Admin' || roleName === 'Administrador') return null;
+  // Roles con acceso global (ven todos los grupos en el reporte de pagos).
+  if (roleName === 'Super Admin' || roleName === 'Administrador' || roleName === 'Oficina de Administración') return null;
 
   if (roleName.startsWith('Auxiliar')) {
     const [rows] = await connection.query(`
@@ -2081,60 +2082,144 @@ app.get('/api/stats-inscripciones/reporte-sedes', cacheMiddleware(300), async (r
 //
 // El SQL base no tiene WHERE; lo envolvemos en `SELECT * FROM (...) AS t` para
 // poder filtrar por las columnas alias (estado_cuota1, etc.) sin tocar el SQL fuente.
+// Construye { sql, params } del reporte de pagos según filtros + rol.
+// Devuelve { blocked: true } si el rol no tiene grupos asignados.
+function buildReportePagosQuery(req) {
+  const { cuota1, cuota2, cuota3, cuota4, q } = req.query;
+  const { grupos: gruposPermitidos } = req.user;
+
+  if (Array.isArray(gruposPermitidos) && gruposPermitidos.length === 0) return { blocked: true };
+
+  const conditions = [];
+  const params = [];
+
+  // Filtro por rol: si grupos es array (no admin), restringir a esos grupo_aulas_id
+  if (Array.isArray(gruposPermitidos)) {
+    conditions.push(`grupo_aulas_id IN (${gruposPermitidos.map(() => '?').join(',')})`);
+    params.push(...gruposPermitidos);
+  }
+
+  // Filtro opcional por grupos seleccionados en la UI (se intersecta con los permitidos).
+  const gruposSel = parseList(req.query.grupos);
+  if (gruposSel.length) {
+    conditions.push(`grupo_aulas_id IN (${gruposSel.map(() => '?').join(',')})`);
+    params.push(...gruposSel);
+  }
+
+  // Nota: el filtro de "solo inscritos" (estado='1') vive en el SQL base.
+  const cuotaFilter = (val, col) => {
+    if (val === '0') conditions.push(`${col} = 'PAGADA'`);
+    else if (val === '1') conditions.push(`${col} <> 'PAGADA'`);
+  };
+  cuotaFilter(cuota1, 'estado_cuota1');
+  cuotaFilter(cuota2, 'estado_cuota2');
+  cuotaFilter(cuota3, 'estado_cuota3');
+  cuotaFilter(cuota4, 'estado_cuota4');
+
+  if (q && String(q).trim().length > 0) {
+    conditions.push('nro_documento LIKE ?');
+    params.push(`%${String(q).trim()}%`);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const sql = `SELECT * FROM (${REPORTE_PAGOS_SQL_BASE}) AS t ${where} ORDER BY paterno, materno, nombres`;
+  return { sql, params };
+}
+
+// El SQL base no tiene WHERE; lo envolvemos en `SELECT * FROM (...) AS t` para
+// poder filtrar por las columnas alias (estado_cuota1, etc.) sin tocar el SQL fuente.
 app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
   let connection;
   try {
-    const { cuota1, cuota2, cuota3, cuota4, q } = req.query;
-    const { grupos: gruposPermitidos } = req.user;
-
-    // Si tiene una lista vacía de grupos, no puede ver nada.
-    if (Array.isArray(gruposPermitidos) && gruposPermitidos.length === 0) {
-      return res.json({ total: 0, registros: [], timestamp: new Date().toISOString() });
-    }
-
-    const conditions = [];
-    const params = [];
-
-    // Filtro por rol: si grupos es array (no admin), restringir a esos grupo_aulas_id
-    if (Array.isArray(gruposPermitidos)) {
-      const placeholders = gruposPermitidos.map(() => '?').join(',');
-      conditions.push(`grupo_aulas_id IN (${placeholders})`);
-      params.push(...gruposPermitidos);
-    }
-
-    // Nota: el filtro de "solo inscritos" (estado='1') vive en el SQL base.
-    const cuotaFilter = (val, col) => {
-      if (val === '0') conditions.push(`${col} = 'PAGADA'`);
-      else if (val === '1') conditions.push(`${col} <> 'PAGADA'`);
-    };
-    cuotaFilter(cuota1, 'estado_cuota1');
-    cuotaFilter(cuota2, 'estado_cuota2');
-    cuotaFilter(cuota3, 'estado_cuota3');
-    cuotaFilter(cuota4, 'estado_cuota4');
-
-    // Búsqueda solo por DNI
-    if (q && String(q).trim().length > 0) {
-      conditions.push('nro_documento LIKE ?');
-      params.push(`%${String(q).trim()}%`);
-    }
-
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const sql = `SELECT * FROM (${REPORTE_PAGOS_SQL_BASE}) AS t ${where} ORDER BY paterno, materno, nombres`;
+    const q = buildReportePagosQuery(req);
+    if (q.blocked) return res.json({ total: 0, registros: [], timestamp: new Date().toISOString() });
 
     connection = await pool.getConnection();
-    const [rows] = await connection.query(sql, params);
+    const [rows] = await connection.query(q.sql, q.params);
     connection.release();
 
-    res.json({
-      total: rows.length,
-      registros: rows,
-      timestamp: new Date().toISOString()
-    });
-
+    res.json({ total: rows.length, registros: rows, timestamp: new Date().toISOString() });
   } catch (error) {
     if (connection) connection.release();
     console.error('Error reporte-pagos:', error);
     res.status(500).json({ error: 'Error al generar reporte de pagos', message: error.message });
+  }
+});
+
+// Descarga Excel del reporte de pagos con los filtros aplicados.
+app.get('/api/stats/reporte-pagos/excel', requireStatsAuth, async (req, res) => {
+  let connection;
+  try {
+    const q = buildReportePagosQuery(req);
+    const rows = q.blocked ? [] : await (async () => {
+      connection = await pool.getConnection();
+      const [r] = await connection.query(q.sql, q.params);
+      connection.release();
+      return r;
+    })();
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+    const ws = wb.addWorksheet('Reporte de pagos');
+
+    const headers = ['N°', 'DNI', 'Apellidos y Nombres', 'Sede', 'Área', 'Turno', 'Grupo',
+      'Tipo Colegio', '1ra', '2da', '3ra', '4ta'];
+    const lastCol = headers.length;
+
+    ws.mergeCells(1, 1, 1, lastCol);
+    ws.getCell(1, 1).value = 'Reporte de pagos por estudiante (solo inscritos)';
+    ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+    ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+    ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 24;
+    ws.mergeCells(2, 1, 2, lastCol);
+    ws.getCell(2, 1).value = `Generado: ${new Date().toLocaleString('es-PE')}`;
+    ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+    ws.getCell(2, 1).alignment = { horizontal: 'center' };
+
+    const headerRow = ws.getRow(4);
+    headerRow.values = headers;
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, size: 9 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+
+    // Color por estado de cuota (igual que la web)
+    const COLORS = { PAGADA: 'FF66BB6A', PARCIAL: 'FFF4FF81', SIN_PAGAR: 'FFEF5350' };
+    const num = v => (v == null ? 0 : Number(v));
+
+    rows.forEach((r, i) => {
+      const row = ws.getRow(5 + i);
+      row.values = [
+        i + 1, r.nro_documento, [r.paterno, r.materno, r.nombres].filter(Boolean).join(' '),
+        r.sede || '', r.area || '', r.turno || '', r.grupo || '', r.tipo_colegio || '',
+        num(r.primera_mensualidad), num(r.segunda_mensualidad), num(r.tercera_mensualidad), num(r.cuarta_mensualidad),
+      ];
+      // Colorear las 4 cuotas (columnas 9..12) según estado
+      [r.estado_cuota1, r.estado_cuota2, r.estado_cuota3, r.estado_cuota4].forEach((est, k) => {
+        const color = COLORS[est];
+        const cell = row.getCell(9 + k);
+        cell.alignment = { horizontal: 'right' };
+        if (color) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
+      });
+    });
+
+    const widths = [6, 12, 34, 14, 14, 10, 10, 22, 9, 9, 9, 9];
+    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+    ws.views = [{ state: 'frozen', ySplit: 4 }];
+
+    const buffer = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="reporte-pagos_${new Date().toISOString().slice(0,10)}.xlsx"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(Buffer.from(buffer));
+  } catch (error) {
+    if (connection) connection.release();
+    console.error('Error reporte-pagos excel:', error);
+    res.status(500).json({ error: 'Error al generar el Excel', message: error.message });
   }
 });
 
