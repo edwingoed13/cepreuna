@@ -7,10 +7,18 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-// JWT secret para firmar tokens del panel /stats. En producción setear en .env.
-const JWT_SECRET = process.env.JWT_SECRET || 'cepreuna-stats-dev-secret-change-me';
-if (!process.env.JWT_SECRET) {
-  console.warn('⚠️  JWT_SECRET no está definido en .env — usando fallback de desarrollo. NO usar en producción.');
+// JWT secret para firmar tokens del panel /stats.
+// En producción es OBLIGATORIO definir JWT_SECRET en el entorno; si falta,
+// abortamos el arranque (fail-fast) para no firmar tokens con un secreto
+// público conocido. En desarrollo se permite un fallback con aviso.
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('❌ FATAL: JWT_SECRET no está definido. Configúralo en el entorno antes de iniciar en producción.');
+    process.exit(1);
+  }
+  JWT_SECRET = 'cepreuna-stats-dev-secret-change-me';
+  console.warn('⚠️  JWT_SECRET no definido — usando fallback de DESARROLLO. NO usar en producción.');
 }
 const JWT_EXPIRES_IN = '8h';
 
@@ -138,8 +146,48 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-// Middleware
-app.use(cors());
+// ============ SEGURIDAD ============
+// helmet: cabeceras de seguridad (X-Frame-Options anti-clickjacking, noSniff, etc.).
+// CSP se deja desactivado porque las páginas usan scripts inline + CDNs (tailwind,
+// google fonts); activar un CSP estricto requeriría refactor del frontend.
+const helmet = require('helmet');
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+// CORS restringido a orígenes conocidos. Las peticiones same-origin (el propio
+// sitio) y las server-to-server no se ven afectadas; solo se bloquea que otros
+// sitios web llamen la API desde el navegador de un usuario.
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS ||
+  'https://cepreuna.info,https://www.cepreuna.info,http://localhost:3000')
+  .split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: (origin, cb) => {
+    // Sin Origin (apps móviles, curl, server-to-server) → permitir.
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(null, false); // origen no permitido: sin cabeceras CORS (no lanza 500)
+  }
+}));
+
+// Rate limiting
+const rateLimit = require('express-rate-limit');
+// Global: protege contra scraping/abuso de toda la API.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 200,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones, intenta de nuevo en un momento.' },
+});
+app.use('/api/', apiLimiter);
+// Login: estricto, contra fuerza bruta de contraseñas.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados intentos de inicio de sesión. Espera 15 minutos.' },
+});
+
 // Límite elevado para aceptar fotos en Base64 del forms-admin (~2.7MB cuando la original es 2MB).
 app.use(express.json({ limit: '6mb' }));
 
@@ -1622,7 +1670,7 @@ app.get('/api/forms-admin/ruc/:ruc', async (req, res) => {
 // ============ ENDPOINTS ESTADÍSTICAS INSCRIPCIONES ============
 
 // 1. Total de inscritos
-app.get('/api/stats-inscripciones/totales', cacheMiddleware(180), async (req, res) => {
+app.get('/api/stats-inscripciones/totales', requireStatsAuth, cacheMiddleware(180), async (req, res) => {
   try {
     const connection = await pool.getConnection();
 
@@ -1655,7 +1703,7 @@ app.get('/api/stats-inscripciones/totales', cacheMiddleware(180), async (req, re
 });
 
 // 2. Inscritos por sede
-app.get('/api/stats-inscripciones/por-sede', cacheMiddleware(300), async (req, res) => {
+app.get('/api/stats-inscripciones/por-sede', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1693,7 +1741,7 @@ app.get('/api/stats-inscripciones/por-sede', cacheMiddleware(300), async (req, r
 });
 
 // 3. Inscritos por área
-app.get('/api/stats-inscripciones/por-area', cacheMiddleware(300), async (req, res) => {
+app.get('/api/stats-inscripciones/por-area', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1732,7 +1780,7 @@ app.get('/api/stats-inscripciones/por-area', cacheMiddleware(300), async (req, r
 });
 
 // 4. Inscritos por turno
-app.get('/api/stats-inscripciones/por-turno', cacheMiddleware(300), async (req, res) => {
+app.get('/api/stats-inscripciones/por-turno', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1771,7 +1819,7 @@ app.get('/api/stats-inscripciones/por-turno', cacheMiddleware(300), async (req, 
 });
 
 // 5. Inscritos por día
-app.get('/api/stats-inscripciones/por-dia', cacheMiddleware(300), async (req, res) => {
+app.get('/api/stats-inscripciones/por-dia', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1807,7 +1855,7 @@ app.get('/api/stats-inscripciones/por-dia', cacheMiddleware(300), async (req, re
 });
 
 // 6. Pagos por día (desde 25 Feb 2026, imp_pag > 200)
-app.get('/api/stats-inscripciones/pagos-por-dia', cacheMiddleware(300), async (req, res) => {
+app.get('/api/stats-inscripciones/pagos-por-dia', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1841,7 +1889,7 @@ app.get('/api/stats-inscripciones/pagos-por-dia', cacheMiddleware(300), async (r
 });
 
 // 7. Filtro combinado: Sede + Área + Turno (muestra 0 si no hay inscritos)
-app.get('/api/stats-inscripciones/filtro-completo', async (req, res) => {
+app.get('/api/stats-inscripciones/filtro-completo', requireStatsAuth, async (req, res) => {
   try {
     const { sede_id, area_id, turno_id } = req.query;
 
@@ -1909,7 +1957,7 @@ app.get('/api/stats-inscripciones/filtro-completo', async (req, res) => {
 });
 
 // 8. Todas las sedes (incluidas las que no tienen inscritos)
-app.get('/api/stats-inscripciones/todas-sedes', async (req, res) => {
+app.get('/api/stats-inscripciones/todas-sedes', requireStatsAuth, async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1935,7 +1983,7 @@ app.get('/api/stats-inscripciones/todas-sedes', async (req, res) => {
 });
 
 // 9. Áreas y turnos disponibles por sede
-app.get('/api/stats-inscripciones/opciones-por-sede/:sedeId', async (req, res) => {
+app.get('/api/stats-inscripciones/opciones-por-sede/:sedeId', requireStatsAuth, async (req, res) => {
   let connection;
   try {
     const { sedeId } = req.params;
@@ -1979,7 +2027,7 @@ app.get('/api/stats-inscripciones/opciones-por-sede/:sedeId', async (req, res) =
 });
 
 // 10. Reporte detallado: Sede > Turno > Área (para página de reportes)
-app.get('/api/stats-inscripciones/reporte-sedes', cacheMiddleware(300), async (req, res) => {
+app.get('/api/stats-inscripciones/reporte-sedes', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -2982,7 +3030,7 @@ app.get('/api/stats/reportes-aux/cobertura-grupos/excel', requireAdmin, async (r
 // ============ ENDPOINT DE AUTENTICACIÓN ============
 
 // Endpoint para autenticar participantes
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     const { dni } = req.body;
 
@@ -3082,7 +3130,7 @@ app.get('/api/informe-docente/:dni', (req, res) => {
 });
 
 // Endpoint para login de administradores (Dashboard Stats)
-app.post('/api/stats/login', async (req, res) => {
+app.post('/api/stats/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {

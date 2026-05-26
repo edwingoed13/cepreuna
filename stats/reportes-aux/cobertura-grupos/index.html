@@ -96,7 +96,11 @@
         const sessionDataString = localStorage.getItem('stats_session');
         if (!sessionDataString) window.location.href = '/stats/login';
         const sessionData = JSON.parse(sessionDataString);
-        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_')) {
+        function _tokenVencido(t) {
+            try { const p = JSON.parse(atob(String(t).split('.')[1])); return !p.exp || p.exp * 1000 < Date.now(); }
+            catch (e) { return true; }
+        }
+        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_') || _tokenVencido(sessionData.token)) {
             localStorage.removeItem('stats_session');
             window.location.href = '/stats/login';
         }
@@ -414,6 +418,10 @@
         });
 
         const DOW_LABELS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+        // Escapa HTML para evitar XSS al interpolar datos de BD en innerHTML.
+        const esc = (v) => String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
         const fmtFecha = d => d.toISOString().slice(0, 10);
         let rangoCiclo = null;  // { min_fecha, max_fecha } cargado del backend
@@ -725,22 +733,22 @@
                 const coord = f.g.coordinadores_asignados || '— sin asignar —';
                 const coordCls = f.g.coordinadores_asignados ? '' : 'cell-na';
                 const dayCells = f.cells.map(c => {
-                    if (c.tomado === 'SI') return `<td class="px-2 py-2 text-center cell-si" title="${c.tomada_por || ''}">SI</td>`;
+                    if (c.tomado === 'SI') return `<td class="px-2 py-2 text-center cell-si" title="${esc(c.tomada_por || '')}">SI</td>`;
                     if (c.tomado === 'NO') return `<td class="px-2 py-2 text-center cell-no">NO</td>`;
                     return `<td class="px-2 py-2 text-center cell-na">—</td>`;
                 }).join('');
                 const pctCls = f.pct === 100 ? 'text-emerald-600' : (f.pct >= 50 ? 'text-amber-500' : 'text-red-500');
                 const semanaCell = esSemanal
-                    ? `<td class="px-3 py-2 text-center whitespace-nowrap font-semibold" title="${f.semanaRango}">${f.semanaLabel}</td>` : '';
+                    ? `<td class="px-3 py-2 text-center whitespace-nowrap font-semibold" title="${esc(f.semanaRango)}">${esc(f.semanaLabel)}</td>` : '';
                 return `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <td class="px-3 py-2 text-right font-mono text-slate-400">${i + 1}</td>
-                        <td class="px-3 py-2 whitespace-nowrap font-semibold">${f.g.grupo}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${f.g.area}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${f.g.turno}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${f.g.sede}</td>
-                        <td class="px-3 py-2 whitespace-nowrap text-[11px] ${auxCls}">${aux}</td>
-                        <td class="px-3 py-2 whitespace-nowrap text-[11px] ${coordCls}">${coord}</td>
+                        <td class="px-3 py-2 whitespace-nowrap font-semibold">${esc(f.g.grupo)}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(f.g.area)}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(f.g.turno)}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(f.g.sede)}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-[11px] ${auxCls}">${esc(aux)}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-[11px] ${coordCls}">${esc(coord)}</td>
                         ${dayCells}
                         <td class="px-3 py-2 text-center font-mono">${f.tomados}/${f.total}</td>
                         <td class="px-3 py-2 text-center font-mono font-bold ${pctCls}">${f.pct}%</td>

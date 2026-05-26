@@ -53,6 +53,11 @@
             window.location.href = '/stats/login';
         }
         const sessionData = JSON.parse(sessionDataString);
+        // Sacar al login si el token JWT expiró (no solo si falta) — evita mostrar el panel y luego sacar.
+        try {
+            const _exp = sessionData && sessionData.token ? JSON.parse(atob(sessionData.token.split('.')[1])).exp : 0;
+            if (!_exp || _exp * 1000 < Date.now()) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        } catch (_e) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
         // Solo administradores ven /stats (Resumen). El resto cae a /stats/alumnos.
         const _role = sessionData?.user?.role;
         if (_role !== 'Administrador' && _role !== 'Super Admin') {
@@ -312,10 +317,21 @@
         // Colors
         const colors = ['#003366', '#0381d9', '#0da954', '#f97316', '#8b5cf6', '#ec4899'];
 
+        // fetch con token; si el token expiró/no es válido → al login
+        async function authFetch(url) {
+            const resp = await fetch(url, { headers: { 'Authorization': 'Bearer ' + (sessionData?.token || '') } });
+            if (resp.status === 401) {
+                localStorage.removeItem('stats_session');
+                window.location.href = '/stats/login';
+                throw new Error('401');
+            }
+            return resp;
+        }
+
         async function cargarDatos() {
             try {
                 // Total y Pagos
-                const respTotal = await fetch('/api/stats-inscripciones/totales');
+                const respTotal = await authFetch('/api/stats-inscripciones/totales');
                 const dataTotal = await respTotal.json();
                 document.getElementById('totalInscritos').textContent = dataTotal.total_inscritos || 0;
                 document.getElementById('totalPagos').textContent = dataTotal.total_pagos_25feb || 0;
@@ -325,7 +341,7 @@
                 document.getElementById('pendingPayments').textContent = (dataTotal.total_inscritos - dataTotal.total_pagos_25feb) || 0;
 
                 // Áreas
-                const respAreas = await fetch('/api/stats-inscripciones/por-area');
+                const respAreas = await authFetch('/api/stats-inscripciones/por-area');
                 const dataAreas = await respAreas.json();
                 const areas = dataAreas.areas || [];
                 const maxArea = Math.max(...areas.map(a => a.total_inscritos), 1);
@@ -349,7 +365,7 @@
                 document.getElementById('areasChart').innerHTML = areasHTML;
 
                 // Sedes
-                const respSedes = await fetch('/api/stats-inscripciones/por-sede');
+                const respSedes = await authFetch('/api/stats-inscripciones/por-sede');
                 const dataSedes = await respSedes.json();
                 const sedes = dataSedes.sedes || [];
 

@@ -38,7 +38,11 @@
         const sessionDataString = localStorage.getItem('stats_session');
         if (!sessionDataString) window.location.href = '/stats/login';
         const sessionData = JSON.parse(sessionDataString);
-        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_')) {
+        function _tokenVencido(t) {
+            try { const p = JSON.parse(atob(String(t).split('.')[1])); return !p.exp || p.exp * 1000 < Date.now(); }
+            catch (e) { return true; }
+        }
+        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_') || _tokenVencido(sessionData.token)) {
             localStorage.removeItem('stats_session');
             window.location.href = '/stats/login';
         }

@@ -75,8 +75,12 @@
             window.location.href = '/stats/login';
         }
         const sessionData = JSON.parse(sessionDataString);
-        // Sin token → forzar relogin (sesiones viejas con placeholder no sirven)
-        if (!sessionData || !sessionData.token || sessionData.token.startsWith('valid_session_token_')) {
+        // Sin token, placeholder viejo, o token JWT expirado → forzar relogin.
+        function _tokenVencido(t) {
+            try { const p = JSON.parse(atob(String(t).split('.')[1])); return !p.exp || p.exp * 1000 < Date.now(); }
+            catch (e) { return true; }
+        }
+        if (!sessionData || !sessionData.token || sessionData.token.startsWith('valid_session_token_') || _tokenVencido(sessionData.token)) {
             localStorage.removeItem('stats_session');
             window.location.href = '/stats/login';
         }
@@ -368,6 +372,11 @@
             return n.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
         };
 
+        // Escapa HTML para evitar XSS al interpolar datos de BD en innerHTML.
+        const esc = (v) => String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
         const claseCelda = (estado, cambioMod) => {
             const base = estado === 'PAGADA' ? 'cell-pagada'
                 : estado === 'PARCIAL' ? 'cell-parcial'
@@ -558,13 +567,13 @@
             const filas = slice.map((r, i) => `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <td class="px-3 py-2 text-right font-mono text-slate-400">${inicio + i + 1}</td>
-                        <td class="px-3 py-2 font-mono whitespace-nowrap">${r.nro_documento || ''}</td>
-                        <td class="px-3 py-2 font-semibold whitespace-nowrap">${[r.paterno, r.materno, r.nombres].filter(Boolean).join(' ')}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${r.sede || ''}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${r.area || '—'}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${r.turno || '—'}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${r.grupo || '—'}</td>
-                        <td class="px-3 py-2 whitespace-nowrap">${r.tipo_colegio || ''}</td>
+                        <td class="px-3 py-2 font-mono whitespace-nowrap">${esc(r.nro_documento)}</td>
+                        <td class="px-3 py-2 font-semibold whitespace-nowrap">${esc([r.paterno, r.materno, r.nombres].filter(Boolean).join(' '))}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(r.sede || '')}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(r.area || '—')}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(r.turno || '—')}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(r.grupo || '—')}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">${esc(r.tipo_colegio || '')}</td>
                         <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota1, Number(r.cambio_mod_1))}">${fmtMoney(r.primera_mensualidad)}</td>
                         <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota2, Number(r.cambio_mod_2))}">${fmtMoney(r.segunda_mensualidad)}</td>
                         <td class="px-3 py-2 text-right font-mono ${claseCelda(r.estado_cuota3, Number(r.cambio_mod_3))}">${fmtMoney(r.tercera_mensualidad)}</td>
