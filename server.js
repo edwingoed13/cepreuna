@@ -191,6 +191,24 @@ const apiLimiter = rateLimit({
   message: { error: 'Demasiadas peticiones, intenta de nuevo en un momento.' },
 });
 app.use('/api/', apiLimiter);
+
+// Logging temporal para descubrir quién consume /api/matriculas/* (datos
+// sensibles que aún están sin autenticación). Revisar en los logs de Vercel
+// (Functions → Logs, buscar "MATRICULAS_ACCESS") para identificar el consumidor
+// y luego asegurar estos endpoints. Quitar este middleware cuando ya no se necesite.
+app.use('/api/matriculas', (req, res, next) => {
+  console.log('MATRICULAS_ACCESS ' + JSON.stringify({
+    ts: new Date().toISOString(),
+    path: req.originalUrl,
+    ip: req.ip,
+    xff: req.headers['x-forwarded-for'] || null,
+    ua: req.headers['user-agent'] || null,
+    origin: req.headers['origin'] || null,
+    referer: req.headers['referer'] || null,
+  }));
+  next();
+});
+
 // Login: estricto, contra fuerza bruta de contraseñas.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 10,
