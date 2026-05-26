@@ -8,17 +8,22 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 // JWT secret para firmar tokens del panel /stats.
-// En producción es OBLIGATORIO definir JWT_SECRET en el entorno; si falta,
-// abortamos el arranque (fail-fast) para no firmar tokens con un secreto
-// público conocido. En desarrollo se permite un fallback con aviso.
+// Debe definirse JWT_SECRET en el entorno. Si falta:
+//   - producción: generamos un secreto EFÍMERO aleatorio (seguro: no es público),
+//     pero las sesiones serán inestables entre instancias/cold-starts hasta que
+//     se defina JWT_SECRET. NO usamos process.exit porque en serverless (Vercel)
+//     mata la función al importar el módulo → FUNCTION_INVOCATION_FAILED.
+//   - desarrollo: fallback fijo para estabilidad entre reinicios.
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   if (process.env.NODE_ENV === 'production') {
-    console.error('❌ FATAL: JWT_SECRET no está definido. Configúralo en el entorno antes de iniciar en producción.');
-    process.exit(1);
+    JWT_SECRET = require('crypto').randomBytes(48).toString('hex');
+    console.error('❌ JWT_SECRET no definido en producción. Usando un secreto EFÍMERO aleatorio. ' +
+      'Define JWT_SECRET en las variables de entorno para que las sesiones sean estables.');
+  } else {
+    JWT_SECRET = 'cepreuna-stats-dev-secret-change-me';
+    console.warn('⚠️  JWT_SECRET no definido — usando fallback de DESARROLLO. NO usar en producción.');
   }
-  JWT_SECRET = 'cepreuna-stats-dev-secret-change-me';
-  console.warn('⚠️  JWT_SECRET no definido — usando fallback de DESARROLLO. NO usar en producción.');
 }
 const JWT_EXPIRES_IN = '8h';
 
@@ -91,6 +96,11 @@ async function calcularGruposPermitidos(connection, userId, roleName) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Detrás del proxy de Vercel/Railway: confiar en 1 hop para leer la IP real
+// (X-Forwarded-For). Necesario para que express-rate-limit cuente por IP
+// correctamente y no emita errores de validación de trust proxy.
+app.set('trust proxy', 1);
 
 // ============ CACHE LAYER ============
 // Cache en memoria con TTL para reducir Fast Origin Transfer
