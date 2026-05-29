@@ -60,18 +60,22 @@
     <script>
         // Verificación de sesión
         const sessionDataString = localStorage.getItem('stats_session');
-        if (!sessionDataString) {
-            window.location.href = '/stats/login';
+        const sessionData = sessionDataString ? JSON.parse(sessionDataString) : null;
+        // _redir: una vez decidida una redirección, no dejar que otra la sobreescriba.
+        let _redir = false;
+        if (!sessionData || !sessionData.token) {
+            localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true;
         }
-        const sessionData = JSON.parse(sessionDataString);
         // Sacar al login si el token JWT expiró (no solo si falta).
-        try {
-            const _exp = sessionData && sessionData.token ? JSON.parse(atob(sessionData.token.split('.')[1])).exp : 0;
-            if (!_exp || _exp * 1000 < Date.now()) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
-        } catch (_e) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        if (!_redir) {
+            try {
+                const _exp = JSON.parse(atob(sessionData.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp;
+                if (!_exp || _exp * 1000 < Date.now()) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+            } catch (_e) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+        }
         // Solo administradores ven /stats/reportes. El resto cae a /stats/alumnos.
         const _role = sessionData?.user?.role;
-        if (_role !== 'Administrador' && _role !== 'Super Admin') {
+        if (!_redir && !['Administrador', 'Super Admin', 'Oficina de Administración'].includes(_role)) {
             window.location.href = '/stats/alumnos';
         }
     </script>
@@ -192,7 +196,7 @@
                 <span class="material-symbols-outlined">grading</span>
                 <span class="text-[9px] font-bold uppercase">Calificación</span>
             </a>
-            <a class="flex flex-col items-center gap-1 text-slate-400" href="/stats">
+            <a data-role="admin" style="display:none" class="flex flex-col items-center gap-1 text-slate-400" href="/stats">
                 <span class="material-symbols-outlined">home</span>
                 <span class="text-[9px] font-bold uppercase">Inicio</span>
             </a>
@@ -212,7 +216,7 @@
         // (IIFE para no redeclarar _role, ya declarado en el guard del <head>)
         (function () {
             const r = sessionData?.user?.role;
-            if (r === 'Administrador' || r === 'Super Admin') {
+            if (['Administrador', 'Super Admin', 'Oficina de Administración'].includes(r)) {
                 document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
             }
         })();
@@ -265,6 +269,7 @@
                     return;
                 }
 
+                const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
                 let tabsHTML = '';
                 let contentHTML = '';
 
@@ -276,14 +281,14 @@
                         <button class="tab-button flex-shrink-0 px-6 py-4 text-sm font-semibold text-slate-500 hover:text-primary transition-all flex flex-col items-start gap-1 border-b-2 border-transparent ${i === 0 ? 'active' : ''}" 
                                 data-tab-idx="${i}" onclick="cambiarTab(${i})">
                             <span class="uppercase tracking-tight text-[10px]">${totalSede} Alumnos</span>
-                            <span class="whitespace-nowrap">${sede.sede}</span>
+                            <span class="whitespace-nowrap">${esc(sede.sede)}</span>
                         </button>
                     `;
 
                     contentHTML += `
                         <div id="content-${i}" class="tab-content transition-all duration-300 ${i === 0 ? 'active' : ''}">
                             <div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-8">
-                                <h3 class="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">${sede.sede}</h3>
+                                <h3 class="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">${esc(sede.sede)}</h3>
                                 <div class="h-px flex-1 bg-slate-100 dark:bg-slate-800 hidden lg:block"></div>
                                 <div class="flex items-center gap-2">
                                     <span class="bg-primary/10 text-primary dark:bg-white/10 dark:text-white px-3 py-1 rounded-full text-xs font-bold">${totalSede} Inscritos</span>
@@ -307,7 +312,7 @@
                                 <div class="flex items-center justify-between mb-4">
                                     <h4 class="font-black text-slate-700 dark:text-slate-300 uppercase text-xs tracking-widest flex items-center gap-2">
                                         <span class="material-symbols-outlined text-sm">schedule</span>
-                                        ${turno.turno}
+                                        ${esc(turno.turno)}
                                     </h4>
                                     <span class="text-xs font-bold text-primary dark:text-white">${totalTurno} Inscritos</span>
                                 </div>
@@ -330,7 +335,7 @@
                                 <div class="flex flex-col gap-1.5 ${isFull ? 'bg-red-50/50 dark:bg-red-900/10 p-2 -m-2 rounded-lg' : ''}">
                                     <div class="flex justify-between text-[11px] font-bold">
                                         <div class="flex items-center gap-1.5">
-                                            <span class="${isFull ? 'text-red-700 dark:text-red-400' : 'text-slate-500'} uppercase">${area.area}</span>
+                                            <span class="${isFull ? 'text-red-700 dark:text-red-400' : 'text-slate-500'} uppercase">${esc(area.area)}</span>
                                             ${!sede.es_virtual && area.capacidad > 0 ? `
                                                 <span class="${isFull ? 'bg-red-600 text-white' : (isLow ? 'bg-orange-500 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400')} px-1.5 py-0.5 rounded text-[8px]">
                                                     ${Math.round(occupancyPct)}%
@@ -370,6 +375,11 @@
 
             } catch (err) {
                 console.error("Error reportes:", err);
+                document.getElementById('tabsContent').innerHTML =
+                    '<div class="flex flex-col items-center justify-center py-20 text-red-500">' +
+                    '<span class="material-symbols-outlined text-5xl">error</span>' +
+                    '<p class="mt-4 font-bold uppercase tracking-widest text-xs">Error al cargar los reportes</p>' +
+                    '<p class="mt-1 text-[11px] text-slate-400">Intenta refrescar la página</p></div>';
             }
         }
 

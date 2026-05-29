@@ -14,7 +14,7 @@
                     colors: {
                         "primary": "#003366",
                         "background-light": "#f5f7f8",
-                        "background-dark": "#101922",
+                        "background-dark": "#0f1923",
                     },
                     fontFamily: {
                         "display": ["Inter", "sans-serif"]
@@ -90,7 +90,7 @@
                     }));
                     // Admin va al Resumen; auxiliares/coordinadores directo a /stats/alumnos
                     const role = data.user?.role;
-                    const isAdmin = role === 'Administrador' || role === 'Super Admin';
+                    const isAdmin = ['Administrador', 'Super Admin', 'Oficina de Administración'].includes(role);
                     window.location.href = isAdmin ? '/stats' : '/stats/alumnos';
                 } else {
                     errorMessage.textContent = data.error || 'Error al iniciar sesión';
@@ -110,7 +110,7 @@
         if (session) {
             try {
                 const role = JSON.parse(session)?.user?.role;
-                const isAdmin = role === 'Administrador' || role === 'Super Admin';
+                const isAdmin = ['Administrador', 'Super Admin', 'Oficina de Administración'].includes(role);
                 window.location.href = isAdmin ? '/stats' : '/stats/alumnos';
             } catch { window.location.href = '/stats/alumnos'; }
         }

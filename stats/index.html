@@ -49,18 +49,22 @@
     <script>
         // Verificación de sesión antes de mostrar contenido
         const sessionDataString = localStorage.getItem('stats_session');
-        if (!sessionDataString) {
-            window.location.href = '/stats/login';
+        const sessionData = sessionDataString ? JSON.parse(sessionDataString) : null;
+        // _redir: una vez decidida una redirección, no dejar que otra la sobreescriba.
+        let _redir = false;
+        if (!sessionData || !sessionData.token) {
+            localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true;
         }
-        const sessionData = JSON.parse(sessionDataString);
         // Sacar al login si el token JWT expiró (no solo si falta) — evita mostrar el panel y luego sacar.
-        try {
-            const _exp = sessionData && sessionData.token ? JSON.parse(atob(sessionData.token.split('.')[1])).exp : 0;
-            if (!_exp || _exp * 1000 < Date.now()) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
-        } catch (_e) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        if (!_redir) {
+            try {
+                const _exp = JSON.parse(atob(sessionData.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp;
+                if (!_exp || _exp * 1000 < Date.now()) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+            } catch (_e) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+        }
         // Solo administradores ven /stats (Resumen). El resto cae a /stats/alumnos.
         const _role = sessionData?.user?.role;
-        if (_role !== 'Administrador' && _role !== 'Super Admin') {
+        if (!_redir && !['Administrador', 'Super Admin', 'Oficina de Administración'].includes(_role)) {
             window.location.href = '/stats/alumnos';
         }
     </script>
@@ -277,7 +281,7 @@
                 <span class="material-symbols-outlined">grading</span>
                 <span class="text-[9px] font-bold uppercase">Calificación</span>
             </a>
-            <a class="flex flex-col items-center gap-1 text-slate-400" href="/stats">
+            <a data-role="admin" style="display:none" class="flex flex-col items-center gap-1 text-slate-400" href="/stats">
                 <span class="material-symbols-outlined">home</span>
                 <span class="text-[9px] font-bold uppercase">Inicio</span>
             </a>
@@ -297,7 +301,7 @@
         // (IIFE para no redeclarar _role, ya declarado en el guard del <head>)
         (function () {
             const r = sessionData?.user?.role;
-            if (r === 'Administrador' || r === 'Super Admin') {
+            if (['Administrador', 'Super Admin', 'Oficina de Administración'].includes(r)) {
                 document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
             }
         })();
@@ -346,6 +350,7 @@
                 const areas = dataAreas.areas || [];
                 const maxArea = Math.max(...areas.map(a => a.total_inscritos), 1);
 
+                const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
                 let areasHTML = '';
                 areas.forEach((area, i) => {
                     const pct = Math.round((area.total_inscritos / maxArea) * 100);
@@ -353,7 +358,7 @@
                     areasHTML += `
                         <div class="space-y-2">
                             <div class="flex justify-between items-end">
-                                <span class="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">${area.area}</span>
+                                <span class="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">${esc(area.area)}</span>
                                 <span class="text-lg font-black text-slate-800 dark:text-white">${area.total_inscritos}</span>
                             </div>
                             <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3.5 overflow-hidden">
@@ -375,7 +380,7 @@
                     sedesHTML += `
                         <div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700 group">
                             <div class="flex flex-col">
-                                <span class="text-xs font-bold text-slate-700 dark:text-slate-300 group-hover:text-primary dark:group-hover:text-white">${sede.sede}</span>
+                                <span class="text-xs font-bold text-slate-700 dark:text-slate-300 group-hover:text-primary dark:group-hover:text-white">${esc(sede.sede)}</span>
                                 <span class="text-[9px] text-slate-400 uppercase tracking-tighter">Campus Regional</span>
                             </div>
                             <div class="flex items-baseline gap-1">

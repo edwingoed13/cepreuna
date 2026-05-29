@@ -15,17 +15,25 @@ require('dotenv').config();
 //     mata la función al importar el módulo → FUNCTION_INVOCATION_FAILED.
 //   - desarrollo: fallback fijo para estabilidad entre reinicios.
 let JWT_SECRET = process.env.JWT_SECRET;
+let JWT_SECRET_MISSING = false; // se expone en /health para detectar la mala config
 if (!JWT_SECRET) {
   if (process.env.NODE_ENV === 'production') {
+    JWT_SECRET_MISSING = true;
     JWT_SECRET = require('crypto').randomBytes(48).toString('hex');
-    console.error('❌ JWT_SECRET no definido en producción. Usando un secreto EFÍMERO aleatorio. ' +
-      'Define JWT_SECRET en las variables de entorno para que las sesiones sean estables.');
+    // No hacemos process.exit: en serverless (Vercel) matar el módulo al importar
+    // provoca FUNCTION_INVOCATION_FAILED. En su lugar avisamos de forma MUY visible
+    // y lo exponemos en /health para que el fallo de despliegue sea evidente.
+    console.error('\n' + '='.repeat(72));
+    console.error('❌ JWT_SECRET NO DEFINIDO EN PRODUCCIÓN — secreto EFÍMERO por instancia.');
+    console.error('   Las sesiones del panel /stats se cerrarán al navegar (401 intermitente).');
+    console.error('   SOLUCIÓN: define JWT_SECRET en las variables de entorno y redeploy.');
+    console.error('='.repeat(72) + '\n');
   } else {
     JWT_SECRET = 'cepreuna-stats-dev-secret-change-me';
     console.warn('⚠️  JWT_SECRET no definido — usando fallback de DESARROLLO. NO usar en producción.');
   }
 }
-const JWT_EXPIRES_IN = '8h';
+const JWT_EXPIRES_IN = '1d';
 
 // Middleware: exige Authorization: Bearer <jwt> y agrega req.user = { sub, role, grupos }
 function requireStatsAuth(req, res, next) {
@@ -35,16 +43,22 @@ function requireStatsAuth(req, res, next) {
     return res.status(401).json({ error: 'Token requerido', code: 'NO_TOKEN' });
   }
   try {
-    req.user = jwt.verify(m[1], JWT_SECRET);
+    req.user = jwt.verify(m[1], JWT_SECRET, { algorithms: ['HS256'] });
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Token inválido o expirado', code: 'BAD_TOKEN' });
   }
 }
 
+// Roles con acceso administrativo global al panel /stats.
+// Debe coincidir con la rama admin de calcularGruposPermitidos() y con el
+// frontend (ADMIN_ROLES en cada vista). 'Oficina de Administración' se incluye
+// porque calcularGruposPermitidos le otorga acceso global a datos (grupos=null).
+const ADMIN_ROLES = ['Administrador', 'Super Admin', 'Oficina de Administración'];
+
 // Helper: el rol corresponde a un administrador con acceso global
 function esAdmin(role) {
-  return role === 'Administrador' || role === 'Super Admin';
+  return ADMIN_ROLES.includes(role);
 }
 
 // Middleware: encadena requireStatsAuth y luego exige rol admin
@@ -64,7 +78,7 @@ function requireAdmin(req, res, next) {
 async function calcularGruposPermitidos(connection, userId, roleName) {
   if (!roleName) return [];
   // Roles con acceso global (ven todos los grupos en el reporte de pagos).
-  if (roleName === 'Super Admin' || roleName === 'Administrador' || roleName === 'Oficina de Administración') return null;
+  if (esAdmin(roleName)) return null;
 
   if (roleName.startsWith('Auxiliar')) {
     const [rows] = await connection.query(`
@@ -113,7 +127,14 @@ function cacheMiddleware(ttlSeconds = 300) {
       return next();
     }
 
-    const key = req.originalUrl || req.url;
+    // La clave incluye un discriminador por usuario/rol/grupos cuando la ruta
+    // está autenticada. Evita que una respuesta restringida por grupos (rol
+    // auxiliar/coordinador) se sirva a otro usuario si algún día se cachea un
+    // endpoint con datos por-grupo. En rutas públicas req.user es undefined.
+    const userKey = req.user
+      ? `u:${req.user.sub}:${req.user.role}:${Array.isArray(req.user.grupos) ? req.user.grupos.join('.') : 'all'}|`
+      : '';
+    const key = userKey + (req.originalUrl || req.url);
     const cached = cache.get(key);
 
     if (cached && Date.now() < cached.expiry) {
@@ -2218,7 +2239,7 @@ app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
   } catch (error) {
     if (connection) connection.release();
     console.error('Error reporte-pagos:', error);
-    res.status(500).json({ error: 'Error al generar reporte de pagos', message: error.message });
+    res.status(500).json({ error: 'Error al generar reporte de pagos' });
   }
 });
 
@@ -2295,7 +2316,7 @@ app.get('/api/stats/reporte-pagos/excel', requireStatsAuth, async (req, res) => 
   } catch (error) {
     if (connection) connection.release();
     console.error('Error reporte-pagos excel:', error);
-    res.status(500).json({ error: 'Error al generar el Excel', message: error.message });
+    res.status(500).json({ error: 'Error al generar el Excel' });
   }
 });
 
@@ -2414,7 +2435,7 @@ app.get('/api/stats/calificaciones', requireStatsAuth, async (req, res) => {
   } catch (error) {
     if (connection) connection.release();
     console.error('Error calificaciones:', error);
-    res.status(500).json({ error: 'Error al generar el reporte de calificaciones', message: error.message });
+    res.status(500).json({ error: 'Error al generar el reporte de calificaciones' });
   }
 });
 
@@ -2435,7 +2456,7 @@ app.get('/api/stats/catalogos/sedes', requireStatsAuth, cacheMiddleware(600), as
     const [rows] = await conn.query(`SELECT id, denominacion FROM sedes WHERE estado = '1' ORDER BY denominacion`);
     conn.release();
     res.json(rows);
-  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+  } catch (e) { if (conn) conn.release(); console.error('Error catálogo stats:', e); res.status(500).json({ error: 'Error al obtener el catálogo' }); }
 });
 
 app.get('/api/stats/catalogos/turnos', requireStatsAuth, cacheMiddleware(600), async (req, res) => {
@@ -2445,7 +2466,7 @@ app.get('/api/stats/catalogos/turnos', requireStatsAuth, cacheMiddleware(600), a
     const [rows] = await conn.query(`SELECT id, denominacion FROM turnos WHERE estado = '1' ORDER BY id`);
     conn.release();
     res.json(rows);
-  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+  } catch (e) { if (conn) conn.release(); console.error('Error catálogo stats:', e); res.status(500).json({ error: 'Error al obtener el catálogo' }); }
 });
 
 app.get('/api/stats/catalogos/areas', requireStatsAuth, cacheMiddleware(600), async (req, res) => {
@@ -2455,7 +2476,7 @@ app.get('/api/stats/catalogos/areas', requireStatsAuth, cacheMiddleware(600), as
     const [rows] = await conn.query(`SELECT id, denominacion FROM areas ORDER BY denominacion`);
     conn.release();
     res.json(rows);
-  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+  } catch (e) { if (conn) conn.release(); console.error('Error catálogo stats:', e); res.status(500).json({ error: 'Error al obtener el catálogo' }); }
 });
 
 // Grupos: opcionalmente filtra por sede/turno/area; respeta restricción por rol.
@@ -2495,7 +2516,7 @@ app.get('/api/stats/catalogos/grupos', requireStatsAuth, async (req, res) => {
     `, params);
     conn.release();
     res.json(rows);
-  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+  } catch (e) { if (conn) conn.release(); console.error('Error catálogo stats:', e); res.status(500).json({ error: 'Error al obtener el catálogo' }); }
 });
 
 app.get('/api/stats/catalogos/coordinadores', requireAdmin, cacheMiddleware(600), async (req, res) => {
@@ -2519,7 +2540,7 @@ app.get('/api/stats/catalogos/coordinadores', requireAdmin, cacheMiddleware(600)
       nombre: r.nombre,
       grupos: r.grupos_csv ? r.grupos_csv.split(',').map(Number) : []
     })));
-  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+  } catch (e) { if (conn) conn.release(); console.error('Error catálogo stats:', e); res.status(500).json({ error: 'Error al obtener el catálogo' }); }
 });
 
 app.get('/api/stats/catalogos/auxiliares', requireAdmin, cacheMiddleware(600), async (req, res) => {
@@ -2545,7 +2566,7 @@ app.get('/api/stats/catalogos/auxiliares', requireAdmin, cacheMiddleware(600), a
       nombre: r.nombre,
       grupos: r.grupos_csv ? r.grupos_csv.split(',').map(Number) : []
     })));
-  } catch (e) { if (conn) conn.release(); res.status(500).json({ error: e.message }); }
+  } catch (e) { if (conn) conn.release(); console.error('Error catálogo stats:', e); res.status(500).json({ error: 'Error al obtener el catálogo' }); }
 });
 
 // Construye el SQL + params del reporte de horas-docentes a partir de los
@@ -2655,7 +2676,7 @@ app.get('/api/stats/reportes-aux/horas-docentes', requireAdmin, async (req, res)
   } catch (e) {
     if (conn) conn.release();
     console.error('Error horas-docentes:', e);
-    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el reporte' });
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el reporte' });
   }
 });
 
@@ -2736,7 +2757,7 @@ app.get('/api/stats/reportes-aux/horas-docentes/excel', requireAdmin, async (req
   } catch (e) {
     if (conn) conn.release();
     console.error('Error horas-docentes excel:', e);
-    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el Excel' });
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el Excel' });
   }
 });
 
@@ -2843,7 +2864,7 @@ app.get('/api/stats/reportes-aux/cobertura-grupos', requireAdmin, async (req, re
     res.json(data);
   } catch (e) {
     console.error('Error cobertura-grupos:', e);
-    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el reporte' });
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el reporte' });
   }
 });
 
@@ -2861,7 +2882,8 @@ app.get('/api/stats/reportes-aux/rango-fechas', requireAdmin, cacheMiddleware(60
     res.json(rows[0] || { min_fecha: null, max_fecha: null });
   } catch (e) {
     if (conn) conn.release();
-    res.status(500).json({ error: e.message });
+    console.error('Error rango-fechas:', e);
+    res.status(500).json({ error: 'Error al obtener el rango de fechas' });
   }
 });
 
@@ -3051,7 +3073,7 @@ app.get('/api/stats/reportes-aux/cobertura-grupos/excel', requireAdmin, async (r
     res.end(Buffer.from(buffer));
   } catch (e) {
     console.error('Error cobertura excel:', e);
-    res.status(e.statusCode || 500).json({ error: e.message || 'Error al generar el Excel' });
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el Excel' });
   }
 });
 
@@ -3236,13 +3258,17 @@ app.post('/api/stats/login', loginLimiter, async (req, res) => {
   } catch (error) {
     if (connection) connection.release();
     console.error('Error en login stats:', error);
-    res.status(500).json({ error: 'Error interno del servidor', message: error.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
 // Endpoint de salud
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  res.json({
+    status: JWT_SECRET_MISSING ? 'DEGRADED' : 'OK',
+    jwtSecretConfigured: !JWT_SECRET_MISSING,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ===== Descarga de modelos de informe (.docx) =====
