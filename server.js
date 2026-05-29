@@ -2352,7 +2352,7 @@ const CALIFICACIONES_SQL_BASE = `
         FROM carga_academicas ca3
         JOIN cursos c2 ON c2.id = ca3.cursos_id
         WHERE ca3.grupo_aulas_id = m.grupo_aulas_id
-          AND ca3.periodos_id = 1 AND ca3.estado = '1'
+          AND ca3.periodos_id = 1 AND ca3.estado = '1' AND ca3.tipo = '1'
           AND ca3.docentes_id IS NOT NULL
           AND ca3.docentes_id NOT IN (
             SELECT ca4.docentes_id
@@ -2361,7 +2361,7 @@ const CALIFICACIONES_SQL_BASE = `
             JOIN carga_academicas ca4      ON ca4.id = cd2.carga_academicas_id
             WHERE d2.estudiantes_id = e.id
               AND ca4.grupo_aulas_id = m.grupo_aulas_id
-              AND ca4.periodos_id = 1 AND ca4.estado = '1'
+              AND ca4.periodos_id = 1 AND ca4.estado = '1' AND ca4.tipo = '1'
               AND ca4.docentes_id IS NOT NULL
           )
       )
@@ -2378,21 +2378,26 @@ const CALIFICACIONES_SQL_BASE = `
   LEFT JOIN aulas aula_real     ON aula_real.id   = ga.aulas_id
   LEFT JOIN locales local_aula  ON local_aula.id  = aula_real.locales_id
   LEFT JOIN sedes sede_aula     ON sede_aula.id   = local_aula.sedes_id
-  -- Y: total de docentes del grupo (mismo para todos los alumnos del grupo)
+  -- Y: total de docentes del grupo (mismo para todos los alumnos del grupo).
+  -- Solo titulares (tipo='1'): si un curso pasa de titular A a suplente B, el
+  -- titular ya calificado quedaba contabilizado y el suplente sumaba como
+  -- "no calificado", dando un PARCIAL falso. Suplentes no califican.
   LEFT JOIN (
     SELECT grupo_aulas_id, COUNT(DISTINCT docentes_id) AS total_docentes
     FROM carga_academicas
-    WHERE periodos_id = 1 AND estado = '1'
+    WHERE periodos_id = 1 AND estado = '1' AND tipo = '1'
     GROUP BY grupo_aulas_id
   ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-  -- X: docentes del grupo que el alumno efectivamente calificó
+  -- X: docentes TITULARES del grupo que el alumno efectivamente calificó.
+  -- Si una calificación quedó asociada a una carga de suplente (raro), no se
+  -- cuenta: la cobertura se mide solo contra titulares (denominador en tc).
   LEFT JOIN (
     SELECT d.estudiantes_id, ca.grupo_aulas_id,
            COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
     FROM calificacion_docente_detalles d
     JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
     JOIN carga_academicas ca      ON ca.id = cd.carga_academicas_id
-    WHERE ca.periodos_id = 1 AND ca.estado = '1'
+    WHERE ca.periodos_id = 1 AND ca.estado = '1' AND ca.tipo = '1'
     GROUP BY d.estudiantes_id, ca.grupo_aulas_id
   ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
   WHERE i.periodos_id = 1 AND i.estado = '1'
