@@ -286,6 +286,13 @@ app.get('/stats/alumnos', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'alumnos', 'index.html'));
 });
 
+app.get('/stats/docentes-stats', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'docentes-stats', 'index.html'));
+});
+app.get('/stats/docentes-stats/docente', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'docentes-stats', 'docente', 'index.html'));
+});
+
 app.get('/stats/alumnos-calificacion', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'alumnos-calificacion', 'index.html'));
 });
@@ -2441,6 +2448,516 @@ app.get('/api/stats/calificaciones', requireStatsAuth, async (req, res) => {
     if (connection) connection.release();
     console.error('Error calificaciones:', error);
     res.status(500).json({ error: 'Error al generar el reporte de calificaciones' });
+  }
+});
+
+// ============ DOCENTES STATS · DASHBOARD ============
+// Dashboard agregado de calificación docente para la página /stats/docentes-stats.
+// Devuelve KPIs globales + 6 series listas para Chart.js. Solo admin.
+//
+// Importante: TODAS las queries que tocan carga_academicas filtran tipo='1'
+// (solo titulares); los suplentes no se cuentan como docentes a calificar.
+app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    // 1) KPIs globales
+    const [[kpis]] = await conn.query(`
+      WITH cobertura AS (
+        SELECT
+          e.id,
+          COALESCE(tc.total_docentes, 0)        AS total,
+          COALESCE(cal.docentes_calificados, 0) AS calif
+        FROM inscripciones i
+        JOIN estudiantes e ON e.id = i.estudiantes_id
+        LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+        LEFT JOIN (
+          SELECT grupo_aulas_id, COUNT(DISTINCT docentes_id) AS total_docentes
+          FROM carga_academicas
+          WHERE periodos_id = 1 AND estado = '1' AND tipo = '1'
+          GROUP BY grupo_aulas_id
+        ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
+        LEFT JOIN (
+          SELECT d.estudiantes_id, ca.grupo_aulas_id,
+                 COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
+          FROM calificacion_docente_detalles d
+          JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+          JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
+          WHERE ca.periodos_id = 1 AND ca.estado = '1' AND ca.tipo = '1'
+          GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+        ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+        WHERE i.periodos_id = 1 AND i.estado = '1'
+      )
+      SELECT
+        COUNT(*) AS total_alumnos,
+        SUM(CASE WHEN total > 0 AND calif >= total THEN 1 ELSE 0 END) AS completos,
+        SUM(CASE WHEN calif > 0 AND calif < total THEN 1 ELSE 0 END) AS parciales,
+        SUM(CASE WHEN calif = 0 THEN 1 ELSE 0 END)                   AS sin_calificar,
+        ROUND(AVG(CASE WHEN total = 0 THEN 0 ELSE 100 * calif / total END), 1) AS cobertura_global_pct,
+        (SELECT COUNT(*) FROM calificacion_docentes)                 AS total_calificaciones_docente,
+        (SELECT COUNT(*) FROM calificacion_docente_detalles)         AS total_respuestas_criterios,
+        (SELECT COUNT(DISTINCT docentes_id) FROM calificacion_docentes) AS docentes_evaluados
+      FROM cobertura
+    `);
+
+    // 2) Distribución de cumplimiento (histograma)
+    const [distribucion] = await conn.query(`
+      WITH cobertura AS (
+        SELECT
+          CASE WHEN COALESCE(tc.total_docentes,0) = 0 THEN 0
+               ELSE ROUND(100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes) END AS pct
+        FROM inscripciones i
+        JOIN estudiantes e ON e.id = i.estudiantes_id
+        LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+        LEFT JOIN (
+          SELECT grupo_aulas_id, COUNT(DISTINCT docentes_id) AS total_docentes
+          FROM carga_academicas WHERE periodos_id=1 AND estado='1' AND tipo='1'
+          GROUP BY grupo_aulas_id
+        ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
+        LEFT JOIN (
+          SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
+          FROM calificacion_docente_detalles d
+          JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+          JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
+          WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
+          GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+        ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+        WHERE i.periodos_id=1 AND i.estado='1'
+      )
+      SELECT rango, alumnos FROM (
+        SELECT
+          CASE
+            WHEN pct >= 100 THEN '100% Completo'
+            WHEN pct >= 75  THEN '75-99%'
+            WHEN pct >= 50  THEN '50-74%'
+            WHEN pct >= 25  THEN '25-49%'
+            WHEN pct >= 1   THEN '1-24%'
+            ELSE '0% Sin calificar'
+          END AS rango,
+          MIN(pct) AS ord,
+          COUNT(*) AS alumnos
+        FROM cobertura
+        GROUP BY rango
+      ) x
+      ORDER BY ord
+    `);
+
+    // 3) Cobertura por sede
+    const [porSede] = await conn.query(`
+      SELECT s.denominacion AS sede,
+             COUNT(DISTINCT e.id) AS alumnos,
+             ROUND(AVG(CASE WHEN COALESCE(tc.total_docentes,0)=0 THEN 0
+                            ELSE 100 * COALESCE(cal.calif,0) / tc.total_docentes END), 1) AS pct
+      FROM inscripciones i
+      JOIN estudiantes e ON e.id = i.estudiantes_id
+      JOIN sedes s ON s.id = i.sedes_id
+      LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+      LEFT JOIN (
+        SELECT grupo_aulas_id, COUNT(DISTINCT docentes_id) AS total_docentes
+        FROM carga_academicas WHERE periodos_id=1 AND estado='1' AND tipo='1'
+        GROUP BY grupo_aulas_id
+      ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
+      LEFT JOIN (
+        SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS calif
+        FROM calificacion_docente_detalles d
+        JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
+        WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
+        GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+      ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+      WHERE i.periodos_id=1 AND i.estado='1'
+      GROUP BY s.id ORDER BY pct DESC
+    `);
+
+    // ------------------------------------------------------------------
+    // SCORE BAYESIANO (anti-sesgo de muestra y de grupo dominante)
+    // ------------------------------------------------------------------
+    // Paso 1: para cada docente, promedio = media de promedios de sus cargas
+    //         (un grupo de 100 alumnos no pesa más que uno de 25).
+    // Paso 2: score = (n × prom_doc + m × C) / (n + m)
+    //         C  = promedio global de docentes (media institucional)
+    //         m  = mediana de participantes por docente (peso "fantasma")
+    //         n  = participantes totales del docente
+    // Paso 3: tag de robustez según n:
+    //         n >= 50 → robusta · 30-49 → referencial · <30 → insuficiente
+
+    // Parámetros bayesianos: C (media global) y m (mediana de n por docente)
+    const [perDoc] = await conn.query(`
+      SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.participantes > 0
+      GROUP BY cd.docentes_id
+    `);
+    const proms = perDoc.map(r => Number(r.prom_doc)).filter(x => !isNaN(x));
+    const ns = perDoc.map(r => Number(r.n)).filter(x => !isNaN(x)).sort((a,b) => a-b);
+    const C = proms.length ? Number((proms.reduce((a,b) => a+b, 0) / proms.length).toFixed(3)) : 4.3;
+    const medianaN = ns.length ? ns[Math.floor(ns.length/2)] : 30;
+    const M = Math.max(20, medianaN);  // mínimo 20
+
+    // 4) Top 15 docentes (score bayesiano sobre media de grupos)
+    const [topDocentes] = await conn.query(`
+      SELECT d.id,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+             ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
+             SUM(cd.participantes) AS participantes,
+             COUNT(DISTINCT cd.carga_academicas_id) AS asignaciones,
+             CASE WHEN SUM(cd.participantes) >= 50 THEN 'robusta'
+                  WHEN SUM(cd.participantes) >= 30 THEN 'referencial'
+                  ELSE 'insuficiente' END AS robustez
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN docentes d ON d.id = cd.docentes_id
+      WHERE cd.participantes > 0
+      GROUP BY d.id
+      HAVING participantes >= 30
+      ORDER BY score DESC, participantes DESC LIMIT 15
+    `, [M, C, M]);
+
+    // 5) Bottom 15 docentes (mismo score, orden inverso)
+    const [bottomDocentes] = await conn.query(`
+      SELECT d.id,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+             ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
+             SUM(cd.participantes) AS participantes,
+             COUNT(DISTINCT cd.carga_academicas_id) AS asignaciones,
+             CASE WHEN SUM(cd.participantes) >= 50 THEN 'robusta'
+                  WHEN SUM(cd.participantes) >= 30 THEN 'referencial'
+                  ELSE 'insuficiente' END AS robustez
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN docentes d ON d.id = cd.docentes_id
+      WHERE cd.participantes > 0
+      GROUP BY d.id
+      HAVING participantes >= 30
+      ORDER BY score ASC, participantes DESC LIMIT 15
+    `, [M, C, M]);
+
+    // 6) Distribución de scores bayesianos (histograma corregido)
+    const [distPromedios] = await conn.query(`
+      SELECT rango, docentes FROM (
+        SELECT
+          CASE
+            WHEN sc >= 4.5 THEN '4.5–5.0 Excelente'
+            WHEN sc >= 4.0 THEN '4.0–4.5 Muy bueno'
+            WHEN sc >= 3.5 THEN '3.5–4.0 Bueno'
+            WHEN sc >= 3.0 THEN '3.0–3.5 Regular'
+            WHEN sc >= 2.5 THEN '2.5–3.0 Bajo'
+            ELSE '< 2.5 Muy bajo'
+          END AS rango,
+          MIN(sc) AS ord,
+          COUNT(*) AS docentes
+        FROM (
+          SELECT d.id,
+                 (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?) AS sc,
+                 SUM(cd.participantes) AS p
+          FROM calificacion_docentes cd
+          JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+          JOIN docentes d ON d.id = cd.docentes_id
+          WHERE cd.participantes > 0
+          GROUP BY d.id
+          HAVING p >= 30
+        ) x
+        GROUP BY rango
+      ) y ORDER BY ord DESC
+    `, [M, C, M]);
+
+    // 6.1) Ranking por DIMENSIÓN (curso · área · sede física · turno)
+    const dimQuery = (joinExpr, labelExpr, groupBy) => `
+      SELECT ${labelExpr} AS etiqueta,
+             ROUND(AVG(cd.promedio), 2) AS promedio,
+             SUM(cd.participantes) AS participantes,
+             COUNT(DISTINCT d.id) AS docentes
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN docentes d ON d.id = cd.docentes_id
+      ${joinExpr}
+      WHERE cd.participantes > 0
+      GROUP BY ${groupBy}
+      HAVING SUM(cd.participantes) >= 30
+      ORDER BY promedio DESC
+    `;
+
+    const [rankingPorCurso] = await conn.query(dimQuery(
+      `JOIN cursos c ON c.id = ca.cursos_id`,
+      `c.denominacion`,
+      `c.denominacion`
+    ));
+    const [rankingPorArea] = await conn.query(dimQuery(
+      `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+       JOIN areas a ON a.id = ga.areas_id`,
+      `a.denominacion`,
+      `a.id, a.denominacion`
+    ));
+    const [rankingPorTurno] = await conn.query(dimQuery(
+      `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+       JOIN turnos t ON t.id = ga.turnos_id`,
+      `t.denominacion`,
+      `t.id, t.denominacion`
+    ));
+    const [rankingPorSede] = await conn.query(dimQuery(
+      `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+       LEFT JOIN aulas au ON au.id = ga.aulas_id
+       LEFT JOIN locales lo ON lo.id = au.locales_id
+       LEFT JOIN sedes s ON s.id = lo.sedes_id`,
+      `COALESCE(s.denominacion, '— Sin local —')`,
+      `COALESCE(s.id, 0), COALESCE(s.denominacion, '— Sin local —')`
+    ));
+
+    // 6.2) Promedio por PREGUNTA (criterios activos tipo='1')
+    const [porPregunta] = await conn.query(`
+      SELECT cr.id, cr.denominacion AS pregunta,
+             ROUND(AVG(cdd.puntaje), 2) AS promedio,
+             COUNT(*) AS respuestas,
+             SUM(CASE WHEN cdd.puntaje >= 4 THEN 1 ELSE 0 END) AS aprobatorias,
+             SUM(CASE WHEN cdd.puntaje <= 2 THEN 1 ELSE 0 END) AS criticas
+      FROM calificacion_docente_detalles cdd
+      JOIN criterios cr ON cr.id = cdd.criterios_id
+      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cr.tipo='1' AND cr.estado='1'
+      GROUP BY cr.id, cr.denominacion
+      ORDER BY promedio DESC
+    `);
+
+    // 7) Grupos en riesgo (bottom 20 por cobertura, con mínimo 10 alumnos)
+    const [gruposRiesgo] = await conn.query(`
+      SELECT g.denominacion AS grupo, ar.denominacion AS area, t.denominacion AS turno,
+             COALESCE(ANY_VALUE(sa.denominacion), ANY_VALUE(s.denominacion)) AS sede,
+             COUNT(DISTINCT e.id) AS alumnos,
+             ROUND(AVG(CASE WHEN COALESCE(tc.total_docentes,0)=0 THEN 0
+                            ELSE 100 * COALESCE(cal.calif,0) / tc.total_docentes END), 1) AS cobertura_pct
+      FROM inscripciones i
+      JOIN estudiantes e ON e.id = i.estudiantes_id
+      JOIN sedes s ON s.id = i.sedes_id
+      JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+      JOIN grupo_aulas ga ON ga.id = m.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id
+      JOIN areas  ar ON ar.id = ga.areas_id
+      JOIN turnos t  ON t.id = ga.turnos_id
+      LEFT JOIN aulas au ON au.id = ga.aulas_id
+      LEFT JOIN locales lo ON lo.id = au.locales_id
+      LEFT JOIN sedes sa ON sa.id = lo.sedes_id
+      LEFT JOIN (
+        SELECT grupo_aulas_id, COUNT(DISTINCT docentes_id) AS total_docentes
+        FROM carga_academicas WHERE periodos_id=1 AND estado='1' AND tipo='1'
+        GROUP BY grupo_aulas_id
+      ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
+      LEFT JOIN (
+        SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS calif
+        FROM calificacion_docente_detalles d
+        JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
+        WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
+        GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+      ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+      WHERE i.periodos_id=1 AND i.estado='1'
+      GROUP BY ga.id
+      HAVING alumnos >= 10
+      ORDER BY cobertura_pct ASC, alumnos DESC LIMIT 20
+    `);
+
+    // 8) Evolución temporal (calificaciones por día, últimos 30 días con actividad)
+    const [evolucion] = await conn.query(`
+      SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS dia,
+             COUNT(DISTINCT calificacion_docentes_id) AS calificaciones,
+             COUNT(*) AS respuestas
+      FROM calificacion_docente_detalles
+      GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+      ORDER BY dia DESC LIMIT 30
+    `);
+    evolucion.reverse();
+
+    conn.release();
+    res.json({
+      kpis,
+      bayes: { C, m: M, formula: 'score = (n·prom_doc + m·C)/(n+m); prom_doc = media de promedios por grupo' },
+      distribucion_cumplimiento: distribucion,
+      cobertura_por_sede: porSede,
+      top_docentes: topDocentes,
+      bottom_docentes: bottomDocentes,
+      distribucion_promedios: distPromedios,
+      ranking_por_curso: rankingPorCurso,
+      ranking_por_area: rankingPorArea,
+      ranking_por_turno: rankingPorTurno,
+      ranking_por_sede: rankingPorSede,
+      por_pregunta: porPregunta,
+      grupos_riesgo: gruposRiesgo,
+      evolucion,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error docentes-stats:', e);
+    res.status(500).json({ error: 'Error al generar el dashboard', message: e.message });
+  }
+});
+
+// ---- Buscador de docente (autocompletar por DNI / código UNAP / nombre) ----
+app.get('/api/stats/docentes-stats/buscar', requireAdmin, async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json({ resultados: [] });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const like = `%${q}%`;
+    const [rows] = await conn.query(`
+      SELECT d.id,
+             d.nro_documento AS dni,
+             d.codigo_unap,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS nombre,
+             CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             d.profesion
+      FROM docentes d
+      WHERE d.nro_documento LIKE ?
+         OR d.codigo_unap LIKE ?
+         OR CONCAT_WS(' ', d.paterno, d.materno, d.nombres) LIKE ?
+      ORDER BY d.paterno, d.materno, d.nombres
+      LIMIT 25
+    `, [like, like, like]);
+    conn.release();
+    res.json({ resultados: rows });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error buscar docente:', e);
+    res.status(500).json({ error: 'Error al buscar', message: e.message });
+  }
+});
+
+// ---- Ficha individual del docente (perfil + ranking + cargas + preguntas) ----
+app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(120), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'ID inválido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    // 1) Identidad
+    const [[doc]] = await conn.query(`
+      SELECT id,
+             nro_documento AS dni,
+             codigo_unap,
+             CONCAT_WS(' ', paterno, materno, nombres) AS nombre,
+             CASE condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             profesion, email
+      FROM docentes WHERE id = ?
+    `, [id]);
+    if (!doc) { conn.release(); return res.status(404).json({ error: 'Docente no encontrado' }); }
+
+    // 2) Parámetros bayesianos (C, m)
+    const [perDoc] = await conn.query(`
+      SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.participantes > 0
+      GROUP BY cd.docentes_id
+    `);
+    const proms = perDoc.map(r => Number(r.prom_doc)).filter(x => !isNaN(x));
+    const ns = perDoc.map(r => Number(r.n)).filter(x => !isNaN(x)).sort((a,b) => a-b);
+    const C = proms.length ? Number((proms.reduce((a,b) => a+b, 0) / proms.length).toFixed(3)) : 4.3;
+    const M = Math.max(20, ns.length ? ns[Math.floor(ns.length/2)] : 30);
+
+    // 3) Resumen del docente (titular, periodo activo)
+    const [[resumen]] = await conn.query(`
+      SELECT AVG(cd.promedio) AS prom_doc,
+             COALESCE(SUM(cd.participantes), 0) AS n,
+             COUNT(DISTINCT cd.carga_academicas_id) AS asignaciones,
+             COUNT(DISTINCT ca.cursos_id) AS cursos_distintos,
+             COUNT(DISTINCT ca.grupo_aulas_id) AS grupos_distintos
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.docentes_id = ? AND cd.participantes > 0
+    `, [id]);
+
+    const promCrudo = Number(resumen.prom_doc) || 0;
+    const n = Number(resumen.n) || 0;
+    const score = n > 0 ? (n * promCrudo + M * C) / (n + M) : null;
+    const robustez = n >= 50 ? 'robusta' : n >= 30 ? 'referencial' : n > 0 ? 'insuficiente' : 'sin_datos';
+
+    // 4) Posición en el ranking institucional (n >= 30)
+    let posicion = null, totalRanking = null;
+    if (n >= 30) {
+      const [ranks] = await conn.query(`
+        SELECT cd.docentes_id,
+               (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?) AS sc
+        FROM calificacion_docentes cd
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        WHERE cd.participantes > 0
+        GROUP BY cd.docentes_id
+        HAVING SUM(cd.participantes) >= 30
+        ORDER BY sc DESC
+      `, [M, C, M]);
+      totalRanking = ranks.length;
+      const idx = ranks.findIndex(r => Number(r.docentes_id) === id);
+      posicion = idx >= 0 ? idx + 1 : null;
+    }
+
+    // 5) Detalle por carga académica (curso × grupo titular)
+    const [cargas] = await conn.query(`
+      SELECT cd.id,
+             c.denominacion AS curso,
+             g.denominacion AS grupo,
+             ar.denominacion AS area,
+             t.denominacion AS turno,
+             COALESCE(s.denominacion, '— Sin local —') AS sede,
+             cd.promedio, cd.participantes
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id
+      JOIN areas ar ON ar.id = ga.areas_id
+      JOIN turnos t ON t.id = ga.turnos_id
+      LEFT JOIN aulas au ON au.id = ga.aulas_id
+      LEFT JOIN locales lo ON lo.id = au.locales_id
+      LEFT JOIN sedes s ON s.id = lo.sedes_id
+      WHERE cd.docentes_id = ?
+      ORDER BY cd.promedio DESC, cd.participantes DESC
+    `, [id]);
+
+    // 6) Desempeño por pregunta (docente vs media institucional)
+    const [porPregunta] = await conn.query(`
+      SELECT cr.id, cr.denominacion AS pregunta,
+             ROUND(AVG(CASE WHEN cd.docentes_id = ? THEN cdd.puntaje END), 2) AS promedio_docente,
+             ROUND(AVG(cdd.puntaje), 2) AS promedio_global,
+             SUM(CASE WHEN cd.docentes_id = ? THEN 1 ELSE 0 END) AS n_docente
+      FROM calificacion_docente_detalles cdd
+      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN criterios cr ON cr.id = cdd.criterios_id
+      WHERE cr.tipo='1' AND cr.estado='1'
+      GROUP BY cr.id, cr.denominacion
+      HAVING n_docente > 0
+      ORDER BY promedio_docente DESC
+    `, [id, id]);
+
+    conn.release();
+    res.json({
+      docente: doc,
+      bayes: { C, m: M },
+      resumen: {
+        promedio_crudo: Number(promCrudo.toFixed(2)),
+        score: score != null ? Number(score.toFixed(2)) : null,
+        participantes: n,
+        asignaciones: Number(resumen.asignaciones || 0),
+        cursos_distintos: Number(resumen.cursos_distintos || 0),
+        grupos_distintos: Number(resumen.grupos_distintos || 0),
+        robustez,
+        posicion,
+        total_ranking: totalRanking,
+        media_institucional: C
+      },
+      cargas,
+      por_pregunta: porPregunta,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error ficha docente:', e);
+    res.status(500).json({ error: 'Error al generar la ficha', message: e.message });
   }
 });
 

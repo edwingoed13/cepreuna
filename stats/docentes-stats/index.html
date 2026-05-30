@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>CEPREUNA - Docentes · Stats</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: { extend: {
+                colors: {
+                    "primary": "#003366", "primary-light": "#004080",
+                    "background-light": "#f5f7f8", "background-dark": "#0f1923",
+                },
+                fontFamily: { "display": ["Inter", "sans-serif"] }
+            } }
+        }
+    </script>
+    <style>
+        .sidebar-item-active { background-color: rgba(0,51,102,0.1); color: #003366; border-right: 4px solid #003366; }
+        .dark .sidebar-item-active { background-color: rgba(255,255,255,0.05); color: #fff; border-right-color: #fff; }
+        @media (max-width:1024px){ .sidebar{display:none} }
+        .card { background:white; border:1px solid #e2e8f0; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        .dark .card { background:#0f172a; border-color:#1e293b; }
+        .chart-wrap { position: relative; height: 320px; }
+        .chart-wrap.tall { height: 480px; }
+        .chart-wrap.xtall { height: 560px; }
+        .section-title { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em; color: #0f172a; }
+        .dark .section-title { color: #e2e8f0; }
+        .section-kicker { font-size: 10px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; color: #64748b; }
+        .insight { font-size: 12px; line-height: 1.5; color: #475569; background: #f8fafc; border-left: 3px solid #003366; padding: 10px 14px; border-radius: 0 8px 8px 0; }
+        .dark .insight { color: #cbd5e1; background: #1e293b; border-left-color: #60a5fa; }
+        .insight b { color: #0f172a; }
+        .dark .insight b { color: #fff; }
+        .badge { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+        .badge-ok { background:#dcfce7; color:#15803d; }
+        .badge-warn { background:#fef3c7; color:#92400e; }
+        .badge-bad { background:#fee2e2; color:#991b1b; }
+        .dark .badge-ok { background:#064e3b; color:#86efac; }
+        .dark .badge-warn { background:#78350f; color:#fcd34d; }
+        .dark .badge-bad { background:#7f1d1d; color:#fca5a5; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <script>
+        const sessionDataString = localStorage.getItem('stats_session');
+        const sessionData = sessionDataString ? JSON.parse(sessionDataString) : null;
+        let _redir = false;
+        if (!sessionData || !sessionData.token) {
+            localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true;
+        }
+        if (!_redir) {
+            try {
+                const _exp = JSON.parse(atob(sessionData.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp;
+                if (!_exp || _exp * 1000 < Date.now()) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+            } catch (_e) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+        }
+        const _role = sessionData?.user?.role;
+        if (!_redir && !['Administrador','Super Admin','Oficina de Administración'].includes(_role)) {
+            alert('Acceso restringido a administradores.');
+            window.location.href = '/stats/alumnos';
+        }
+    </script>
+
+    <div class="flex h-screen overflow-hidden">
+        <aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex">
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white">
+                    <span class="material-symbols-outlined text-2xl">school</span>
+                </div>
+                <div>
+                    <h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1>
+                    <p class="text-slate-500 text-[10px] font-medium uppercase tracking-widest mt-1">Estadísticas</p>
+                </div>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-1">
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats">
+                    <span class="material-symbols-outlined">dashboard</span><span class="font-medium">Resumen</span>
+                </a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes">
+                    <span class="material-symbols-outlined">description</span><span class="font-medium">Reportes</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos">
+                    <span class="material-symbols-outlined">group</span><span class="font-medium">Alumnos</span>
+                </a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos-calificacion">
+                    <span class="material-symbols-outlined">grading</span><span class="font-medium">Alumnos-Calificación</span>
+                </a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/docentes-stats">
+                    <span class="material-symbols-outlined">insights</span><span class="font-medium">Docentes-Stats</span>
+                </a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes-aux">
+                    <span class="material-symbols-outlined">supervisor_account</span><span class="font-medium">Reportes auxiliares</span>
+                </a>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3 p-2">
+                    <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold" id="userInitial">A</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold truncate" id="userNameDisplay">Admin</p>
+                        <p class="text-[10px] text-slate-500 truncate" id="userRoleDisplay">—</p>
+                    </div>
+                    <button id="logoutBtn" class="text-slate-400 hover:text-red-500 transition-colors"><span class="material-symbols-outlined text-sm">logout</span></button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 lg:px-8 sticky top-0 z-10">
+                <div class="hidden lg:flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary dark:text-white">insights</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Calificación docente — Informe ejecutivo</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <p class="text-[10px] text-slate-500 hidden sm:block" id="lastUpdate">cargando…</p>
+                    <button id="refreshBtn" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors" title="Recargar">
+                        <span class="material-symbols-outlined text-xl">refresh</span>
+                    </button>
+                    <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600 transition-colors" title="Cerrar Sesión">
+                        <span class="material-symbols-outlined text-xl">logout</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="p-6 lg:p-8 space-y-8 max-w-[1600px] mx-auto w-full">
+
+                <!-- ============ KPIs ============ -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div class="card p-4">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Alumnos inscritos</p>
+                        <p class="text-2xl font-black text-slate-800 dark:text-white" id="kpiTotal">—</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Calificaron a todos</p>
+                        <p class="text-2xl font-black text-emerald-600" id="kpiCompletos">—</p>
+                        <p class="text-[10px] text-slate-400 mt-1" id="kpiCompletosPct">—</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Calificaron a algunos</p>
+                        <p class="text-2xl font-black text-amber-500" id="kpiParciales">—</p>
+                        <p class="text-[10px] text-slate-400 mt-1" id="kpiParcialesPct">—</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">No calificaron a nadie</p>
+                        <p class="text-2xl font-black text-red-500" id="kpiSin">—</p>
+                        <p class="text-[10px] text-slate-400 mt-1" id="kpiSinPct">—</p>
+                    </div>
+                    <div class="card p-4">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Participación global</p>
+                        <p class="text-2xl font-black text-primary dark:text-white" id="kpiCobertura">—</p>
+                        <p class="text-[10px] text-slate-400 mt-1"><span id="kpiDocentesEval">—</span> docentes evaluados</p>
+                    </div>
+                </div>
+
+                <!-- ============ SECCIÓN 1: PARTICIPACIÓN ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 1 · Participación</p>
+                        <h2 class="section-title">¿Quiénes han calificado y quiénes no?</h2>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">¿Cuántos alumnos calificaron a todos sus docentes?</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Cada alumno está agrupado según el porcentaje de sus docentes que ya calificó.</p>
+                            <div class="chart-wrap"><canvas id="chDistribucion"></canvas></div>
+                            <p class="insight mt-4" id="insightDistribucion">—</p>
+                        </div>
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">¿En qué sede los alumnos calificaron más?</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Porcentaje promedio de docentes calificados por cada alumno de la sede.</p>
+                            <div class="chart-wrap"><canvas id="chSede"></canvas></div>
+                            <p class="insight mt-4" id="insightSede">—</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ SECCIÓN 2: CALIDAD DOCENTE ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 2 · Calidad docente</p>
+                        <h2 class="section-title">¿Quiénes son los docentes mejor y peor evaluados?</h2>
+                        <p class="text-xs text-slate-500 mt-1">Ranking con <b>puntaje corregido</b> — evita que un docente con pocos alumnos suba o baje injustamente.</p>
+                    </div>
+
+                    <details class="card p-4 text-xs text-slate-600 dark:text-slate-300">
+                        <summary class="cursor-pointer font-bold text-slate-700 dark:text-slate-200">¿Cómo se calcula el puntaje corregido? <span class="text-primary font-medium">(clic para ver)</span></summary>
+                        <div class="mt-3 space-y-2">
+                            <p>Un docente con 10 alumnos y promedio <b>5.00</b> no es comparable con uno de 300 alumnos y <b>4.50</b>. Para no premiar ni castigar por azar, el puntaje se <b>ajusta hacia el promedio institucional</b> cuando la muestra es pequeña.</p>
+                            <p class="font-mono text-[11px] bg-slate-100 dark:bg-slate-800 p-2 rounded">puntaje = (n × promedio_docente + m × C) / (n + m)</p>
+                            <p>Con <b>C = <span id="paramC">—</span></b> (media institucional) y <b>m = <span id="paramM">—</span></b> (peso "fantasma" calculado de los datos). Además, el promedio de cada docente es el <b>promedio de sus grupos</b> (no de sus alumnos), para que un grupo grande no pese más que uno pequeño.</p>
+                            <p class="text-slate-500">Se muestran solo docentes con al menos 30 participantes. La <span class="badge badge-ok">robusta</span> indica n≥50, <span class="badge badge-warn">referencial</span> 30–49.</p>
+                        </div>
+                    </details>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">15 docentes mejor evaluados</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Escala 1–5 · ordenado por puntaje corregido.</p>
+                            <div class="chart-wrap xtall"><canvas id="chTop"></canvas></div>
+                            <p class="insight mt-4" id="insightTop">—</p>
+                        </div>
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">15 docentes peor evaluados</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Candidatos a intervención / acompañamiento pedagógico.</p>
+                            <div class="chart-wrap xtall"><canvas id="chBottom"></canvas></div>
+                            <p class="insight mt-4" id="insightBottom">—</p>
+                        </div>
+                    </div>
+
+                    <div class="card p-5">
+                        <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">¿Cómo se distribuye la calidad de los docentes?</h3>
+                        <p class="text-[11px] text-slate-400 mb-3">Cuántos docentes caen en cada nivel de desempeño (puntaje corregido).</p>
+                        <div class="chart-wrap"><canvas id="chDistProm"></canvas></div>
+                        <p class="insight mt-4" id="insightDistProm">—</p>
+                    </div>
+                </section>
+
+                <!-- ============ SECCIÓN 3: POR DIMENSIÓN ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 3 · Dónde se evalúa mejor</p>
+                        <h2 class="section-title">¿Por curso, área, turno y sede — dónde están los mejores y peores resultados?</h2>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Top y Bottom 10 cursos</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Promedio de los docentes que dictan cada curso.</p>
+                            <div class="chart-wrap xtall"><canvas id="chCurso"></canvas></div>
+                            <p class="insight mt-4" id="insightCurso">—</p>
+                        </div>
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Promedio por área académica</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Comparación entre áreas (Biomédicas, Sociales, Ingenierías).</p>
+                            <div class="chart-wrap"><canvas id="chArea"></canvas></div>
+                            <p class="insight mt-4" id="insightArea">—</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Promedio por turno</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">¿Mañana, tarde o noche perciben mejor a sus docentes?</p>
+                            <div class="chart-wrap"><canvas id="chTurno"></canvas></div>
+                            <p class="insight mt-4" id="insightTurno">—</p>
+                        </div>
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Promedio por sede física</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Ranking de sedes según calidad docente percibida.</p>
+                            <div class="chart-wrap"><canvas id="chSedeProm"></canvas></div>
+                            <p class="insight mt-4" id="insightSedeProm">—</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ SECCIÓN 4: POR PREGUNTA ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 4 · Qué dicen las preguntas</p>
+                        <h2 class="section-title">¿Qué aspectos del docente perciben mejor y peor los alumnos?</h2>
+                        <p class="text-xs text-slate-500 mt-1">Cada pregunta de la encuesta promediada sobre todas las respuestas recibidas.</p>
+                    </div>
+
+                    <div class="card p-5">
+                        <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Promedio por pregunta de la encuesta</h3>
+                        <p class="text-[11px] text-slate-400 mb-3">Ordenado de mayor a menor. Las preguntas más bajas marcan áreas institucionales de mejora.</p>
+                        <div class="chart-wrap xtall"><canvas id="chPregunta"></canvas></div>
+                        <p class="insight mt-4" id="insightPregunta">—</p>
+                    </div>
+                </section>
+
+                <!-- ============ SECCIÓN 5: GRUPOS EN RIESGO ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 5 · Foco de intervención</p>
+                        <h2 class="section-title">¿Qué grupos tienen la menor participación?</h2>
+                    </div>
+
+                    <div class="card p-5">
+                        <p class="text-[11px] text-slate-400 mb-3">Bottom 20 grupos por % de alumnos que calificaron a sus docentes (mínimo 10 alumnos por grupo).</p>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="text-slate-600 dark:text-slate-400 uppercase tracking-tight bg-slate-50 dark:bg-slate-800/50">
+                                    <tr>
+                                        <th class="text-left px-3 py-2 font-bold">Grupo</th>
+                                        <th class="text-left px-3 py-2 font-bold">Área</th>
+                                        <th class="text-left px-3 py-2 font-bold">Turno</th>
+                                        <th class="text-left px-3 py-2 font-bold">Sede</th>
+                                        <th class="text-right px-3 py-2 font-bold">Alumnos</th>
+                                        <th class="text-right px-3 py-2 font-bold">Participación</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tblGrupos" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============ SECCIÓN 6: EVOLUCIÓN ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 6 · Cómo avanza la encuesta</p>
+                        <h2 class="section-title">¿En qué días los alumnos han calificado más?</h2>
+                    </div>
+
+                    <div class="card p-5">
+                        <p class="text-[11px] text-slate-400 mb-3">Calificaciones registradas y respuestas individuales por día (últimos 30 con actividad).</p>
+                        <div class="chart-wrap"><canvas id="chEvol"></canvas></div>
+                    </div>
+                </section>
+
+            </div>
+
+            <footer class="p-8 text-center text-slate-400 mt-auto">
+                <p class="text-xs font-bold uppercase tracking-widest">© 2026 CEPREUNA — Docentes Stats</p>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        const TOKEN = sessionData?.token || '';
+        if (sessionData?.user) {
+            const u = sessionData.user;
+            document.getElementById('userNameDisplay').textContent = u.name || 'Usuario';
+            document.getElementById('userRoleDisplay').textContent = u.role || '—';
+            document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
+        }
+        (function () {
+            const r = sessionData?.user?.role;
+            if (['Administrador','Super Admin','Oficina de Administración'].includes(r)) {
+                document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
+            }
+        })();
+        function handleLogout() { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        document.querySelectorAll('.logout-trigger').forEach(b => b.addEventListener('click', handleLogout));
+
+        const esc = (v) => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const fmt = (n) => Number(n || 0).toLocaleString('es-PE');
+        const pct = (a, b) => b > 0 ? (100 * a / b).toFixed(1) + '%' : '—';
+
+        const COLORS = {
+            ok: '#10b981', warn: '#f59e0b', bad: '#ef4444',
+            primary: '#003366', light: '#60a5fa',
+            buckets: ['#ef4444','#f97316','#f59e0b','#fbbf24','#84cc16','#10b981'],
+        };
+        const colorByPct  = (p) => p >= 80 ? COLORS.ok : p >= 60 ? COLORS.warn : COLORS.bad;
+        const colorByProm = (p) => p >= 4.5 ? COLORS.ok : p >= 4.0 ? '#84cc16' : p >= 3.5 ? COLORS.warn : p >= 3.0 ? '#f97316' : COLORS.bad;
+
+        let charts = {};
+        const destroy = (k) => { if (charts[k]) { charts[k].destroy(); charts[k] = null; } };
+
+        async function cargar() {
+            const r = await fetch('/api/stats/docentes-stats/dashboard', { headers: { Authorization: 'Bearer ' + TOKEN } });
+            if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+            if (!r.ok) { alert('Error al cargar datos'); return; }
+            const d = await r.json();
+
+            pintarKPIs(d.kpis);
+            document.getElementById('paramC').textContent = d.bayes.C;
+            document.getElementById('paramM').textContent = d.bayes.m;
+
+            pintarDistribucion(d.distribucion_cumplimiento, d.kpis);
+            pintarCoberturaSede(d.cobertura_por_sede);
+            pintarTop(d.top_docentes);
+            pintarBottom(d.bottom_docentes);
+            pintarDistProm(d.distribucion_promedios);
+
+            pintarCurso(d.ranking_por_curso);
+            pintarArea(d.ranking_por_area);
+            pintarTurno(d.ranking_por_turno);
+            pintarSedeProm(d.ranking_por_sede);
+
+            pintarPregunta(d.por_pregunta);
+            pintarTabla(d.grupos_riesgo);
+            pintarEvol(d.evolucion);
+
+            document.getElementById('lastUpdate').textContent = 'Actualizado: ' + new Date(d.timestamp).toLocaleTimeString('es-PE');
+        }
+
+        function pintarKPIs(k) {
+            const total = Number(k.total_alumnos || 0);
+            document.getElementById('kpiTotal').textContent = fmt(total);
+            document.getElementById('kpiCompletos').textContent = fmt(k.completos);
+            document.getElementById('kpiCompletosPct').textContent = pct(k.completos, total);
+            document.getElementById('kpiParciales').textContent = fmt(k.parciales);
+            document.getElementById('kpiParcialesPct').textContent = pct(k.parciales, total);
+            document.getElementById('kpiSin').textContent = fmt(k.sin_calificar);
+            document.getElementById('kpiSinPct').textContent = pct(k.sin_calificar, total);
+            document.getElementById('kpiCobertura').textContent = (k.cobertura_global_pct || 0) + '%';
+            document.getElementById('kpiDocentesEval').textContent = fmt(k.docentes_evaluados);
+        }
+
+        // ---------- SECCIÓN 1 ----------
+        function pintarDistribucion(rows, kpis) {
+            destroy('dist');
+            const labels = rows.map(r => r.rango);
+            const data   = rows.map(r => Number(r.alumnos));
+            const colors = labels.map((l, i) => l.startsWith('0%') ? COLORS.bad : l.startsWith('100%') ? COLORS.ok : COLORS.buckets[Math.min(i, COLORS.buckets.length - 1)]);
+            charts.dist = new Chart(document.getElementById('chDistribucion'), {
+                type: 'bar',
+                data: { labels, datasets: [{ data, backgroundColor: colors, label: 'Alumnos' }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: { label: ctx => fmt(ctx.parsed.x) + ' alumnos' } } },
+                    scales: { x: { beginAtZero: true } }
+                }
+            });
+            // Lectura clave
+            const total = Number(kpis.total_alumnos);
+            const sin = Number(kpis.sin_calificar);
+            const compl = Number(kpis.completos);
+            document.getElementById('insightDistribucion').innerHTML =
+                `De cada 10 alumnos, <b>${Math.round(10*compl/total)}</b> ya calificaron a todos sus docentes y <b>${Math.round(10*sin/total)}</b> no han calificado a ninguno. Quedan <b>${fmt(sin)}</b> alumnos pendientes de empezar la encuesta.`;
+        }
+
+        function pintarCoberturaSede(rows) {
+            destroy('sede');
+            rows = [...rows].sort((a,b) => Number(b.pct) - Number(a.pct));
+            const labels = rows.map(r => `${r.sede}`);
+            const data = rows.map(r => Number(r.pct));
+            charts.sede = new Chart(document.getElementById('chSede'), {
+                type: 'bar',
+                data: { labels, datasets: [{ data, backgroundColor: data.map(colorByPct), label: '% participación' }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: {
+                            label: ctx => ctx.parsed.x + '% participación',
+                            afterLabel: ctx => fmt(rows[ctx.dataIndex].alumnos) + ' alumnos inscritos'
+                        } } },
+                    scales: { x: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } } }
+                }
+            });
+            const mejor = rows[0], peor = rows[rows.length - 1];
+            document.getElementById('insightSede').innerHTML =
+                `La sede con mejor participación es <b>${esc(mejor.sede)}</b> con <b>${mejor.pct}%</b>. La que necesita más empuje es <b>${esc(peor.sede)}</b> con apenas <b>${peor.pct}%</b> — diferencia de <b>${(mejor.pct - peor.pct).toFixed(1)} puntos</b>.`;
+        }
+
+        // ---------- SECCIÓN 2 ----------
+        const irAFicha = (id) => { if (id) window.location.href = '/stats/docentes-stats/docente?id=' + id; };
+
+        function pintarRankingDocentes(canvasId, key, rows, asc) {
+            destroy(key);
+            const labels = rows.map(r => r.docente);
+            const data = rows.map(r => Number(r.score));
+            charts[key] = new Chart(document.getElementById(canvasId), {
+                type: 'bar',
+                data: { labels, datasets: [{ data, backgroundColor: data.map(colorByProm), label: 'Puntaje corregido' }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    onClick: (evt, els) => { if (els.length) irAFicha(rows[els[0].index].id); },
+                    onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: {
+                            label: ctx => 'Puntaje corregido: ' + ctx.parsed.x.toFixed(2),
+                            afterLabel: ctx => [
+                                'Promedio crudo: ' + Number(rows[ctx.dataIndex].promedio_crudo).toFixed(2),
+                                'Participantes: ' + fmt(rows[ctx.dataIndex].participantes),
+                                'Robustez: ' + rows[ctx.dataIndex].robustez,
+                                '— Clic para ver ficha —'
+                            ]
+                        } } },
+                    scales: { x: { min: 3, max: 5, ticks: { stepSize: 0.25 } } }
+                }
+            });
+        }
+
+        function pintarTop(rows) {
+            pintarRankingDocentes('chTop', 'top', rows);
+            const m = rows[0];
+            document.getElementById('insightTop').innerHTML =
+                `El docente con mejor puntuación corregida es <b>${esc(m.docente)}</b> con <b>${m.score}</b> sobre 5 (a partir de ${fmt(m.participantes)} alumnos). Los 15 mejores tienen al menos <b>${rows[rows.length-1].score}</b>. <span class="text-primary font-semibold">Clic en cualquier barra para ver la ficha.</span>`;
+        }
+
+        function pintarBottom(rows) {
+            pintarRankingDocentes('chBottom', 'bot', rows);
+            const p = rows[0];
+            document.getElementById('insightBottom').innerHTML =
+                `El docente con menor puntuación corregida es <b>${esc(p.docente)}</b> con <b>${p.score}</b> sobre 5 (a partir de ${fmt(p.participantes)} alumnos). Recomendable acompañamiento pedagógico inmediato. <span class="text-primary font-semibold">Clic en cualquier barra para ver la ficha.</span>`;
+        }
+
+        function pintarDistProm(rows) {
+            destroy('distprom');
+            const labels = rows.map(r => r.rango);
+            const data = rows.map(r => Number(r.docentes));
+            const colors = labels.map(l => l.startsWith('4.5') ? COLORS.ok
+                : l.startsWith('4.0') ? '#84cc16'
+                : l.startsWith('3.5') ? COLORS.warn
+                : l.startsWith('3.0') ? '#f97316'
+                : COLORS.bad);
+            charts.distprom = new Chart(document.getElementById('chDistProm'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Docentes', data, backgroundColor: colors }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: { label: ctx => fmt(ctx.parsed.y) + ' docentes' } } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+            const total = data.reduce((a,b) => a+b, 0);
+            const exc = Number(rows.find(r => r.rango.startsWith('4.5'))?.docentes || 0);
+            const mb  = Number(rows.find(r => r.rango.startsWith('4.0'))?.docentes || 0);
+            const bajo = data.reduce((a, n, i) => labels[i].startsWith('3.') || labels[i].startsWith('< ') || labels[i].startsWith('2.') ? a + Number(n) : a, 0);
+            document.getElementById('insightDistProm').innerHTML =
+                `De los <b>${fmt(total)}</b> docentes evaluados, <b>${fmt(exc)}</b> son "Excelentes" y <b>${fmt(mb)}</b> "Muy buenos". Solo <b>${fmt(bajo)}</b> docentes caen por debajo de "Muy bueno" — la institución tiene calidad docente alta y muy homogénea.`;
+        }
+
+        // ---------- SECCIÓN 3 ----------
+        function bar(canvasId, rows, key, labelMaker, opts = {}) {
+            destroy(canvasId);
+            const labels = rows.map(labelMaker);
+            const data = rows.map(r => Number(r[key]));
+            charts[canvasId] = new Chart(document.getElementById(canvasId), {
+                type: 'bar',
+                data: { labels, datasets: [{ data, backgroundColor: data.map(colorByProm), label: 'Promedio' }] },
+                options: {
+                    indexAxis: opts.horizontal === false ? 'x' : 'y',
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: {
+                            label: ctx => 'Promedio: ' + (opts.horizontal === false ? ctx.parsed.y : ctx.parsed.x).toFixed(2),
+                            afterLabel: ctx => [
+                                fmt(rows[ctx.dataIndex].participantes) + ' calificaciones',
+                                fmt(rows[ctx.dataIndex].docentes) + ' docentes'
+                            ]
+                        } } },
+                    scales: opts.horizontal === false
+                        ? { y: { min: 3.5, max: 5, ticks: { stepSize: 0.1 } } }
+                        : { x: { min: 3.5, max: 5, ticks: { stepSize: 0.25 } } }
+                }
+            });
+        }
+
+        function pintarCurso(rows) {
+            // Top 10 + Bottom 10 → 20 barras horizontales (ordenado desc)
+            const top10 = rows.slice(0, 10);
+            const bot10 = rows.slice(-10).reverse();  // peores arriba del bloque inferior
+            const combinado = [...top10, ...bot10];
+            // marcar visualmente con un divisor: ya queda implícito por el orden
+            bar('chCurso', combinado, 'promedio', r => r.etiqueta);
+            const m = rows[0], p = rows[rows.length - 1];
+            document.getElementById('insightCurso').innerHTML =
+                `El curso mejor evaluado es <b>${esc(m.etiqueta)}</b> con <b>${m.promedio}</b>, y el peor es <b>${esc(p.etiqueta)}</b> con <b>${p.promedio}</b>. Diferencia de <b>${(m.promedio - p.promedio).toFixed(2)} puntos</b> entre el mejor y el peor curso.`;
+        }
+
+        function pintarArea(rows) {
+            bar('chArea', rows, 'promedio', r => r.etiqueta, { horizontal: false });
+            const m = rows[0], p = rows[rows.length - 1];
+            document.getElementById('insightArea').innerHTML =
+                `<b>${esc(m.etiqueta)}</b> lidera con <b>${m.promedio}</b>. <b>${esc(p.etiqueta)}</b> es el área con menor promedio (<b>${p.promedio}</b>). Las tres áreas se mantienen en un rango estrecho — el desempeño es bastante parejo entre áreas.`;
+        }
+
+        function pintarTurno(rows) {
+            bar('chTurno', rows, 'promedio', r => r.etiqueta, { horizontal: false });
+            const m = rows[0], p = rows[rows.length - 1];
+            const dif = (m.promedio - p.promedio).toFixed(2);
+            document.getElementById('insightTurno').innerHTML =
+                `El turno mejor evaluado es <b>${esc(m.etiqueta)}</b> (<b>${m.promedio}</b>). El más bajo es <b>${esc(p.etiqueta)}</b> (<b>${p.promedio}</b>) — diferencia de <b>${dif} puntos</b>${Number(dif) > 0.05 ? ', vale la pena revisar qué pasa en ese turno' : ', diferencia mínima'}.`;
+        }
+
+        function pintarSedeProm(rows) {
+            bar('chSedeProm', rows, 'promedio', r => r.etiqueta);
+            const m = rows[0], p = rows[rows.length - 1];
+            document.getElementById('insightSedeProm').innerHTML =
+                `Mejor sede: <b>${esc(m.etiqueta)}</b> con <b>${m.promedio}</b> (${fmt(m.participantes)} calificaciones). Más débil: <b>${esc(p.etiqueta)}</b> con <b>${p.promedio}</b>. Las sedes con pocas calificaciones pueden tener resultados menos confiables.`;
+        }
+
+        // ---------- SECCIÓN 4 ----------
+        function pintarPregunta(rows) {
+            destroy('preg');
+            // Acortar pregunta (texto largo): cortar a ~70 caracteres
+            const labels = rows.map(r => r.pregunta.length > 75 ? r.pregunta.slice(0, 72) + '…' : r.pregunta);
+            const data = rows.map(r => Number(r.promedio));
+            charts.preg = new Chart(document.getElementById('chPregunta'), {
+                type: 'bar',
+                data: { labels, datasets: [{ data, backgroundColor: data.map(colorByProm), label: 'Promedio (1–5)' }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: {
+                            title: ctx => rows[ctx[0].dataIndex].pregunta,
+                            label: ctx => 'Promedio: ' + ctx.parsed.x.toFixed(2),
+                            afterLabel: ctx => [
+                                fmt(rows[ctx.dataIndex].respuestas) + ' respuestas',
+                                pct(rows[ctx.dataIndex].aprobatorias, rows[ctx.dataIndex].respuestas) + ' marcaron 4 o 5',
+                                pct(rows[ctx.dataIndex].criticas, rows[ctx.dataIndex].respuestas) + ' marcaron 1 o 2'
+                            ]
+                        } } },
+                    scales: { x: { min: 3.5, max: 5, ticks: { stepSize: 0.1 } } }
+                }
+            });
+            const m = rows[0], p = rows[rows.length - 1];
+            document.getElementById('insightPregunta').innerHTML =
+                `Lo que <b>mejor perciben</b> los alumnos: «${esc(m.pregunta)}» con <b>${m.promedio}</b>. Lo que <b>peor perciben</b>: «${esc(p.pregunta)}» con <b>${p.promedio}</b> — punto institucional de mejora.`;
+        }
+
+        // ---------- SECCIÓN 5 ----------
+        function pintarTabla(rows) {
+            const tbody = document.getElementById('tblGrupos');
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-slate-400 text-xs">Sin datos.</td></tr>'; return; }
+            tbody.innerHTML = rows.map(r => {
+                const p = Number(r.cobertura_pct);
+                const cls = p >= 80 ? 'text-emerald-600' : p >= 60 ? 'text-amber-500' : 'text-red-500';
+                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="px-3 py-2 font-semibold">${esc(r.grupo)}</td>
+                    <td class="px-3 py-2">${esc(r.area)}</td>
+                    <td class="px-3 py-2">${esc(r.turno)}</td>
+                    <td class="px-3 py-2">${esc(r.sede)}</td>
+                    <td class="px-3 py-2 text-right font-mono">${fmt(r.alumnos)}</td>
+                    <td class="px-3 py-2 text-right font-mono font-bold ${cls}">${p}%</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ---------- SECCIÓN 6 ----------
+        function pintarEvol(rows) {
+            destroy('evol');
+            const labels = rows.map(r => r.dia.slice(5));
+            const calif = rows.map(r => Number(r.calificaciones));
+            const resp  = rows.map(r => Number(r.respuestas));
+            charts.evol = new Chart(document.getElementById('chEvol'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Calificaciones registradas', data: calif, borderColor: COLORS.primary, backgroundColor: COLORS.primary + '33', tension: 0.3 },
+                        { label: 'Respuestas individuales',     data: resp,  borderColor: COLORS.light, backgroundColor: COLORS.light + '33', tension: 0.3, yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    scales: {
+                        y:  { type: 'linear', position: 'left', title: { display: true, text: 'Calificaciones' } },
+                        y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Respuestas' } }
+                    }
+                }
+            });
+        }
+
+        document.getElementById('refreshBtn').addEventListener('click', cargar);
+        cargar();
+    </script>
+</body>
+</html>

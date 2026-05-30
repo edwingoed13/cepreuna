@@ -270,7 +270,162 @@ ORDER BY sede, turno, area, grupo;
 
 ---
 
-## Filtros comunes a ambos reportes
+## Reporte 3 — Evaluación docente (Docentes-Stats)
+
+### Objetivo
+Mostrar el desempeño de los docentes a partir de la encuesta de calificación que llenan los alumnos. Permite identificar mejores y peores docentes (con corrección estadística por tamaño de muestra), ver el desempeño desagregado por curso, área, turno, sede y pregunta, y consultar la ficha individual de cualquier docente buscado por DNI o nombre.
+
+### Restricción de acceso
+**Vista exclusiva para administradores.** Roles permitidos: `Administrador`, `Super Admin`, `Oficina de Administración`. Se aplica triple protección:
+1. **Backend** — todos los endpoints (`requireAdmin` middleware)
+2. **Frontend** — guard JS en cada página: redirige a `/stats/alumnos` si el rol no es admin
+3. **Sidebar** — link oculto por defecto (`data-role="admin" style="display:none"`), se muestra solo si el rol es admin
+
+### Origen de datos
+| Tabla | Uso |
+|---|---|
+| `calificacion_docentes` | Una fila por (docente, carga académica) con `promedio` (1–5), `puntaje_total`, `participantes`, `modalidad` |
+| `calificacion_docente_detalles` | Respuesta individual del alumno a cada `criterios_id`, con `puntaje` 1–5 |
+| `criterios` | Preguntas de la encuesta. Filtrar por `tipo='1' AND estado='1'` para las preguntas docentes activas |
+| `carga_academicas` | Filtrar por `tipo='1'` (titular) para no duplicar suplentes |
+| `docentes` | Identidad. `condicion='2'` = UNAP (tiene `codigo_unap`), `condicion='1'` = Particular |
+
+### Score corregido (bayesiano)
+
+Un docente con 10 alumnos y promedio 5.00 **no es comparable** con uno de 300 y 4.50. Para evitar premiar/castigar por azar, el ranking usa un puntaje **acercado al promedio institucional** cuando la muestra es pequeña:
+
+```
+score = (n × prom_doc + m × C) / (n + m)
+```
+
+Donde:
+- `prom_doc` = **media de los promedios de cada grupo** del docente (no media ponderada por alumnos — evita que un grupo grande domine)
+- `n` = total de participantes (alumnos que lo calificaron)
+- `C` = promedio global institucional (calculado dinámicamente, típicamente ≈ 4.41)
+- `m` = mediana de participantes por docente (peso "fantasma", típicamente ≈ 91, mínimo 20)
+
+Tag de robustez por número de participantes:
+- `n ≥ 50` → **robusta** (ranking confiable)
+- `30 ≤ n < 50` → **referencial**
+- `n < 30` → **insuficiente** (no entra al ranking institucional)
+
+### Endpoints (admin-only)
+
+```
+GET /api/stats/docentes-stats/dashboard
+GET /api/stats/docentes-stats/buscar?q=<dni|codigo|nombre>
+GET /api/stats/docentes-stats/docente/:id
+```
+
+#### `GET /dashboard` — Vista institucional
+Devuelve un JSON con todas las series del dashboard ejecutivo:
+
+```json
+{
+  "kpis": { "total_alumnos": 7263, "completos": 4236, "parciales": 730, "sin_calificar": 2297, "cobertura_global_pct": 65.0, "docentes_evaluados": 580 },
+  "bayes": { "C": 4.412, "m": 91, "formula": "score = (n·prom_doc + m·C)/(n+m); ..." },
+  "distribucion_cumplimiento": [ { "rango": "100% Completo", "alumnos": 4236 }, ... ],
+  "cobertura_por_sede": [ { "sede": "Juliaca", "alumnos": ..., "pct": ... }, ... ],
+  "top_docentes":    [ { "id":96, "docente":"...", "promedio_crudo":4.89, "score":4.75, "participantes":232, "asignaciones":8, "robustez":"robusta" }, ... ],
+  "bottom_docentes": [ ... ],
+  "distribucion_promedios": [ { "rango": "4.5–5.0 Excelente", "docentes": 124 }, ... ],
+  "ranking_por_curso": [ { "etiqueta": "Razonamiento Verbal", "promedio": 4.56, "participantes": 4830, "docentes": 69 }, ... ],
+  "ranking_por_area":  [ ... ],
+  "ranking_por_turno": [ ... ],
+  "ranking_por_sede":  [ ... ],
+  "por_pregunta": [ { "id":5, "pregunta":"¿El docente desarrolla las sesiones según el temario del curso?", "promedio":4.66, "respuestas":40989, "aprobatorias":..., "criticas":... }, ... ],
+  "grupos_riesgo": [ ... ],
+  "evolucion": [ ... ]
+}
+```
+
+Cacheado 180 s. Las queries que tocan `calificacion_docente_detalles` (399 k filas) son las más costosas — sobrevive bien con el cache.
+
+#### `GET /buscar?q=...` — Autocompletar
+Mínimo 2 caracteres. Hace `LIKE %q%` simultáneamente sobre `nro_documento`, `codigo_unap` y nombre completo. Devuelve hasta 25 matches con `{ id, dni, codigo_unap, nombre, vinculo, profesion }`.
+
+#### `GET /docente/:id` — Ficha individual
+
+```json
+{
+  "docente": { "id":96, "dni":"47214881", "codigo_unap": null, "nombre":"MAMANI CALLA NILO", "vinculo":"Particular", "profesion":"Otros", "email":"..." },
+  "bayes":   { "C":4.412, "m":91 },
+  "resumen": {
+    "promedio_crudo": 4.89, "score": 4.75, "participantes": 232,
+    "asignaciones": 8, "cursos_distintos": 1, "grupos_distintos": 8,
+    "robustez": "robusta",
+    "posicion": 1, "total_ranking": 514,
+    "media_institucional": 4.412
+  },
+  "cargas": [
+    { "curso":"Educación Cívica", "grupo":"S-102", "area":"Sociales", "turno":"Mañana", "sede":"Juliaca", "participantes":43, "promedio":"4.95" }, ...
+  ],
+  "por_pregunta": [
+    { "id":5, "pregunta":"...", "promedio_docente":4.92, "promedio_global":4.39, "n_docente":232 }, ...
+  ]
+}
+```
+
+`posicion` solo se calcula si `n >= 30`; de lo contrario es `null`.
+
+### Query SQL clave — Top docentes con score bayesiano
+
+```sql
+SELECT d.id,
+       CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+       ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+       ROUND((SUM(cd.participantes) * AVG(cd.promedio) + :m * :C) / (SUM(cd.participantes) + :m), 2) AS score,
+       SUM(cd.participantes) AS participantes,
+       COUNT(DISTINCT cd.carga_academicas_id) AS asignaciones,
+       CASE WHEN SUM(cd.participantes) >= 50 THEN 'robusta'
+            WHEN SUM(cd.participantes) >= 30 THEN 'referencial'
+            ELSE 'insuficiente' END AS robustez
+FROM calificacion_docentes cd
+JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+JOIN docentes d ON d.id = cd.docentes_id
+WHERE cd.participantes > 0
+GROUP BY d.id
+HAVING participantes >= 30
+ORDER BY score DESC, participantes DESC LIMIT 15;
+```
+
+`:C` y `:m` se calculan al inicio del request leyendo todos los promedios y participantes por docente, evitando subqueries en `OFFSET` (no soportadas por MySQL).
+
+### Query SQL clave — Promedio por pregunta del docente vs media institucional
+
+```sql
+SELECT cr.id, cr.denominacion AS pregunta,
+       ROUND(AVG(CASE WHEN cd.docentes_id = :id THEN cdd.puntaje END), 2) AS promedio_docente,
+       ROUND(AVG(cdd.puntaje), 2) AS promedio_global,
+       SUM(CASE WHEN cd.docentes_id = :id THEN 1 ELSE 0 END) AS n_docente
+FROM calificacion_docente_detalles cdd
+JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+JOIN criterios cr ON cr.id = cdd.criterios_id
+WHERE cr.tipo='1' AND cr.estado='1'
+GROUP BY cr.id, cr.denominacion
+HAVING n_docente > 0
+ORDER BY promedio_docente DESC;
+```
+
+### Vistas
+
+| Ruta | Descripción |
+|---|---|
+| `/stats/docentes-stats` | **Dashboard institucional** — informe ejecutivo con 6 secciones narrativas (Participación · Calidad docente · Por dimensión · Por pregunta · Grupos en riesgo · Evolución). Cada gráfico lleva un texto "Lectura clave" auto-generado en lenguaje natural. Las barras de Top/Bottom 15 son clickables → ficha individual. |
+| `/stats/docentes-stats/docente?id=<id>` | **Ficha individual** — buscador por DNI/código/nombre + ficha con identidad, KPIs (score, crudo, n, posición ranking), tabla de cursos×grupos con promedio por carga, y gráfico comparativo del docente vs media institucional por pregunta. |
+
+### Observaciones implementación
+
+- **Errores `ONLY_FULL_GROUP_BY`**: MySQL 8 con modo estricto rechaza `SELECT s.denominacion ... GROUP BY ga.id` cuando la sede no es funcionalmente dependiente del grupo. Solucionado con `ANY_VALUE()` en `grupos_riesgo` y usando la misma expresión `DATE_FORMAT(...)` en `GROUP BY` y `SELECT` para evolución.
+- **Duplicados por nombre**: cursos con misma denominación pero distinto `id` aparecían como dos filas en el ranking (`Razonamiento Verbal`). Solución: `GROUP BY c.denominacion` en lugar de `c.id, c.denominacion`.
+- **Escala 1–5**: confirmada por inspección de `MIN/MAX/AVG(puntaje)` en `calificacion_docente_detalles`. Los rangos del histograma de calidad y la paleta `colorByProm` están calibrados para esta escala.
+- **Vínculo UNAP vs Particular**: `tipo_trabajador` y `contrato` están **null en los 988 docentes**. La distinción real viene de `condicion`: `'2'` = UNAP (119 docentes, todos con `codigo_unap`), `'1'` = Particular (869 docentes, sin código). Correlación 100% confirmada con `codigo_unap IS NOT NULL`.
+- **Caché**: dashboard 180 s, ficha 120 s. Buscador sin caché (volátil).
+
+---
+
+## Filtros comunes a Reportes 1 y 2
 
 | Filtro | Origen de datos para dropdown | Tipo |
 |---|---|---|
