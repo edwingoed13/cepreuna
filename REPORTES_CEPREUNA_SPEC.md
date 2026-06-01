@@ -312,11 +312,32 @@ Tag de robustez por número de participantes:
 ### Endpoints (admin-only)
 
 ```
-GET /api/stats/docentes-stats/dashboard
+GET /api/stats/docentes-stats/dashboard?sede=&area=&turno=
 GET /api/stats/docentes-stats/buscar?q=<dni|codigo|nombre>
 GET /api/stats/docentes-stats/docente/:id
 GET /api/stats/docentes-stats/curso?curso=<denominacion>
+GET /api/stats/docentes-stats/heatmap?curso=<denominacion>
+GET /api/stats/docentes-stats/export/intervenciones.xlsx?sede=&area=&turno=
+GET /api/stats/docentes-stats/export/curso.xlsx?curso=<denominacion>
+GET /api/stats/docentes-stats/export/ficha/:id.xlsx
 ```
+
+### Filtros globales del dashboard
+
+Los parámetros `sede` (id), `area` (id) y `turno` (id) aplican a las series **KPIs, top/bottom docentes, intervenciones priorizadas y grupos en riesgo**. Las series cuya función es comparar dimensiones (`distribucion_promedios`, `ranking_por_curso/area/turno/sede`, `por_modalidad`, `por_pregunta`, `varianza_cursos`, `evolucion`) **siempre devuelven la vista institucional** — filtrarlas eliminaría su propósito comparativo.
+
+Construido por el helper `buildDashboardFilters(query)` que devuelve dos pares JOIN/WHERE:
+- `joinsCa` + `whereCa` para queries que parten desde `calificacion_docentes` (perspectiva docente)
+- `joinsIm` + `whereIm` para queries que parten desde `inscripciones`/`matriculas` (perspectiva alumno)
+
+El response incluye `filtros_aplicados: { sede, area, turno }` para que el frontend muestre badge de filtros activos.
+
+### Vistas adicionales
+
+| Ruta | Descripción |
+|---|---|
+| `/stats/docentes-stats/comparar?a=<id>&b=<id>` | **Comparador 1-vs-1**: dos buscadores con autocompletar, tabla comparativa (score, polarización, consistencia, asistencia), gráfico de pregunta lado a lado y modalidad. URL persistente. |
+| Heatmap embebido | En la tarjeta de "Ranking de docentes por curso", botón "Ver heatmap" que abre matriz coloreada (docente × pregunta) — filas clickables a la ficha. Sirve `/api/.../heatmap`. |
 
 #### `GET /dashboard` — Vista institucional
 Devuelve un JSON con todas las series del dashboard ejecutivo:
@@ -425,6 +446,13 @@ Cada docente trae además `pct_top` (% de respuestas con puntaje 5) y `pct_criti
 | **Asistencia del docente** | `asistencia_docentes.estado` (1=presente, 2=tarde, 3=falta) | ¿Su puntualidad correlaciona con su score? |
 | **Intervenciones priorizadas** | `(C − score) × n` | ¿Sobre quién intervenir primero por **impacto**, no por peor promedio? |
 | **Varianza por curso** | `STDDEV_POP(cd.promedio)` por curso | ¿Qué cursos necesitan estandarización entre docentes? |
+| **Observaciones del auxiliar** | `asistencia_docentes.observacion` (último 30) | Notas cualitativas del docente: tardanzas, faltas, comportamiento. |
+| **Heatmap docente × pregunta** | Pivot de promedios por (docente × criterio) | ¿En qué aspecto baja cada docente del curso? |
+| **Comparador 1-vs-1** | Reusa `/docente/:id` para A y B | Decisiones de promoción / acompañamiento. |
+
+### Exportación a Excel
+
+Los 3 endpoints `/export/*.xlsx` proxean con descarga forzada (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`). Estilo: título azul `#003366`, fecha de generación, tabla con bordes. Multi-hoja en el caso de la ficha (Resumen / Cursos y grupos / Por pregunta / Observaciones). El frontend usa `fetch + blob + download` para enviar el `Authorization: Bearer ...` (los `<a href>` no llevan headers).
 
 ### Query SQL clave — Top docentes con score bayesiano
 

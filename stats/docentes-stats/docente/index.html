@@ -112,6 +112,9 @@
                     <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Ficha del docente</h2>
                 </div>
                 <div class="flex items-center gap-3">
+                    <button id="exportFicha" class="hidden text-xs px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center gap-1.5 font-semibold">
+                        <span class="material-symbols-outlined text-base">download</span>Excel
+                    </button>
                     <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600 transition-colors" title="Cerrar Sesión">
                         <span class="material-symbols-outlined text-xl">logout</span>
                     </button>
@@ -276,6 +279,27 @@
         document.getElementById('logoutBtn').addEventListener('click', handleLogout);
         document.querySelectorAll('.logout-trigger').forEach(b => b.addEventListener('click', handleLogout));
 
+        let _currentDocenteId = null;
+        async function descargarConToken(url, filenameSugerido) {
+            try {
+                const r = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } });
+                if (!r.ok) { alert('Error al descargar: HTTP ' + r.status); return; }
+                const cd = r.headers.get('content-disposition') || '';
+                const m = cd.match(/filename="?([^";]+)"?/);
+                const filename = m ? m[1] : (filenameSugerido || 'export.xlsx');
+                const blob = await r.blob();
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                document.body.appendChild(link); link.click(); link.remove();
+                setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+            } catch (e) { console.error(e); alert('Error de red al descargar.'); }
+        }
+        document.getElementById('exportFicha').addEventListener('click', () => {
+            if (!_currentDocenteId) return;
+            descargarConToken('/api/stats/docentes-stats/export/ficha/' + _currentDocenteId + '.xlsx', 'ficha.xlsx');
+        });
+
         const esc = (v) => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const fmt = (n) => Number(n || 0).toLocaleString('es-PE');
 
@@ -344,8 +368,10 @@
         }
 
         function pintar(d) {
+            _currentDocenteId = d.docente.id;
             document.getElementById('empty').classList.add('hidden');
             document.getElementById('content').classList.remove('hidden');
+            document.getElementById('exportFicha').classList.remove('hidden');
 
             // Identidad
             const doc = d.docente, r = d.resumen;

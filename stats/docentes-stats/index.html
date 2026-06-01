@@ -134,6 +134,34 @@
 
             <div class="p-6 lg:p-8 space-y-8 max-w-[1600px] mx-auto w-full">
 
+                <!-- ============ FILTROS GLOBALES ============ -->
+                <div class="card p-4">
+                    <div class="flex flex-wrap items-end gap-3">
+                        <div class="flex-1 min-w-[140px]">
+                            <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1 block">Sede</label>
+                            <select id="filterSede" class="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800">
+                                <option value="">Todas</option>
+                            </select>
+                        </div>
+                        <div class="flex-1 min-w-[140px]">
+                            <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1 block">Área</label>
+                            <select id="filterArea" class="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800">
+                                <option value="">Todas</option>
+                            </select>
+                        </div>
+                        <div class="flex-1 min-w-[140px]">
+                            <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1 block">Turno</label>
+                            <select id="filterTurno" class="w-full text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800">
+                                <option value="">Todos</option>
+                            </select>
+                        </div>
+                        <button id="filterApply" class="text-xs px-4 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-light transition-colors font-semibold">Aplicar</button>
+                        <button id="filterClear" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors">Limpiar</button>
+                        <span id="filterBadge" class="hidden text-[11px] px-3 py-1 rounded-full bg-amber-100 text-amber-800 font-bold">— filtrado</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2">Los filtros aplican a KPIs, top/bottom, intervenciones y grupos en riesgo. Las distribuciones, rankings por dimensión y modalidad mantienen vista institucional para comparación.</p>
+                </div>
+
                 <!-- ============ KPIs ============ -->
                 <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div class="card p-4">
@@ -267,9 +295,14 @@
                     <div class="card p-5">
                         <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
                             <h3 class="font-bold text-slate-700 dark:text-slate-200">Ranking de docentes por curso</h3>
-                            <select id="selectCurso" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary min-w-[200px]">
-                                <option value="">Selecciona un curso…</option>
-                            </select>
+                            <div class="flex items-center gap-2">
+                                <select id="selectCurso" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary min-w-[200px]">
+                                    <option value="">Selecciona un curso…</option>
+                                </select>
+                                <button id="exportCurso" class="hidden text-xs px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center gap-1.5 font-semibold">
+                                    <span class="material-symbols-outlined text-base">download</span>Excel
+                                </button>
+                            </div>
                         </div>
                         <p class="text-[11px] text-slate-400 mb-3">Puntaje corregido <b>local al curso</b> — los docentes se comparan contra la media del propio curso, no contra la institucional.</p>
                         <div id="cursoEmpty" class="text-center py-10 text-slate-400 text-xs">
@@ -358,6 +391,11 @@
                         <p class="text-xs text-slate-500 mt-1">Ordenado por <b>impacto institucional</b> = (media − puntaje) × alumnos afectados. No el "peor score", sino el más urgente: docentes con bajo desempeño y muchos alumnos.</p>
                     </div>
                     <div class="card p-5">
+                        <div class="flex justify-end mb-2">
+                            <a id="exportIntervenciones" href="#" class="text-xs px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center gap-1.5 font-semibold">
+                                <span class="material-symbols-outlined text-base">download</span>Excel
+                            </a>
+                        </div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-xs">
                                 <thead class="text-slate-600 dark:text-slate-400 uppercase tracking-tight bg-slate-50 dark:bg-slate-800/50">
@@ -489,11 +527,30 @@
         let charts = {};
         const destroy = (k) => { if (charts[k]) { charts[k].destroy(); charts[k] = null; } };
 
+        function getFiltrosQueryString() {
+            const p = new URLSearchParams();
+            const sede = document.getElementById('filterSede').value;
+            const area = document.getElementById('filterArea').value;
+            const turno = document.getElementById('filterTurno').value;
+            if (sede) p.set('sede', sede);
+            if (area) p.set('area', area);
+            if (turno) p.set('turno', turno);
+            const s = p.toString();
+            return s ? '?' + s : '';
+        }
+
         async function cargar() {
-            const r = await fetch('/api/stats/docentes-stats/dashboard', { headers: { Authorization: 'Bearer ' + TOKEN } });
+            const qs = getFiltrosQueryString();
+            const r = await fetch('/api/stats/docentes-stats/dashboard' + qs, { headers: { Authorization: 'Bearer ' + TOKEN } });
             if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
             if (!r.ok) { alert('Error al cargar datos'); return; }
             const d = await r.json();
+            // Badge visual cuando hay filtros activos
+            const fa = d.filtros_aplicados || {};
+            const activos = Object.values(fa).filter(v => v).length;
+            const badge = document.getElementById('filterBadge');
+            if (activos) { badge.classList.remove('hidden'); badge.textContent = `${activos} filtro${activos === 1 ? '' : 's'} activo${activos === 1 ? '' : 's'}`; }
+            else badge.classList.add('hidden');
 
             pintarKPIs(d.kpis);
             document.getElementById('paramC').textContent = d.bayes.C;
@@ -753,6 +810,7 @@
             cargarRankingCurso(e.target.value);
             document.getElementById('heatmapContainer').classList.add('hidden');
             document.getElementById('btnHeatmap').textContent = 'Ver heatmap docente × pregunta';
+            document.getElementById('exportCurso').classList.toggle('hidden', !e.target.value);
         });
 
         // Heatmap docente × pregunta
@@ -1070,7 +1128,85 @@
             } catch (e) { console.error(e); }
         }
 
-        cargar();
+        // ---------- DESCARGA CON TOKEN (Excel) ----------
+        async function descargarConToken(url, filenameSugerido) {
+            try {
+                const r = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } });
+                if (!r.ok) { alert('Error al descargar: HTTP ' + r.status); return; }
+                const cd = r.headers.get('content-disposition') || '';
+                const m = cd.match(/filename="?([^";]+)"?/);
+                const filename = m ? m[1] : (filenameSugerido || 'export.xlsx');
+                const blob = await r.blob();
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                document.body.appendChild(link); link.click(); link.remove();
+                setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+            } catch (e) { console.error(e); alert('Error de red al descargar.'); }
+        }
+
+        document.getElementById('exportIntervenciones').addEventListener('click', e => {
+            e.preventDefault();
+            descargarConToken('/api/stats/docentes-stats/export/intervenciones.xlsx' + getFiltrosQueryString(), 'intervenciones.xlsx');
+        });
+        document.getElementById('exportCurso').addEventListener('click', e => {
+            e.preventDefault();
+            const curso = document.getElementById('selectCurso').value;
+            if (!curso) return;
+            descargarConToken('/api/stats/docentes-stats/export/curso.xlsx?curso=' + encodeURIComponent(curso), 'ranking-curso.xlsx');
+        });
+
+        // ---------- FILTROS GLOBALES: catalogos + persistencia URL ----------
+        async function cargarCatalogos() {
+            const headers = { Authorization: 'Bearer ' + TOKEN };
+            const [rSedes, rAreas, rTurnos] = await Promise.all([
+                fetch('/api/stats/catalogos/sedes',  { headers }),
+                fetch('/api/stats/catalogos/areas',  { headers }),
+                fetch('/api/stats/catalogos/turnos', { headers })
+            ]);
+            const sedes  = rSedes.ok  ? await rSedes.json()  : [];
+            const areas  = rAreas.ok  ? await rAreas.json()  : [];
+            const turnos = rTurnos.ok ? await rTurnos.json() : [];
+            const fill = (id, list) => {
+                const sel = document.getElementById(id);
+                const cur = sel.value;
+                sel.innerHTML = '<option value="">— Todas —</option>' +
+                    list.map(x => `<option value="${x.id}">${esc(x.denominacion)}</option>`).join('');
+                sel.value = cur;
+            };
+            fill('filterSede',  sedes);
+            fill('filterArea',  areas);
+            fill('filterTurno', turnos);
+            // Pre-seleccionar desde URL
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('sede'))  document.getElementById('filterSede').value  = params.get('sede');
+            if (params.get('area'))  document.getElementById('filterArea').value  = params.get('area');
+            if (params.get('turno')) document.getElementById('filterTurno').value = params.get('turno');
+        }
+
+        function aplicarFiltros() {
+            const qs = getFiltrosQueryString();
+            const url = new URL(window.location.href);
+            url.search = qs;
+            history.replaceState({}, '', url);
+            cargar();
+        }
+
+        document.getElementById('filterApply').addEventListener('click', aplicarFiltros);
+        document.getElementById('filterClear').addEventListener('click', () => {
+            document.getElementById('filterSede').value = '';
+            document.getElementById('filterArea').value = '';
+            document.getElementById('filterTurno').value = '';
+            aplicarFiltros();
+        });
+        ['filterSede','filterArea','filterTurno'].forEach(id => {
+            document.getElementById(id).addEventListener('change', aplicarFiltros);
+        });
+
+        (async () => {
+            await cargarCatalogos();
+            cargar();
+        })();
     </script>
 </body>
 </html>

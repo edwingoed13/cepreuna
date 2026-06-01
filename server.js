@@ -2460,12 +2460,60 @@ app.get('/api/stats/calificaciones', requireStatsAuth, async (req, res) => {
 //
 // Importante: TODAS las queries que tocan carga_academicas filtran tipo='1'
 // (solo titulares); los suplentes no se cuentan como docentes a calificar.
+// Helper: construye fragmentos JOIN/WHERE para filtros del dashboard.
+// Devuelve dos variantes:
+//   - ca: para queries que parten desde calificacion_docentes + carga_academicas
+//   - im: para queries que parten desde inscripciones + matriculas (perspectiva alumno)
+// Aliases con sufijo _f para no chocar con joins existentes.
+function buildDashboardFilters(query) {
+  const norm = v => { const s = String(v ?? '').trim(); return s && /^\d+$/.test(s) ? s : null; };
+  const sede = norm(query.sede);
+  const area = norm(query.area);
+  const turno = norm(query.turno);
+  const aplicados = { sede, area, turno };
+
+  // Perspectiva docente (carga_academicas alias 'ca')
+  const joinsCa = [];
+  const whereCa = [];
+  const valuesCa = [];
+  if (area || turno || sede) joinsCa.push('JOIN grupo_aulas ga_f ON ga_f.id = ca.grupo_aulas_id');
+  if (area)  { whereCa.push('ga_f.areas_id = ?');  valuesCa.push(area); }
+  if (turno) { whereCa.push('ga_f.turnos_id = ?'); valuesCa.push(turno); }
+  if (sede) {
+    joinsCa.push('LEFT JOIN aulas au_f ON au_f.id = ga_f.aulas_id');
+    joinsCa.push('LEFT JOIN locales lo_f ON lo_f.id = au_f.locales_id');
+    whereCa.push('lo_f.sedes_id = ?');
+    valuesCa.push(sede);
+  }
+
+  // Perspectiva alumno (matriculas alias 'm' y inscripciones alias 'i')
+  const joinsIm = [];
+  const whereIm = [];
+  const valuesIm = [];
+  if (area || turno) joinsIm.push('JOIN grupo_aulas ga_fi ON ga_fi.id = m.grupo_aulas_id');
+  if (area)  { whereIm.push('ga_fi.areas_id = ?');  valuesIm.push(area); }
+  if (turno) { whereIm.push('ga_fi.turnos_id = ?'); valuesIm.push(turno); }
+  if (sede)  { whereIm.push('i.sedes_id = ?'); valuesIm.push(sede); }
+
+  return {
+    activos: !!(sede || area || turno),
+    aplicados,
+    joinsCa: joinsCa.join('\n            '),
+    whereCa: whereCa.length ? 'AND ' + whereCa.join(' AND ') : '',
+    valuesCa,
+    joinsIm: joinsIm.join('\n            '),
+    whereIm: whereIm.length ? 'AND ' + whereIm.join(' AND ') : '',
+    valuesIm
+  };
+}
+
 app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180), async (req, res) => {
   let conn;
+  const F = buildDashboardFilters(req.query);
   try {
     conn = await pool.getConnection();
 
-    // 1) KPIs globales
+    // 1) KPIs globales (con filtros opcionales de sede/area/turno via perspectiva alumno)
     const [[kpis]] = await conn.query(`
       WITH cobertura AS (
         SELECT
@@ -2475,6 +2523,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         FROM inscripciones i
         JOIN estudiantes e ON e.id = i.estudiantes_id
         LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+        ${F.joinsIm}
         LEFT JOIN (
           SELECT grupo_aulas_id, COUNT(DISTINCT docentes_id) AS total_docentes
           FROM carga_academicas
@@ -2491,6 +2540,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
           GROUP BY d.estudiantes_id, ca.grupo_aulas_id
         ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
         WHERE i.periodos_id = 1 AND i.estado = '1'
+        ${F.whereIm}
       )
       SELECT
         COUNT(*) AS total_alumnos,
@@ -2502,7 +2552,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         (SELECT COUNT(*) FROM calificacion_docente_detalles)         AS total_respuestas_criterios,
         (SELECT COUNT(DISTINCT docentes_id) FROM calificacion_docentes) AS docentes_evaluados
       FROM cobertura
-    `);
+    `, F.valuesIm);
 
     // 2) Distribución de cumplimiento (histograma)
     const [distribucion] = await conn.query(`
@@ -2599,7 +2649,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     const medianaN = ns.length ? ns[Math.floor(ns.length/2)] : 30;
     const M = Math.max(20, medianaN);  // mínimo 20
 
-    // 4) Top 15 docentes (score bayesiano sobre media de grupos)
+    // 4) Top 15 docentes (score bayesiano sobre media de grupos, filtrable)
     const [topDocentes] = await conn.query(`
       SELECT d.id,
              CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
@@ -2612,12 +2662,13 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
                   ELSE 'insuficiente' END AS robustez
       FROM calificacion_docentes cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      ${F.joinsCa}
       JOIN docentes d ON d.id = cd.docentes_id
-      WHERE cd.participantes > 0
+      WHERE cd.participantes > 0 ${F.whereCa}
       GROUP BY d.id
       HAVING participantes >= 30
       ORDER BY score DESC, participantes DESC LIMIT 15
-    `, [M, C, M]);
+    `, [M, C, M, ...F.valuesCa]);
 
     // 5) Bottom 15 docentes (mismo score, orden inverso)
     const [bottomDocentes] = await conn.query(`
@@ -2632,12 +2683,13 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
                   ELSE 'insuficiente' END AS robustez
       FROM calificacion_docentes cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      ${F.joinsCa}
       JOIN docentes d ON d.id = cd.docentes_id
-      WHERE cd.participantes > 0
+      WHERE cd.participantes > 0 ${F.whereCa}
       GROUP BY d.id
       HAVING participantes >= 30
       ORDER BY score ASC, participantes DESC LIMIT 15
-    `, [M, C, M]);
+    `, [M, C, M, ...F.valuesCa]);
 
     // 6) Distribución de scores bayesianos (histograma corregido)
     const [distPromedios] = await conn.query(`
@@ -2726,7 +2778,14 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       ORDER BY promedio DESC
     `);
 
-    // 7) Grupos en riesgo (bottom 20 por cobertura, con mínimo 10 alumnos)
+    // 7) Grupos en riesgo (bottom 20 por cobertura, con mínimo 10 alumnos, filtrable)
+    // ga ya hace el join; ga.areas_id/turnos_id/aulas_id se usan en WHERE directamente.
+    const grWhere = [];
+    const grValues = [];
+    if (F.aplicados.area)  { grWhere.push('ga.areas_id = ?');  grValues.push(F.aplicados.area); }
+    if (F.aplicados.turno) { grWhere.push('ga.turnos_id = ?'); grValues.push(F.aplicados.turno); }
+    if (F.aplicados.sede)  { grWhere.push('(lo.sedes_id = ? OR i.sedes_id = ?)'); grValues.push(F.aplicados.sede, F.aplicados.sede); }
+    const grWhereStr = grWhere.length ? 'AND ' + grWhere.join(' AND ') : '';
     const [gruposRiesgo] = await conn.query(`
       SELECT g.denominacion AS grupo, ar.denominacion AS area, t.denominacion AS turno,
              COALESCE(ANY_VALUE(sa.denominacion), ANY_VALUE(s.denominacion)) AS sede,
@@ -2757,11 +2816,11 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
         GROUP BY d.estudiantes_id, ca.grupo_aulas_id
       ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
-      WHERE i.periodos_id=1 AND i.estado='1'
+      WHERE i.periodos_id=1 AND i.estado='1' ${grWhereStr}
       GROUP BY ga.id
       HAVING alumnos >= 10
       ORDER BY cobertura_pct ASC, alumnos DESC LIMIT 20
-    `);
+    `, grValues);
 
     // 8) Evolución temporal (calificaciones por día, últimos 30 días con actividad)
     const [evolucion] = await conn.query(`
@@ -2788,7 +2847,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       ORDER BY cd.modalidad
     `);
 
-    // 10) Lista priorizada de intervenciones: (C - score) × n  (impacto institucional)
+    // 10) Lista priorizada de intervenciones: (C - score) × n  (impacto institucional, filtrable)
     const [intervenciones] = await conn.query(`
       SELECT d.id,
              CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
@@ -2802,14 +2861,15 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              ROUND((? - (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?)) * SUM(cd.participantes), 1) AS impacto
       FROM calificacion_docentes cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      ${F.joinsCa}
       JOIN docentes d ON d.id = cd.docentes_id
-      WHERE cd.participantes > 0
+      WHERE cd.participantes > 0 ${F.whereCa}
       GROUP BY d.id
       HAVING participantes >= 30
          AND (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?) < ?
       ORDER BY impacto DESC
       LIMIT 20
-    `, [M, C, M, C, M, C, M, M, C, M, C]);
+    `, [M, C, M, C, M, C, M, ...F.valuesCa, M, C, M, C]);
 
     // 11) Cursos con mayor varianza entre docentes (necesidad de estandarización)
     const [varianzaCursos] = await conn.query(`
@@ -2835,6 +2895,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     res.json({
       kpis,
       bayes: { C, m: M, formula: 'score = (n·prom_doc + m·C)/(n+m); prom_doc = media de promedios por grupo' },
+      filtros_aplicados: F.aplicados,
       distribucion_cumplimiento: distribucion,
       cobertura_por_sede: porSede,
       top_docentes: topDocentes,
@@ -3253,6 +3314,313 @@ app.get('/api/stats/docentes-stats/heatmap', requireAdmin, cacheMiddleware(180),
     if (conn) conn.release();
     console.error('Error heatmap:', e);
     res.status(500).json({ error: 'Error al generar el heatmap', message: e.message });
+  }
+});
+
+// ===== Helper Excel: workbook con título azul + fecha + tabla =====
+function _setupDocentesWorkbook(ws, titulo, headers) {
+  const ExcelJS = require('exceljs');
+  const lastCol = headers.length;
+  ws.mergeCells(1, 1, 1, lastCol);
+  ws.getCell(1, 1).value = titulo;
+  ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+  ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+  ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 24;
+  ws.mergeCells(2, 1, 2, lastCol);
+  ws.getCell(2, 1).value = `Generado: ${new Date().toLocaleString('es-PE')} · CEPREUNA — Docentes Stats`;
+  ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+  ws.getCell(2, 1).alignment = { horizontal: 'center' };
+  const headerRow = ws.getRow(4);
+  headerRow.values = headers;
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, size: 10 };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+  });
+}
+
+// ---- Export: Lista priorizada de intervenciones (con filtros opcionales) ----
+app.get('/api/stats/docentes-stats/export/intervenciones.xlsx', requireAdmin, async (req, res) => {
+  const F = buildDashboardFilters(req.query);
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    // Recalcular C y M con los mismos parametros que el dashboard (sin filtro, escala institucional)
+    const [perDoc] = await conn.query(`
+      SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.participantes > 0
+      GROUP BY cd.docentes_id
+    `);
+    const proms = perDoc.map(r => Number(r.prom_doc)).filter(x => !isNaN(x));
+    const ns = perDoc.map(r => Number(r.n)).filter(x => !isNaN(x)).sort((a, b) => a - b);
+    const C = proms.length ? Number((proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(3)) : 4.3;
+    const M = Math.max(20, ns.length ? ns[Math.floor(ns.length / 2)] : 30);
+
+    const [rows] = await conn.query(`
+      SELECT d.id,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             d.nro_documento AS dni,
+             CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+             ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
+             SUM(cd.participantes) AS participantes,
+             COUNT(DISTINCT ca.cursos_id) AS cursos,
+             COUNT(DISTINCT ca.grupo_aulas_id) AS grupos,
+             ROUND((? - (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?)) * SUM(cd.participantes), 1) AS impacto
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      ${F.joinsCa}
+      JOIN docentes d ON d.id = cd.docentes_id
+      WHERE cd.participantes > 0 ${F.whereCa}
+      GROUP BY d.id
+      HAVING participantes >= 30
+         AND (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?) < ?
+      ORDER BY impacto DESC
+      LIMIT 50
+    `, [M, C, M, C, M, C, M, ...F.valuesCa, M, C, M, C]);
+    conn.release();
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+    const ws = wb.addWorksheet('Intervenciones');
+    const headers = ['#', 'Docente', 'DNI', 'Vínculo', 'Score', 'Promedio crudo', 'Calificaciones', 'Cursos', 'Grupos', 'Impacto'];
+    _setupDocentesWorkbook(ws, 'Lista priorizada de intervenciones · CEPREUNA', headers);
+    rows.forEach((r, i) => {
+      const row = ws.getRow(5 + i);
+      row.values = [i + 1, r.docente, r.dni, r.vinculo, Number(r.score), Number(r.promedio_crudo), Number(r.participantes), Number(r.cursos), Number(r.grupos), Number(r.impacto)];
+      row.eachCell((cell, col) => {
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        cell.alignment = { horizontal: col >= 5 ? 'right' : 'left' };
+      });
+    });
+    ws.columns = [{ width: 5 }, { width: 38 }, { width: 12 }, { width: 12 }, { width: 9 }, { width: 14 }, { width: 14 }, { width: 8 }, { width: 8 }, { width: 11 }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="intervenciones-${new Date().toISOString().slice(0,10)}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error export intervenciones:', e);
+    res.status(500).json({ error: 'Error al generar Excel', message: e.message });
+  }
+});
+
+// ---- Export: Ranking de docentes en un curso ----
+app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req, res) => {
+  const curso = String(req.query.curso || '').trim();
+  if (curso.length < 2) return res.status(400).json({ error: 'Parámetro "curso" requerido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [perDoc] = await conn.query(`
+      SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      WHERE cd.participantes > 0 AND c.denominacion = ?
+      GROUP BY cd.docentes_id
+    `, [curso]);
+    if (!perDoc.length) { conn.release(); return res.status(404).json({ error: 'Curso sin datos' }); }
+    const proms = perDoc.map(r => Number(r.prom_doc));
+    const ns = perDoc.map(r => Number(r.n)).sort((a, b) => a - b);
+    const C = Number((proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(3));
+    const M = Math.max(10, ns[Math.floor(ns.length / 2)] || 20);
+
+    const [rows] = await conn.query(`
+      WITH detalles AS (
+        SELECT cd.docentes_id,
+               SUM(cdd.puntaje = 5)       AS top5,
+               SUM(cdd.puntaje IN (1,2))  AS criticas,
+               COUNT(*)                    AS total_resp
+        FROM calificacion_docente_detalles cdd
+        JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        JOIN cursos c ON c.id = ca.cursos_id
+        JOIN criterios cr ON cr.id = cdd.criterios_id
+        WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1'
+        GROUP BY cd.docentes_id
+      )
+      SELECT CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             d.nro_documento AS dni,
+             CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+             ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
+             SUM(cd.participantes) AS participantes,
+             COUNT(DISTINCT cd.carga_academicas_id) AS grupos,
+             ROUND(100 * det.top5     / NULLIF(det.total_resp, 0), 1) AS pct_top,
+             ROUND(100 * det.criticas / NULLIF(det.total_resp, 0), 1) AS pct_critica
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN docentes d ON d.id = cd.docentes_id
+      LEFT JOIN detalles det ON det.docentes_id = d.id
+      WHERE cd.participantes > 0 AND c.denominacion = ?
+      GROUP BY d.id, det.top5, det.criticas, det.total_resp
+      ORDER BY score DESC, participantes DESC
+    `, [curso, M, C, M, curso]);
+    conn.release();
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+    const ws = wb.addWorksheet('Ranking');
+    const headers = ['#', 'Docente', 'DNI', 'Vínculo', 'Score', 'Promedio crudo', '% Top (5)', '% Crítica (1-2)', 'Calificaciones', 'Grupos'];
+    _setupDocentesWorkbook(ws, `Ranking de docentes · ${curso}`, headers);
+    rows.forEach((r, i) => {
+      const row = ws.getRow(5 + i);
+      row.values = [i + 1, r.docente, r.dni, r.vinculo, Number(r.score), Number(r.promedio_crudo), r.pct_top == null ? '' : Number(r.pct_top), r.pct_critica == null ? '' : Number(r.pct_critica), Number(r.participantes), Number(r.grupos)];
+      row.eachCell((cell, col) => {
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        cell.alignment = { horizontal: col >= 5 ? 'right' : 'left' };
+      });
+    });
+    ws.columns = [{ width: 5 }, { width: 38 }, { width: 12 }, { width: 12 }, { width: 9 }, { width: 14 }, { width: 11 }, { width: 14 }, { width: 14 }, { width: 8 }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    const safeName = curso.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="ranking-${safeName}-${new Date().toISOString().slice(0,10)}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error export curso:', e);
+    res.status(500).json({ error: 'Error al generar Excel', message: e.message });
+  }
+});
+
+// ---- Export: Ficha individual del docente (multi-hoja) ----
+app.get('/api/stats/docentes-stats/export/ficha/:id.xlsx', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'ID inválido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [[doc]] = await conn.query(`
+      SELECT id, nro_documento AS dni, codigo_unap,
+             CONCAT_WS(' ', paterno, materno, nombres) AS nombre,
+             CASE condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             profesion, email
+      FROM docentes WHERE id = ?
+    `, [id]);
+    if (!doc) { conn.release(); return res.status(404).json({ error: 'Docente no encontrado' }); }
+
+    const [cargas] = await conn.query(`
+      SELECT c.denominacion AS curso, g.denominacion AS grupo,
+             ar.denominacion AS area, t.denominacion AS turno,
+             COALESCE(s.denominacion, '— Sin local —') AS sede,
+             cd.promedio, cd.participantes
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id
+      JOIN areas ar ON ar.id = ga.areas_id
+      JOIN turnos t ON t.id = ga.turnos_id
+      LEFT JOIN aulas au ON au.id = ga.aulas_id
+      LEFT JOIN locales lo ON lo.id = au.locales_id
+      LEFT JOIN sedes s ON s.id = lo.sedes_id
+      WHERE cd.docentes_id = ?
+      ORDER BY cd.promedio DESC
+    `, [id]);
+
+    const [porPregunta] = await conn.query(`
+      SELECT cr.denominacion AS pregunta,
+             ROUND(AVG(CASE WHEN cd.docentes_id = ? THEN cdd.puntaje END), 2) AS prom_doc,
+             ROUND(AVG(cdd.puntaje), 2) AS prom_global
+      FROM calificacion_docente_detalles cdd
+      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN criterios cr ON cr.id = cdd.criterios_id
+      WHERE cr.tipo='1' AND cr.estado='1'
+      GROUP BY cr.id, cr.denominacion
+      HAVING prom_doc IS NOT NULL
+      ORDER BY prom_doc DESC
+    `, [id]);
+
+    const [observaciones] = await conn.query(`
+      SELECT ad.fecha, ad.estado, c.denominacion AS curso, g.denominacion AS grupo, ad.observacion
+      FROM asistencia_docentes ad
+      JOIN carga_academicas ca ON ca.id = ad.carga_academicas_id
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id
+      WHERE ad.docentes_id = ? AND ad.observacion IS NOT NULL AND TRIM(ad.observacion) <> ''
+      ORDER BY ad.fecha DESC LIMIT 100
+    `, [id]);
+
+    conn.release();
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+
+    // Hoja 1: Identidad
+    const ws1 = wb.addWorksheet('Resumen');
+    _setupDocentesWorkbook(ws1, `Ficha docente · ${doc.nombre}`, ['Campo', 'Valor']);
+    const idData = [
+      ['Nombre', doc.nombre], ['DNI', doc.dni || '—'], ['Vínculo', doc.vinculo],
+      ['Código UNAP', doc.codigo_unap || '—'], ['Profesión', doc.profesion || '—'], ['Email', doc.email || '—']
+    ];
+    idData.forEach((r, i) => {
+      const row = ws1.getRow(5 + i);
+      row.values = r;
+      row.getCell(1).font = { bold: true };
+      row.eachCell(cell => cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } });
+    });
+    ws1.columns = [{ width: 18 }, { width: 50 }];
+
+    // Hoja 2: Cargas
+    const ws2 = wb.addWorksheet('Cursos y grupos');
+    _setupDocentesWorkbook(ws2, `Cursos y grupos · ${doc.nombre}`, ['Curso', 'Grupo', 'Área', 'Turno', 'Sede', 'Calificaciones', 'Promedio']);
+    cargas.forEach((r, i) => {
+      const row = ws2.getRow(5 + i);
+      row.values = [r.curso, r.grupo, r.area, r.turno, r.sede, Number(r.participantes), Number(r.promedio)];
+      row.eachCell(cell => cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } });
+    });
+    ws2.columns = [{ width: 24 }, { width: 12 }, { width: 14 }, { width: 10 }, { width: 18 }, { width: 14 }, { width: 10 }];
+
+    // Hoja 3: Preguntas
+    const ws3 = wb.addWorksheet('Por pregunta');
+    _setupDocentesWorkbook(ws3, `Desempeño por pregunta · ${doc.nombre}`, ['Pregunta', 'Promedio docente', 'Media institucional', 'Diferencia']);
+    porPregunta.forEach((r, i) => {
+      const row = ws3.getRow(5 + i);
+      const diff = Number(r.prom_doc) - Number(r.prom_global);
+      row.values = [r.pregunta, Number(r.prom_doc), Number(r.prom_global), Number(diff.toFixed(2))];
+      row.eachCell(cell => cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } });
+    });
+    ws3.columns = [{ width: 80 }, { width: 16 }, { width: 18 }, { width: 12 }];
+
+    // Hoja 4: Observaciones
+    if (observaciones.length) {
+      const ws4 = wb.addWorksheet('Observaciones');
+      _setupDocentesWorkbook(ws4, `Observaciones del auxiliar · ${doc.nombre}`, ['Fecha', 'Estado', 'Curso', 'Grupo', 'Observación']);
+      const estadoLabel = { '1': 'Presente', '2': 'Tarde', '3': 'Falta' };
+      observaciones.forEach((r, i) => {
+        const row = ws4.getRow(5 + i);
+        row.values = [r.fecha, estadoLabel[r.estado] || '—', r.curso, r.grupo, r.observacion];
+        row.eachCell(cell => {
+          cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+          cell.alignment = { wrapText: true, vertical: 'top' };
+        });
+      });
+      ws4.columns = [{ width: 12 }, { width: 11 }, { width: 18 }, { width: 10 }, { width: 70 }];
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    const safeName = doc.nombre.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="ficha-${safeName}-${new Date().toISOString().slice(0,10)}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error export ficha:', e);
+    res.status(500).json({ error: 'Error al generar Excel', message: e.message });
   }
 });
 
