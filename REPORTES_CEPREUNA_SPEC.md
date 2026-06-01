@@ -322,6 +322,18 @@ GET /api/stats/docentes-stats/export/curso.xlsx?curso=<denominacion>
 GET /api/stats/docentes-stats/export/ficha/:id.xlsx
 ```
 
+### Switch "solo calificaciones válidas" (≥80% asistencia)
+
+Parámetro `solo_validas=1` en `/dashboard`, `/docente/:id`, `/curso` y `/heatmap`. Una calificación es **válida** solo si el alumno tuvo **≥80% de asistencia** (presente=1 + tarde=2 cuentan; falta=3 no), calculada desde `asistencia_estudiante_detalles`.
+
+Cuando está activo, los **scores se recalculan desde `calificacion_docente_detalles`** (puntaje individual), porque `calificacion_docentes.promedio` está pre-agregado y no se puede filtrar por alumno. Implementado con el helper `cdSourceCTE(soloValidas)`:
+- **OFF**: `cd_src` = passthrough de `calificacion_docentes` (mismas columnas).
+- **ON**: `cd_src` recalcula `AVG(cdd.puntaje)` y `COUNT(DISTINCT estudiantes_id)` por (docente, carga, modalidad), excluyendo alumnos con asistencia <80%. Verificado: el recálculo sin filtro coincide exacto con el `promedio` pre-agregado.
+
+Para queries que leen `calificacion_docente_detalles` directamente (por_pregunta, polarización, heatmap), se inyecta `JOIN_ASIST` que descarta las respuestas de alumnos no válidos.
+
+**Impacto**: de 5.026 alumnos que calificaron, 3.177 (63%) tienen ≥80% y 1.849 (37%) no — el filtro descarta ~37% de las calificaciones. Sube los promedios (los alumnos comprometidos califican mejor: C 4.41→4.46) y reduce `m` (menos muestra). El switch se propaga por URL a la ficha (`?solo_validas=1`), que muestra un banner indicador. No afecta los KPIs de participación (cuántos calificaron), solo las métricas de calidad docente. El export Excel siempre usa todos los datos.
+
 ### Filtros globales del dashboard
 
 Los parámetros `sede` (id), `area` (id) y `turno` (id) aplican a las series **KPIs, top/bottom docentes, intervenciones priorizadas y grupos en riesgo**. Las series cuya función es comparar dimensiones (`distribucion_promedios`, `ranking_por_curso/area/turno/sede`, `por_modalidad`, `por_pregunta`, `varianza_cursos`, `evolucion`) **siempre devuelven la vista institucional** — filtrarlas eliminaría su propósito comparativo.

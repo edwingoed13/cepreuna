@@ -159,7 +159,20 @@
                         <button id="filterClear" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors">Limpiar</button>
                         <span id="filterBadge" class="hidden text-[11px] px-3 py-1 rounded-full bg-amber-100 text-amber-800 font-bold">— filtrado</span>
                     </div>
-                    <p class="text-[10px] text-slate-400 mt-2">Los filtros aplican a KPIs, top/bottom, intervenciones y grupos en riesgo. Las distribuciones, rankings por dimensión y modalidad mantienen vista institucional para comparación.</p>
+                    <div class="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                        <div class="flex items-center gap-3">
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="switchValidas" class="sr-only peer">
+                                <div class="w-11 h-6 bg-slate-300 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                            </label>
+                            <div>
+                                <p class="text-xs font-bold text-slate-700 dark:text-slate-200">Solo calificaciones válidas (≥80% asistencia)</p>
+                                <p class="text-[10px] text-slate-400">Recalcula los puntajes excluyendo a alumnos que asistieron a menos del 80% de sus clases.</p>
+                            </div>
+                        </div>
+                        <span id="validasBadge" class="hidden text-[11px] px-3 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 font-bold whitespace-nowrap">Solo válidas</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2">Los filtros de sede/área/turno aplican a KPIs, top/bottom, intervenciones y grupos en riesgo. El switch de validez recalcula todos los puntajes de calidad docente. Las distribuciones de participación mantienen vista institucional.</p>
                 </div>
 
                 <!-- ============ KPIs ============ -->
@@ -528,7 +541,7 @@
         let charts = {};
         const destroy = (k) => { if (charts[k]) { charts[k].destroy(); charts[k] = null; } };
 
-        function getFiltrosQueryString() {
+        function getFiltrosParams() {
             const p = new URLSearchParams();
             const sede = document.getElementById('filterSede').value;
             const area = document.getElementById('filterArea').value;
@@ -536,8 +549,16 @@
             if (sede) p.set('sede', sede);
             if (area) p.set('area', area);
             if (turno) p.set('turno', turno);
-            const s = p.toString();
+            if (document.getElementById('switchValidas').checked) p.set('solo_validas', '1');
+            return p;
+        }
+        function getFiltrosQueryString() {
+            const s = getFiltrosParams().toString();
             return s ? '?' + s : '';
+        }
+        // Solo el flag de validez (para propagar a ficha/curso, que no tienen sede/area/turno)
+        function validasSuffix() {
+            return document.getElementById('switchValidas').checked ? '?solo_validas=1' : '';
         }
 
         async function cargar() {
@@ -552,6 +573,7 @@
             const badge = document.getElementById('filterBadge');
             if (activos) { badge.classList.remove('hidden'); badge.textContent = `${activos} filtro${activos === 1 ? '' : 's'} activo${activos === 1 ? '' : 's'}`; }
             else badge.classList.add('hidden');
+            document.getElementById('validasBadge').classList.toggle('hidden', !d.solo_validas);
 
             pintarKPIs(d.kpis);
             document.getElementById('paramC').textContent = d.bayes.C;
@@ -644,7 +666,11 @@
         }
 
         // ---------- SECCIÓN 2 ----------
-        const irAFicha = (id) => { if (id) window.location.href = '/stats/docentes-stats/docente?id=' + id; };
+        const irAFicha = (id) => {
+            if (!id) return;
+            const sv = document.getElementById('switchValidas').checked ? '&solo_validas=1' : '';
+            window.location.href = '/stats/docentes-stats/docente?id=' + id + sv;
+        };
 
         function pintarRankingDocentes(canvasId, key, rows, asc) {
             destroy(key);
@@ -762,7 +788,8 @@
             const content = document.getElementById('cursoContent');
             if (!curso) { empty.classList.remove('hidden'); content.classList.add('hidden'); return; }
             try {
-                const r = await fetch('/api/stats/docentes-stats/curso?curso=' + encodeURIComponent(curso), { headers: { Authorization: 'Bearer ' + TOKEN } });
+                const sv = document.getElementById('switchValidas').checked ? '&solo_validas=1' : '';
+                const r = await fetch('/api/stats/docentes-stats/curso?curso=' + encodeURIComponent(curso) + sv, { headers: { Authorization: 'Bearer ' + TOKEN } });
                 if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
                 if (!r.ok) { alert('Error al cargar el ranking del curso.'); return; }
                 const d = await r.json();
@@ -788,7 +815,7 @@
             tbody.innerHTML = d.docentes.map((x, i) => {
                 const s = Number(x.score);
                 const cls = s >= 4.5 ? 'text-emerald-600' : s >= 4.0 ? 'text-lime-600' : s >= 3.5 ? 'text-amber-500' : s >= 3.0 ? 'text-orange-500' : 'text-red-500';
-                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="window.location.href='/stats/docentes-stats/docente?id=${x.id}'">
+                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="irAFicha(${x.id})">
                     <td class="px-3 py-2 text-right font-mono text-slate-500">${i + 1}</td>
                     <td class="px-3 py-2 font-semibold">${esc(x.docente)}</td>
                     <td class="px-3 py-2 font-mono">${esc(x.dni || '—')}</td>
@@ -822,7 +849,8 @@
         // Heatmap docente × pregunta
         async function cargarHeatmap(curso) {
             try {
-                const r = await fetch('/api/stats/docentes-stats/heatmap?curso=' + encodeURIComponent(curso), { headers: { Authorization: 'Bearer ' + TOKEN } });
+                const sv = document.getElementById('switchValidas').checked ? '&solo_validas=1' : '';
+                const r = await fetch('/api/stats/docentes-stats/heatmap?curso=' + encodeURIComponent(curso) + sv, { headers: { Authorization: 'Bearer ' + TOKEN } });
                 if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
                 if (!r.ok) { alert('Error al cargar heatmap.'); return; }
                 pintarHeatmap(await r.json());
@@ -855,7 +883,7 @@
             </tr>`;
             const docRows = d.docentes.map((doc, i) => {
                 const cells = doc.valores.map(v => `<td class="text-center font-mono" style="background:${colorCell(v)};color:${textColor(v)};min-width:32px;">${v == null ? '—' : v.toFixed(1)}</td>`).join('');
-                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="window.location.href='/stats/docentes-stats/docente?id=${doc.id}'">
+                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="irAFicha(${doc.id})">
                     <td class="px-2 py-1 text-right font-mono text-slate-500">${i+1}</td>
                     <td class="px-2 py-1 sticky left-0 bg-white dark:bg-slate-900 font-semibold whitespace-nowrap">${esc(doc.nombre)}</td>
                     <td class="px-2 py-1 text-right font-mono font-bold">${doc.promedio.toFixed(2)}</td>
@@ -984,7 +1012,7 @@
             tbody.innerHTML = rows.map((x, i) => {
                 const s = Number(x.score);
                 const cls = s >= 4.5 ? 'text-emerald-600' : s >= 4.0 ? 'text-lime-600' : s >= 3.5 ? 'text-amber-500' : s >= 3.0 ? 'text-orange-500' : 'text-red-500';
-                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="window.location.href='/stats/docentes-stats/docente?id=${x.id}'">
+                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="irAFicha(${x.id})">
                     <td class="px-3 py-2 text-right font-mono text-slate-500">${i + 1}</td>
                     <td class="px-3 py-2 font-semibold">${esc(x.docente)}</td>
                     <td class="px-3 py-2 font-mono">${esc(x.dni || '—')}</td>
@@ -1159,7 +1187,8 @@
             e.preventDefault();
             const curso = document.getElementById('selectCurso').value;
             if (!curso) return;
-            descargarConToken('/api/stats/docentes-stats/export/curso.xlsx?curso=' + encodeURIComponent(curso), 'ranking-curso.xlsx');
+            const sv = document.getElementById('switchValidas').checked ? '&solo_validas=1' : '';
+            descargarConToken('/api/stats/docentes-stats/export/curso.xlsx?curso=' + encodeURIComponent(curso) + sv, 'ranking-curso.xlsx');
         });
 
         // ---------- FILTROS GLOBALES: catalogos + persistencia URL ----------
@@ -1188,6 +1217,7 @@
             if (params.get('sede'))  document.getElementById('filterSede').value  = params.get('sede');
             if (params.get('area'))  document.getElementById('filterArea').value  = params.get('area');
             if (params.get('turno')) document.getElementById('filterTurno').value = params.get('turno');
+            if (params.get('solo_validas') === '1') document.getElementById('switchValidas').checked = true;
         }
 
         function aplicarFiltros() {
@@ -1207,6 +1237,15 @@
         });
         ['filterSede','filterArea','filterTurno'].forEach(id => {
             document.getElementById(id).addEventListener('change', aplicarFiltros);
+        });
+        document.getElementById('switchValidas').addEventListener('change', () => {
+            // Si hay un curso seleccionado, recargar su ranking/heatmap con el nuevo flag
+            const curso = document.getElementById('selectCurso').value;
+            aplicarFiltros();
+            if (curso) {
+                cargarRankingCurso(curso);
+                if (!document.getElementById('heatmapContainer').classList.contains('hidden')) cargarHeatmap(curso);
+            }
         });
 
         (async () => {

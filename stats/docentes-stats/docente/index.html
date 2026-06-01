@@ -133,6 +133,12 @@
                     <p class="text-[11px] text-slate-400 mt-2">Mínimo 2 caracteres. Busca por DNI, código UNAP o apellido.</p>
                 </div>
 
+                <!-- Indicador de modo "solo válidas" -->
+                <div id="validasBanner" class="hidden flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-200 text-xs">
+                    <span class="material-symbols-outlined text-base">verified</span>
+                    <span><b>Solo calificaciones válidas</b> — los puntajes excluyen a alumnos con menos del 80% de asistencia.</span>
+                </div>
+
                 <!-- ============ ESTADO VACÍO ============ -->
                 <div id="empty" class="card p-10 text-center text-slate-400">
                     <span class="material-symbols-outlined text-5xl text-slate-300 dark:text-slate-700">person_search</span>
@@ -299,6 +305,7 @@
             if (!_currentDocenteId) return;
             descargarConToken('/api/stats/docentes-stats/export/ficha/' + _currentDocenteId + '.xlsx', 'ficha.xlsx');
         });
+        // Nota: el export Excel siempre usa todos los datos (sin filtro de asistencia).
 
         const esc = (v) => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const fmt = (n) => Number(n || 0).toLocaleString('es-PE');
@@ -356,9 +363,14 @@
         // ---------- FICHA ----------
         let chartPreg = null;
 
+        // Flag "solo válidas" heredado de la URL (al venir desde el dashboard con el switch ON)
+        const soloValidas = new URLSearchParams(window.location.search).get('solo_validas') === '1';
+        if (soloValidas) document.getElementById('validasBanner').classList.remove('hidden');
+
         async function cargarFicha(id) {
             try {
-                const r = await fetch('/api/stats/docentes-stats/docente/' + encodeURIComponent(id), { headers: { Authorization: 'Bearer ' + TOKEN } });
+                const sv = soloValidas ? '?solo_validas=1' : '';
+                const r = await fetch('/api/stats/docentes-stats/docente/' + encodeURIComponent(id) + sv, { headers: { Authorization: 'Bearer ' + TOKEN } });
                 if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
                 if (r.status === 404) { alert('Docente no encontrado.'); return; }
                 if (!r.ok) { alert('Error al cargar la ficha.'); return; }
