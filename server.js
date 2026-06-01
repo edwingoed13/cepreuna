@@ -2567,6 +2567,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
   const JOIN_ASIST = soloValidas
     ? `JOIN (${ASIST_VALIDA_SQL}) av ON av.estudiantes_id = cdd.estudiantes_id`
     : '';
+  // Umbral de "robusta" (participantes): seleccionable 50/80/100. Referencial = [30, umbral).
+  // Solo cambia la ETIQUETA de confianza; la entrada al ranking sigue siendo >=30.
+  const umbralRobusta = [50, 80, 100].includes(Number(req.query.umbral)) ? Number(req.query.umbral) : 50;
   try {
     conn = await pool.getConnection();
     // ------------------------------------------------------------------
@@ -2724,7 +2727,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
              SUM(cd.participantes) AS participantes,
              COUNT(DISTINCT cd.carga_academicas_id) AS asignaciones,
-             CASE WHEN SUM(cd.participantes) >= 50 THEN 'robusta'
+             CASE WHEN SUM(cd.participantes) >= ${umbralRobusta} THEN 'robusta'
                   WHEN SUM(cd.participantes) >= 30 THEN 'referencial'
                   ELSE 'insuficiente' END AS robustez
       FROM cd_src cd
@@ -2746,7 +2749,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
              SUM(cd.participantes) AS participantes,
              COUNT(DISTINCT cd.carga_academicas_id) AS asignaciones,
-             CASE WHEN SUM(cd.participantes) >= 50 THEN 'robusta'
+             CASE WHEN SUM(cd.participantes) >= ${umbralRobusta} THEN 'robusta'
                   WHEN SUM(cd.participantes) >= 30 THEN 'referencial'
                   ELSE 'insuficiente' END AS robustez
       FROM cd_src cd
@@ -2895,6 +2898,23 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     `);
     evolucion.reverse();
 
+    // 8.5) Conteo de docentes por nivel de robustez (según el umbral seleccionado)
+    const [[robustez]] = await conn.query(`
+      WITH ${CD_CTE}
+      SELECT
+        SUM(p >= ${umbralRobusta}) AS robustos,
+        SUM(p >= 30 AND p < ${umbralRobusta}) AS referenciales,
+        SUM(p < 30) AS insuficientes,
+        COUNT(*) AS total
+      FROM (
+        SELECT SUM(cd.participantes) AS p
+        FROM cd_src cd
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        WHERE cd.participantes > 0
+        GROUP BY cd.docentes_id
+      ) x
+    `);
+
     // 9) Modalidad institucional (virtual vs presencial)
     const [porModalidad] = await conn.query(`
       SELECT CASE cd.modalidad WHEN '1' THEN 'Virtual' WHEN '0' THEN 'Presencial' ELSE 'Otra' END AS modalidad,
@@ -2961,6 +2981,8 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       bayes: { C, m: M, formula: 'score = (n·prom_doc + m·C)/(n+m); prom_doc = media de promedios por grupo' },
       solo_validas: soloValidas,
       umbral_asistencia: UMBRAL_ASISTENCIA,
+      umbral_robusta: umbralRobusta,
+      robustez_conteo: robustez,
       filtros_aplicados: F.aplicados,
       distribucion_cumplimiento: distribucion,
       cobertura_por_sede: porSede,
