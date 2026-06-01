@@ -2771,6 +2771,63 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     `);
     evolucion.reverse();
 
+    // 9) Modalidad institucional (virtual vs presencial)
+    const [porModalidad] = await conn.query(`
+      SELECT CASE cd.modalidad WHEN '1' THEN 'Virtual' WHEN '0' THEN 'Presencial' ELSE 'Otra' END AS modalidad,
+             COUNT(DISTINCT cd.docentes_id) AS docentes,
+             COUNT(DISTINCT cd.carga_academicas_id) AS cargas,
+             SUM(cd.participantes) AS calificaciones,
+             ROUND(AVG(cd.promedio), 2) AS promedio
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.participantes > 0
+      GROUP BY cd.modalidad
+      ORDER BY cd.modalidad
+    `);
+
+    // 10) Lista priorizada de intervenciones: (C - score) × n  (impacto institucional)
+    const [intervenciones] = await conn.query(`
+      SELECT d.id,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             d.nro_documento AS dni,
+             CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+             ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
+             SUM(cd.participantes) AS participantes,
+             COUNT(DISTINCT ca.cursos_id) AS cursos,
+             COUNT(DISTINCT ca.grupo_aulas_id) AS grupos,
+             ROUND((? - (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?)) * SUM(cd.participantes), 1) AS impacto
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN docentes d ON d.id = cd.docentes_id
+      WHERE cd.participantes > 0
+      GROUP BY d.id
+      HAVING participantes >= 30
+         AND (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?) < ?
+      ORDER BY impacto DESC
+      LIMIT 20
+    `, [M, C, M, C, M, C, M, M, C, M, C]);
+
+    // 11) Cursos con mayor varianza entre docentes (necesidad de estandarización)
+    const [varianzaCursos] = await conn.query(`
+      SELECT c.denominacion AS curso,
+             COUNT(DISTINCT d.id) AS docentes,
+             ROUND(AVG(cd.promedio), 2) AS promedio,
+             ROUND(STDDEV_POP(cd.promedio), 3) AS desviacion,
+             ROUND(MAX(cd.promedio) - MIN(cd.promedio), 2) AS rango,
+             ROUND(MIN(cd.promedio), 2) AS minimo,
+             ROUND(MAX(cd.promedio), 2) AS maximo
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN docentes d ON d.id = cd.docentes_id
+      WHERE cd.participantes > 0
+      GROUP BY c.denominacion
+      HAVING docentes >= 5
+      ORDER BY desviacion DESC
+      LIMIT 10
+    `);
+
     conn.release();
     res.json({
       kpis,
@@ -2785,6 +2842,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       ranking_por_turno: rankingPorTurno,
       ranking_por_sede: rankingPorSede,
       por_pregunta: porPregunta,
+      por_modalidad: porModalidad,
+      intervenciones,
+      varianza_cursos: varianzaCursos,
       grupos_riesgo: gruposRiesgo,
       evolucion,
       timestamp: new Date().toISOString(),
@@ -2934,6 +2994,67 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
       ORDER BY promedio_docente DESC
     `, [id, id]);
 
+    // 7) Modalidad del docente (virtual vs presencial)
+    const [porModalidad] = await conn.query(`
+      SELECT CASE cd.modalidad WHEN '1' THEN 'Virtual' WHEN '0' THEN 'Presencial' ELSE 'Otra' END AS modalidad,
+             ROUND(AVG(cd.promedio), 2) AS promedio,
+             SUM(cd.participantes) AS calificaciones,
+             COUNT(DISTINCT cd.carga_academicas_id) AS cargas
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.docentes_id = ? AND cd.participantes > 0
+      GROUP BY cd.modalidad
+      ORDER BY cd.modalidad
+    `, [id]);
+
+    // 8) Polarización de respuestas (% top, % medio, % crítica)
+    const [[polarizacion]] = await conn.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(cdd.puntaje = 5)       AS top5,
+        SUM(cdd.puntaje = 4)       AS p4,
+        SUM(cdd.puntaje = 3)       AS p3,
+        SUM(cdd.puntaje IN (1,2))  AS criticas,
+        ROUND(100 * SUM(cdd.puntaje = 5)      / COUNT(*), 1) AS pct_top,
+        ROUND(100 * SUM(cdd.puntaje IN (4))   / COUNT(*), 1) AS pct_buena,
+        ROUND(100 * SUM(cdd.puntaje IN (3))   / COUNT(*), 1) AS pct_regular,
+        ROUND(100 * SUM(cdd.puntaje IN (1,2)) / COUNT(*), 1) AS pct_critica
+      FROM calificacion_docente_detalles cdd
+      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN criterios cr ON cr.id = cdd.criterios_id
+      WHERE cd.docentes_id = ? AND cr.tipo='1' AND cr.estado='1'
+    `, [id]);
+
+    // 9) Consistencia entre grupos (desviación estándar de sus promedios)
+    const [[consistencia]] = await conn.query(`
+      SELECT
+        ROUND(STDDEV_POP(cd.promedio), 3) AS desviacion,
+        ROUND(MIN(cd.promedio), 2) AS min_grupo,
+        ROUND(MAX(cd.promedio), 2) AS max_grupo,
+        ROUND(MAX(cd.promedio) - MIN(cd.promedio), 2) AS rango,
+        COUNT(*) AS n_grupos
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.docentes_id = ? AND cd.participantes > 0
+    `, [id]);
+
+    // 10) Asistencia del docente (puntualidad)
+    const [[asistencia]] = await conn.query(`
+      SELECT
+        COUNT(*) AS total_sesiones,
+        SUM(ad.estado='1') AS presente,
+        SUM(ad.estado='2') AS tarde,
+        SUM(ad.estado='3') AS falta,
+        ROUND(100 * SUM(ad.estado='1') / NULLIF(COUNT(*),0), 1) AS pct_presente,
+        ROUND(100 * SUM(ad.estado='2') / NULLIF(COUNT(*),0), 1) AS pct_tarde,
+        ROUND(100 * SUM(ad.estado='3') / NULLIF(COUNT(*),0), 1) AS pct_falta,
+        COALESCE(SUM(ad.cantidad_horas), 0) AS horas_dictadas
+      FROM asistencia_docentes ad
+      JOIN carga_academicas ca ON ca.id = ad.carga_academicas_id AND ca.tipo='1'
+      WHERE ad.docentes_id = ?
+    `, [id]);
+
     conn.release();
     res.json({
       docente: doc,
@@ -2952,6 +3073,10 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
       },
       cargas,
       por_pregunta: porPregunta,
+      por_modalidad: porModalidad,
+      polarizacion,
+      consistencia,
+      asistencia,
       timestamp: new Date().toISOString()
     });
   } catch (e) {
@@ -2993,6 +3118,19 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
     const M = Math.max(10, medianaN);  // umbral más bajo que el global (intra-curso = muestras menores)
 
     const [docentes] = await conn.query(`
+      WITH detalles AS (
+        SELECT cd.docentes_id,
+               SUM(cdd.puntaje = 5)       AS top5,
+               SUM(cdd.puntaje IN (1,2))  AS criticas,
+               COUNT(*)                    AS total_resp
+        FROM calificacion_docente_detalles cdd
+        JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        JOIN cursos c ON c.id = ca.cursos_id
+        JOIN criterios cr ON cr.id = cdd.criterios_id
+        WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1'
+        GROUP BY cd.docentes_id
+      )
       SELECT d.id,
              CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
              d.nro_documento AS dni,
@@ -3001,6 +3139,8 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
              ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
              SUM(cd.participantes) AS participantes,
              COUNT(DISTINCT cd.carga_academicas_id) AS grupos,
+             ROUND(100 * det.top5     / NULLIF(det.total_resp, 0), 1) AS pct_top,
+             ROUND(100 * det.criticas / NULLIF(det.total_resp, 0), 1) AS pct_critica,
              CASE WHEN SUM(cd.participantes) >= 30 THEN 'robusta'
                   WHEN SUM(cd.participantes) >= 15 THEN 'referencial'
                   ELSE 'insuficiente' END AS robustez
@@ -3008,10 +3148,11 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN cursos c ON c.id = ca.cursos_id
       JOIN docentes d ON d.id = cd.docentes_id
+      LEFT JOIN detalles det ON det.docentes_id = d.id
       WHERE cd.participantes > 0 AND c.denominacion = ?
-      GROUP BY d.id
+      GROUP BY d.id, det.top5, det.criticas, det.total_resp
       ORDER BY score DESC, participantes DESC
-    `, [M, C, M, curso]);
+    `, [curso, M, C, M, curso]);
 
     const total = docentes.reduce((a, b) => a + Number(b.participantes), 0);
     conn.release();
@@ -3897,6 +4038,56 @@ app.get(
       console.error(`Error al descargar informe "${slug}":`, error.message);
       // Fallback: si falla el proxy, redirigir directo a Google (al menos abre).
       res.redirect(302, googleUrl);
+    }
+  }
+);
+
+// ===== Descarga de archivos de Drive (PDFs y similares) =====
+// Mismo patrón que INFORME_DOCS pero para archivos subidos a Drive (no Google Docs).
+// Usa el endpoint `uc?export=download` y propaga el Content-Type real de Google
+// para que funcione tanto con PDF como con otros formatos.
+const INFORME_DRIVE_FILES = {
+  'cci-una-puno': '15b6R1LiCtFe_RYDcFWeZH6wp7XiC-Ra0',
+  'dj-unap':      '1RHxX4lI41oAcAoCMLtjAq10DyUfAgybe',
+};
+
+app.get(
+  Object.keys(INFORME_DRIVE_FILES).map(slug => `/${slug}`),
+  async (req, res) => {
+    const slug = req.path.replace(/^\//, '');
+    const fileId = INFORME_DRIVE_FILES[slug];
+    // `confirm=t` salta la página de "virus scan warning" para archivos > 100 MB.
+    const googleUrl = `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
+
+    try {
+      const upstream = await fetch(googleUrl, { redirect: 'follow' });
+      if (!upstream.ok) throw new Error(`Google respondió ${upstream.status}`);
+
+      const buffer = Buffer.from(await upstream.arrayBuffer());
+      const upstreamType = upstream.headers.get('content-type') || '';
+
+      // Si Google devolvió HTML, significa que mostró la página de confirmación —
+      // tratarlo como error para que caiga al fallback de redirect.
+      if (upstreamType.includes('text/html')) {
+        throw new Error('Drive devolvió HTML (página de confirmación)');
+      }
+
+      // Detectar tipo real por firma (magic bytes), porque Drive a menudo
+      // responde `application/octet-stream` aunque el archivo sea un PDF.
+      const isPdf = buffer.length >= 4 && buffer.slice(0, 4).toString('latin1') === '%PDF';
+      const contentType = isPdf ? 'application/pdf' : (upstreamType || 'application/octet-stream');
+      const ext = isPdf ? 'pdf'
+        : (upstreamType.split(';')[0].split('/').pop() || '').replace(/[^a-z0-9]/gi, '') || 'bin';
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${slug}.${ext}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(buffer);
+    } catch (error) {
+      console.error(`Error al descargar archivo Drive "${slug}":`, error.message);
+      // Fallback: vista del archivo en Drive (mejor que un 500).
+      res.redirect(302, `https://drive.google.com/file/d/${fileId}/view`);
     }
   }
 );

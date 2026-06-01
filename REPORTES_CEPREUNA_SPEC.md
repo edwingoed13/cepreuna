@@ -335,6 +335,17 @@ Devuelve un JSON con todas las series del dashboard ejecutivo:
   "ranking_por_turno": [ ... ],
   "ranking_por_sede":  [ ... ],
   "por_pregunta": [ { "id":5, "pregunta":"¿El docente desarrolla las sesiones según el temario del curso?", "promedio":4.66, "respuestas":40989, "aprobatorias":..., "criticas":... }, ... ],
+  "por_modalidad": [
+    { "modalidad":"Presencial", "docentes":381, "cargas":1649, "calificaciones":40959, "promedio":4.46 },
+    { "modalidad":"Virtual",    "docentes":278, "cargas":668,  "calificaciones":20871, "promedio":4.39 }
+  ],
+  "intervenciones": [
+    { "id":N, "docente":"...", "dni":"...", "vinculo":"Particular", "promedio_crudo":4.10, "score":4.18,
+      "participantes":268, "cursos":1, "grupos":11, "impacto":62.4 }, ...
+  ],
+  "varianza_cursos": [
+    { "curso":"Literatura", "docentes":46, "promedio":4.47, "desviacion":0.324, "rango":1.54, "minimo":3.40, "maximo":4.94 }, ...
+  ],
   "grupos_riesgo": [ ... ],
   "evolucion": [ ... ]
 }
@@ -363,7 +374,21 @@ Mínimo 2 caracteres. Hace `LIKE %q%` simultáneamente sobre `nro_documento`, `c
   ],
   "por_pregunta": [
     { "id":5, "pregunta":"...", "promedio_docente":4.92, "promedio_global":4.39, "n_docente":232 }, ...
-  ]
+  ],
+  "por_modalidad": [
+    { "modalidad":"Presencial", "promedio":4.89, "calificaciones":232, "cargas":8 }
+  ],
+  "polarizacion": {
+    "total":1392, "top5":1280, "p4":88, "p3":24, "criticas":0,
+    "pct_top":92.0, "pct_buena":6.3, "pct_regular":1.7, "pct_critica":0.0
+  },
+  "consistencia": {
+    "desviacion":0.05, "min_grupo":4.83, "max_grupo":4.95, "rango":0.12, "n_grupos":8
+  },
+  "asistencia": {
+    "total_sesiones":80, "presente":80, "tarde":0, "falta":0,
+    "pct_presente":100.0, "pct_tarde":0.0, "pct_falta":0.0, "horas_dictadas":130
+  }
 }
 ```
 
@@ -387,6 +412,19 @@ Devuelve los docentes que dictan el curso indicado, ordenados por **score bayesi
 ```
 
 Umbrales de robustez intra-curso (más laxos que los institucionales, porque los volúmenes por docente×curso son menores): `n ≥ 30` robusta · `n ≥ 15` referencial · `n < 15` insuficiente.
+
+Cada docente trae además `pct_top` (% de respuestas con puntaje 5) y `pct_critica` (% de respuestas 1–2), para identificar polarización dentro del curso.
+
+### Series adicionales (sesgo y gestión)
+
+| Serie | Fuente | Pregunta que responde |
+|---|---|---|
+| **Modalidad institucional/del docente** | `cd.modalidad` 0=presencial, 1=virtual | ¿Los alumnos perciben peor a los docentes virtuales? |
+| **Polarización por docente** | `cdd.puntaje IN (1,2)` vs `=5` | ¿Cuántos alumnos lo califican muy bajo o muy alto? El promedio oculta esto. |
+| **Consistencia entre grupos** | `STDDEV_POP(cd.promedio)` por docente | ¿Es parejo en todos sus grupos o depende del grupo? |
+| **Asistencia del docente** | `asistencia_docentes.estado` (1=presente, 2=tarde, 3=falta) | ¿Su puntualidad correlaciona con su score? |
+| **Intervenciones priorizadas** | `(C − score) × n` | ¿Sobre quién intervenir primero por **impacto**, no por peor promedio? |
+| **Varianza por curso** | `STDDEV_POP(cd.promedio)` por curso | ¿Qué cursos necesitan estandarización entre docentes? |
 
 ### Query SQL clave — Top docentes con score bayesiano
 

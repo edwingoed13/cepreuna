@@ -116,6 +116,9 @@
                     <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Calificación docente — Informe ejecutivo</h2>
                 </div>
                 <div class="flex items-center gap-3">
+                    <button id="searchBtn" class="text-xs px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-light transition-colors flex items-center gap-1.5 font-semibold">
+                        <span class="material-symbols-outlined text-base">person_search</span><span class="hidden sm:inline">Buscar docente</span>
+                    </button>
                     <p class="text-[10px] text-slate-500 hidden sm:block" id="lastUpdate">cargando…</p>
                     <button id="refreshBtn" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors" title="Recargar">
                         <span class="material-symbols-outlined text-xl">refresh</span>
@@ -287,6 +290,8 @@
                                             <th class="text-left px-3 py-2 font-bold">Vínculo</th>
                                             <th class="text-right px-3 py-2 font-bold">Score</th>
                                             <th class="text-right px-3 py-2 font-bold">Crudo</th>
+                                            <th class="text-right px-3 py-2 font-bold" title="% de respuestas con puntaje 5">% Top</th>
+                                            <th class="text-right px-3 py-2 font-bold" title="% de respuestas con puntaje 1 o 2">% Crítica</th>
                                             <th class="text-right px-3 py-2 font-bold">Calificaciones</th>
                                             <th class="text-right px-3 py-2 font-bold">Grupos</th>
                                             <th class="text-left px-3 py-2 font-bold">Robustez</th>
@@ -316,10 +321,67 @@
                     </div>
                 </section>
 
+                <!-- ============ SECCIÓN 4.5: MODALIDAD VIRTUAL VS PRESENCIAL ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 5 · Modalidad</p>
+                        <h2 class="section-title">¿Califican mejor los alumnos en clase presencial o virtual?</h2>
+                    </div>
+                    <div class="card p-5">
+                        <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Promedio institucional por modalidad</h3>
+                        <p class="text-[11px] text-slate-400 mb-3">Comparativa global del puntaje promedio que reciben los docentes según dónde dictan.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" id="kpiModalidad"></div>
+                        <p class="insight" id="insightModalidad">—</p>
+                    </div>
+                </section>
+
+                <!-- ============ SECCIÓN 4.6: INTERVENCIONES PRIORIZADAS ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 6 · Foco de intervención docente</p>
+                        <h2 class="section-title">¿Sobre qué docentes intervenir primero?</h2>
+                        <p class="text-xs text-slate-500 mt-1">Ordenado por <b>impacto institucional</b> = (media − puntaje) × alumnos afectados. No el "peor score", sino el más urgente: docentes con bajo desempeño y muchos alumnos.</p>
+                    </div>
+                    <div class="card p-5">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="text-slate-600 dark:text-slate-400 uppercase tracking-tight bg-slate-50 dark:bg-slate-800/50">
+                                    <tr>
+                                        <th class="text-right px-3 py-2 font-bold">#</th>
+                                        <th class="text-left px-3 py-2 font-bold">Docente</th>
+                                        <th class="text-left px-3 py-2 font-bold">DNI</th>
+                                        <th class="text-left px-3 py-2 font-bold">Vínculo</th>
+                                        <th class="text-right px-3 py-2 font-bold">Score</th>
+                                        <th class="text-right px-3 py-2 font-bold">Alumnos</th>
+                                        <th class="text-right px-3 py-2 font-bold">Cursos</th>
+                                        <th class="text-right px-3 py-2 font-bold">Grupos</th>
+                                        <th class="text-right px-3 py-2 font-bold">Impacto</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tblIntervenciones" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+                            </table>
+                        </div>
+                        <p class="insight mt-4" id="insightIntervenciones">—</p>
+                    </div>
+                </section>
+
+                <!-- ============ SECCIÓN 4.7: VARIANZA POR CURSO ============ -->
+                <section class="space-y-4">
+                    <div>
+                        <p class="section-kicker">Sección 7 · Cursos a estandarizar</p>
+                        <h2 class="section-title">¿Qué cursos tienen más diferencias entre sus docentes?</h2>
+                        <p class="text-xs text-slate-500 mt-1">Cursos donde unos docentes son excelentes y otros débiles → candidatos a homogeneizar materiales y capacitación.</p>
+                    </div>
+                    <div class="card p-5">
+                        <div class="chart-wrap tall"><canvas id="chVarianzaCursos"></canvas></div>
+                        <p class="insight mt-4" id="insightVarianza">—</p>
+                    </div>
+                </section>
+
                 <!-- ============ SECCIÓN 5: GRUPOS EN RIESGO ============ -->
                 <section class="space-y-4">
                     <div>
-                        <p class="section-kicker">Sección 5 · Foco de intervención</p>
+                        <p class="section-kicker">Sección 8 · Foco de participación</p>
                         <h2 class="section-title">¿Qué grupos tienen la menor participación?</h2>
                     </div>
 
@@ -346,7 +408,7 @@
                 <!-- ============ SECCIÓN 6: EVOLUCIÓN ============ -->
                 <section class="space-y-4">
                     <div>
-                        <p class="section-kicker">Sección 6 · Cómo avanza la encuesta</p>
+                        <p class="section-kicker">Sección 9 · Cómo avanza la encuesta</p>
                         <h2 class="section-title">¿En qué días los alumnos han calificado más?</h2>
                     </div>
 
@@ -362,6 +424,21 @@
                 <p class="text-xs font-bold uppercase tracking-widest">© 2026 CEPREUNA — Docentes Stats</p>
             </footer>
         </main>
+    </div>
+
+    <!-- ============ MODAL BUSCAR DOCENTE ============ -->
+    <div id="searchModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center p-4 pt-24">
+        <div class="card w-full max-w-xl p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary">person_search</span>Buscar docente
+                </h3>
+                <button id="searchCloseBtn" class="text-slate-400 hover:text-red-500" title="Cerrar"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <input id="searchModalInput" type="text" placeholder="DNI, código UNAP o apellidos/nombre…" class="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary" autocomplete="off" />
+            <p class="text-[11px] text-slate-400 mt-2">Mínimo 2 caracteres. Al seleccionar un docente se abre su ficha.</p>
+            <div id="searchModalResults" class="mt-3 max-h-[60vh] overflow-y-auto"></div>
+        </div>
     </div>
 
     <script>
@@ -419,6 +496,9 @@
             pintarSedeProm(d.ranking_por_sede);
 
             pintarPregunta(d.por_pregunta);
+            pintarModalidad(d.por_modalidad);
+            pintarIntervenciones(d.intervenciones);
+            pintarVarianzaCursos(d.varianza_cursos);
             pintarTabla(d.grupos_riesgo);
             pintarEvol(d.evolucion);
 
@@ -622,7 +702,7 @@
 
             const tbody = document.getElementById('tblCursoDocentes');
             if (!d.docentes.length) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-6 text-slate-400">Sin docentes con calificaciones en este curso.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center py-6 text-slate-400">Sin docentes con calificaciones en este curso.</td></tr>';
                 document.getElementById('insightCursoDocentes').textContent = '';
                 return;
             }
@@ -637,6 +717,8 @@
                     <td class="px-3 py-2">${esc(x.vinculo)}</td>
                     <td class="px-3 py-2 text-right font-mono font-bold ${cls}">${s.toFixed(2)}</td>
                     <td class="px-3 py-2 text-right font-mono text-slate-500">${Number(x.promedio_crudo).toFixed(2)}</td>
+                    <td class="px-3 py-2 text-right font-mono text-emerald-600">${x.pct_top != null ? Number(x.pct_top).toFixed(1) + '%' : '—'}</td>
+                    <td class="px-3 py-2 text-right font-mono ${Number(x.pct_critica) >= 5 ? 'text-red-500 font-bold' : 'text-slate-500'}">${x.pct_critica != null ? Number(x.pct_critica).toFixed(1) + '%' : '—'}</td>
                     <td class="px-3 py-2 text-right font-mono">${fmt(x.participantes)}</td>
                     <td class="px-3 py-2 text-right font-mono">${fmt(x.grupos)}</td>
                     <td class="px-3 py-2"><span class="badge ${robBadge[x.robustez] || 'badge-bad'}">${x.robustez}</span></td>
@@ -705,7 +787,101 @@
                 `Lo que <b>mejor perciben</b> los alumnos: «${esc(m.pregunta)}» con <b>${m.promedio}</b>. Lo que <b>peor perciben</b>: «${esc(p.pregunta)}» con <b>${p.promedio}</b> — punto institucional de mejora.`;
         }
 
-        // ---------- SECCIÓN 5 ----------
+        // ---------- SECCIÓN 5: MODALIDAD ----------
+        function pintarModalidad(rows) {
+            const cont = document.getElementById('kpiModalidad');
+            const cards = rows.map(r => {
+                const isVirtual = r.modalidad === 'Virtual';
+                const icon = isVirtual ? 'videocam' : 'school';
+                const cls = colorByProm(Number(r.promedio));
+                return `<div class="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
+                            <span class="material-symbols-outlined text-sm">${icon}</span>${esc(r.modalidad)}
+                        </p>
+                        <span class="text-2xl font-black" style="color:${cls}">${Number(r.promedio).toFixed(2)}</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500">${fmt(r.docentes)} docentes · ${fmt(r.cargas)} cargas · ${fmt(r.calificaciones)} calificaciones</p>
+                </div>`;
+            }).join('');
+            cont.innerHTML = cards;
+
+            const pres = rows.find(r => r.modalidad === 'Presencial');
+            const vir = rows.find(r => r.modalidad === 'Virtual');
+            if (pres && vir) {
+                const diff = Number(pres.promedio) - Number(vir.promedio);
+                const totalCal = Number(pres.calificaciones) + Number(vir.calificaciones);
+                const lead = diff > 0 ? 'a docentes <b>presenciales</b>' : 'a docentes <b>virtuales</b>';
+                document.getElementById('insightModalidad').innerHTML =
+                    `Los alumnos califican mejor ${lead} (${pres.promedio} presencial vs ${vir.promedio} virtual — diferencia de <b>${Math.abs(diff).toFixed(2)} puntos</b>). ` +
+                    `La modalidad virtual concentra <b>${fmt(vir.calificaciones)}</b> de las <b>${fmt(totalCal)}</b> calificaciones recibidas, así que la brecha tiene peso real.`;
+            }
+        }
+
+        // ---------- SECCIÓN 6: INTERVENCIONES PRIORIZADAS ----------
+        function pintarIntervenciones(rows) {
+            const tbody = document.getElementById('tblIntervenciones');
+            if (!rows || !rows.length) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-6 text-slate-400">Sin docentes que requieran intervención.</td></tr>';
+                document.getElementById('insightIntervenciones').textContent = '';
+                return;
+            }
+            tbody.innerHTML = rows.map((x, i) => {
+                const s = Number(x.score);
+                const cls = s >= 4.5 ? 'text-emerald-600' : s >= 4.0 ? 'text-lime-600' : s >= 3.5 ? 'text-amber-500' : s >= 3.0 ? 'text-orange-500' : 'text-red-500';
+                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="window.location.href='/stats/docentes-stats/docente?id=${x.id}'">
+                    <td class="px-3 py-2 text-right font-mono text-slate-500">${i + 1}</td>
+                    <td class="px-3 py-2 font-semibold">${esc(x.docente)}</td>
+                    <td class="px-3 py-2 font-mono">${esc(x.dni || '—')}</td>
+                    <td class="px-3 py-2">${esc(x.vinculo)}</td>
+                    <td class="px-3 py-2 text-right font-mono font-bold ${cls}">${s.toFixed(2)}</td>
+                    <td class="px-3 py-2 text-right font-mono">${fmt(x.participantes)}</td>
+                    <td class="px-3 py-2 text-right font-mono">${fmt(x.cursos)}</td>
+                    <td class="px-3 py-2 text-right font-mono">${fmt(x.grupos)}</td>
+                    <td class="px-3 py-2 text-right font-mono font-bold text-red-500">−${Number(x.impacto).toFixed(1)}</td>
+                </tr>`;
+            }).join('');
+            const top = rows[0];
+            const totalImpacto = rows.reduce((a, b) => a + Number(b.impacto), 0).toFixed(1);
+            document.getElementById('insightIntervenciones').innerHTML =
+                `El docente con mayor impacto negativo es <b>${esc(top.docente)}</b> (${fmt(top.participantes)} alumnos · score ${top.score}). ` +
+                `Los <b>${rows.length}</b> docentes de la lista concentran un impacto agregado de <b>−${totalImpacto} puntos·alumno</b>. ` +
+                `<span class="text-primary font-semibold">Clic en cualquier fila para ver la ficha.</span>`;
+        }
+
+        // ---------- SECCIÓN 7: VARIANZA POR CURSO ----------
+        function pintarVarianzaCursos(rows) {
+            destroy('vc');
+            if (!rows || !rows.length) return;
+            const labels = rows.map(r => r.curso);
+            const data = rows.map(r => Number(r.desviacion));
+            charts.vc = new Chart(document.getElementById('chVarianzaCursos'), {
+                type: 'bar',
+                data: { labels, datasets: [{ data, backgroundColor: '#f59e0b', label: 'Desviación (σ)' }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: {
+                            label: ctx => 'σ = ' + ctx.parsed.x.toFixed(3),
+                            afterLabel: ctx => {
+                                const r = rows[ctx.dataIndex];
+                                return [
+                                    fmt(r.docentes) + ' docentes',
+                                    'Rango: ' + r.minimo + ' – ' + r.maximo,
+                                    'Promedio del curso: ' + r.promedio
+                                ];
+                            }
+                        } } },
+                    scales: { x: { beginAtZero: true, ticks: { stepSize: 0.05 } } }
+                }
+            });
+            const m = rows[0];
+            document.getElementById('insightVarianza').innerHTML =
+                `<b>${esc(m.curso)}</b> es el curso con mayor diferencia entre docentes (σ = ${m.desviacion}, rango ${m.minimo}–${m.maximo} entre ${fmt(m.docentes)} docentes). ` +
+                `Indica que el resultado del alumno depende mucho de qué docente le toca — candidato a estandarizar materiales y metodología.`;
+        }
+
+        // ---------- SECCIÓN 8 ----------
         function pintarTabla(rows) {
             const tbody = document.getElementById('tblGrupos');
             if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-slate-400 text-xs">Sin datos.</td></tr>'; return; }
@@ -723,7 +899,7 @@
             }).join('');
         }
 
-        // ---------- SECCIÓN 6 ----------
+        // ---------- SECCIÓN 9 ----------
         function pintarEvol(rows) {
             destroy('evol');
             const labels = rows.map(r => r.dia.slice(5));
@@ -750,6 +926,59 @@
         }
 
         document.getElementById('refreshBtn').addEventListener('click', cargar);
+
+        // ---------- BUSCADOR MODAL (docente por DNI / código / nombre) ----------
+        const modal = document.getElementById('searchModal');
+        const modalInput = document.getElementById('searchModalInput');
+        const modalResults = document.getElementById('searchModalResults');
+        let searchTimer = null;
+
+        function abrirBuscador() {
+            modal.classList.remove('hidden');
+            modalInput.value = '';
+            modalResults.innerHTML = '';
+            setTimeout(() => modalInput.focus(), 50);
+        }
+        function cerrarBuscador() { modal.classList.add('hidden'); }
+
+        document.getElementById('searchBtn').addEventListener('click', abrirBuscador);
+        document.getElementById('searchCloseBtn').addEventListener('click', cerrarBuscador);
+        modal.addEventListener('click', e => { if (e.target === modal) cerrarBuscador(); });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) cerrarBuscador();
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); abrirBuscador(); }
+        });
+
+        modalInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            const q = modalInput.value.trim();
+            if (q.length < 2) { modalResults.innerHTML = ''; return; }
+            searchTimer = setTimeout(() => buscarDocente(q), 250);
+        });
+
+        async function buscarDocente(q) {
+            try {
+                const r = await fetch('/api/stats/docentes-stats/buscar?q=' + encodeURIComponent(q), { headers: { Authorization: 'Bearer ' + TOKEN } });
+                if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!r.ok) return;
+                const d = await r.json();
+                if (!d.resultados.length) {
+                    modalResults.innerHTML = '<div class="px-4 py-3 text-xs text-slate-400 text-center">Sin resultados.</div>';
+                    return;
+                }
+                modalResults.innerHTML = d.resultados.map(x => `
+                    <button data-id="${x.id}" class="w-full text-left px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700 last:border-0 transition-colors rounded">
+                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">${esc(x.nombre)}</p>
+                        <p class="text-[11px] text-slate-500 mt-0.5">DNI ${esc(x.dni || '—')} · ${esc(x.vinculo)}${x.codigo_unap ? ' (cod. ' + esc(x.codigo_unap) + ')' : ''}</p>
+                    </button>`).join('');
+                modalResults.querySelectorAll('button[data-id]').forEach(b => {
+                    b.addEventListener('click', () => {
+                        window.location.href = '/stats/docentes-stats/docente?id=' + b.dataset.id;
+                    });
+                });
+            } catch (e) { console.error(e); }
+        }
+
         cargar();
     </script>
 </body>

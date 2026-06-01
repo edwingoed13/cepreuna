@@ -201,6 +201,40 @@
                         </div>
                     </div>
 
+                    <!-- Polarización + Consistencia (lado a lado) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">¿Cómo se distribuyen sus calificaciones?</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Polarización de respuestas (1–5). Un % crítico alto puede ocultarse detrás de un buen promedio.</p>
+                            <div class="grid grid-cols-4 gap-3 mb-3" id="kpiPolarizacion"></div>
+                            <p id="insightPolarizacion" class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border-l-4 border-primary p-3 rounded-r"></p>
+                        </div>
+
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">¿Es parejo entre sus grupos?</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Variación entre los promedios de cada grupo del docente. Menos variación = más consistente.</p>
+                            <div class="grid grid-cols-4 gap-3 mb-3" id="kpiConsistencia"></div>
+                            <p id="insightConsistencia" class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border-l-4 border-primary p-3 rounded-r"></p>
+                        </div>
+                    </div>
+
+                    <!-- Modalidad + Asistencia (lado a lado) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">¿Cómo le va en cada modalidad?</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Promedio del docente en clases virtuales vs presenciales.</p>
+                            <div id="kpiModalidadDoc" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+                            <p id="insightModalidadDoc" class="text-xs text-slate-600 dark:text-slate-300 mt-3 bg-slate-50 dark:bg-slate-800 border-l-4 border-primary p-3 rounded-r"></p>
+                        </div>
+
+                        <div class="card p-5">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Puntualidad y asistencia</h3>
+                            <p class="text-[11px] text-slate-400 mb-3">Sesiones registradas por el sistema de control de asistencia docente.</p>
+                            <div class="grid grid-cols-4 gap-3 mb-3" id="kpiAsistencia"></div>
+                            <p id="insightAsistencia" class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border-l-4 border-primary p-3 rounded-r"></p>
+                        </div>
+                    </div>
+
                     <!-- Por pregunta -->
                     <div class="card p-5">
                         <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Desempeño por aspecto evaluado</h3>
@@ -361,8 +395,130 @@
                 }).join('');
             }
 
+            // Bloques nuevos
+            pintarPolarizacion(d.polarizacion);
+            pintarConsistencia(d.consistencia, Number(r.score) || null);
+            pintarModalidadDoc(d.por_modalidad);
+            pintarAsistencia(d.asistencia);
+
             // Por pregunta
             pintarPregunta(d.por_pregunta);
+        }
+
+        function pintarPolarizacion(p) {
+            if (!p || !Number(p.total)) {
+                document.getElementById('kpiPolarizacion').innerHTML = '<p class="col-span-4 text-center text-slate-400 text-xs">Sin respuestas.</p>';
+                document.getElementById('insightPolarizacion').textContent = '';
+                return;
+            }
+            const cells = [
+                { lab: 'Top (5)', val: p.pct_top, n: p.top5, cls: 'text-emerald-600' },
+                { lab: 'Buena (4)', val: p.pct_buena, n: p.p4, cls: 'text-lime-600' },
+                { lab: 'Regular (3)', val: p.pct_regular, n: p.p3, cls: 'text-amber-500' },
+                { lab: 'Crítica (1–2)', val: p.pct_critica, n: p.criticas, cls: 'text-red-500' }
+            ];
+            document.getElementById('kpiPolarizacion').innerHTML = cells.map(c => `
+                <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
+                    <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${c.lab}</p>
+                    <p class="text-xl font-black ${c.cls} mt-1">${c.val}%</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">${fmt(c.n)} resp.</p>
+                </div>`).join('');
+            const pctCrit = Number(p.pct_critica), pctTop = Number(p.pct_top);
+            let msg;
+            if (pctCrit < 1) msg = `Muy bajo nivel de críticas (<b>${p.pct_critica}%</b>). El <b>${p.pct_top}%</b> de respuestas son top (5).`;
+            else if (pctCrit < 5) msg = `Críticas en rango aceptable (<b>${p.pct_critica}%</b>). El <b>${p.pct_top}%</b> son top.`;
+            else if (pctCrit < 10) msg = `Atención: <b>${p.pct_critica}%</b> de respuestas son críticas (1 o 2). Hay polarización a revisar.`;
+            else msg = `<b>Alerta:</b> <b>${p.pct_critica}%</b> de respuestas son críticas — más de 1 de cada 10 alumnos pone 1 o 2. Investigar grupo problemático.`;
+            document.getElementById('insightPolarizacion').innerHTML = msg;
+        }
+
+        function pintarConsistencia(c, score) {
+            if (!c || !Number(c.n_grupos)) {
+                document.getElementById('kpiConsistencia').innerHTML = '<p class="col-span-4 text-center text-slate-400 text-xs">Sin grupos.</p>';
+                document.getElementById('insightConsistencia').textContent = '';
+                return;
+            }
+            const cells = [
+                { lab: 'Variación (σ)', val: Number(c.desviacion).toFixed(2), foot: 'entre grupos', cls: 'text-slate-800 dark:text-white' },
+                { lab: 'Grupo + bajo', val: Number(c.min_grupo).toFixed(2), foot: 'peor promedio', cls: 'text-red-500' },
+                { lab: 'Grupo + alto', val: Number(c.max_grupo).toFixed(2), foot: 'mejor promedio', cls: 'text-emerald-600' },
+                { lab: 'Rango', val: Number(c.rango).toFixed(2), foot: c.n_grupos + ' grupos', cls: 'text-primary dark:text-white' }
+            ];
+            document.getElementById('kpiConsistencia').innerHTML = cells.map(x => `
+                <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
+                    <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${x.lab}</p>
+                    <p class="text-xl font-black ${x.cls} mt-1">${x.val}</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">${x.foot}</p>
+                </div>`).join('');
+            const sigma = Number(c.desviacion);
+            let msg;
+            if (Number(c.n_grupos) < 2) msg = `Solo dicta <b>1 grupo</b> — no hay variabilidad que medir.`;
+            else if (sigma < 0.15) msg = `Muy consistente entre sus ${c.n_grupos} grupos (σ = ${c.desviacion}). El resultado depende del docente, no del grupo.`;
+            else if (sigma < 0.30) msg = `Consistencia razonable (σ = ${c.desviacion}). Diferencia de ${c.rango} puntos entre su mejor y peor grupo.`;
+            else msg = `<b>Variación alta entre grupos</b> (σ = ${c.desviacion}, rango ${c.rango}). El grupo asignado afecta mucho el resultado — revisar qué pasa en su grupo de ${c.min_grupo}.`;
+            document.getElementById('insightConsistencia').innerHTML = msg;
+        }
+
+        function pintarModalidadDoc(rows) {
+            const cont = document.getElementById('kpiModalidadDoc');
+            if (!rows || !rows.length) {
+                cont.innerHTML = '<p class="text-center text-slate-400 text-xs">Sin datos.</p>';
+                document.getElementById('insightModalidadDoc').textContent = '';
+                return;
+            }
+            const colorByP = (p) => p >= 4.5 ? '#10b981' : p >= 4.0 ? '#84cc16' : p >= 3.5 ? '#f59e0b' : p >= 3.0 ? '#f97316' : '#ef4444';
+            cont.innerHTML = rows.map(r => {
+                const icon = r.modalidad === 'Virtual' ? 'videocam' : 'school';
+                return `<div class="border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+                    <div class="flex items-center justify-between mb-1">
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1">
+                            <span class="material-symbols-outlined text-sm">${icon}</span>${esc(r.modalidad)}
+                        </p>
+                        <span class="text-xl font-black" style="color:${colorByP(Number(r.promedio))}">${Number(r.promedio).toFixed(2)}</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400">${fmt(r.calificaciones)} calificaciones · ${fmt(r.cargas)} cargas</p>
+                </div>`;
+            }).join('');
+            if (rows.length === 1) {
+                document.getElementById('insightModalidadDoc').innerHTML =
+                    `Solo dicta en modalidad <b>${esc(rows[0].modalidad).toLowerCase()}</b>. Sin datos para comparar virtual vs presencial.`;
+            } else if (rows.length >= 2) {
+                const pres = rows.find(r => r.modalidad === 'Presencial');
+                const vir = rows.find(r => r.modalidad === 'Virtual');
+                if (pres && vir) {
+                    const diff = (Number(pres.promedio) - Number(vir.promedio)).toFixed(2);
+                    const better = diff > 0 ? 'mejor en <b>presencial</b>' : diff < 0 ? 'mejor en <b>virtual</b>' : 'parejo en ambas';
+                    document.getElementById('insightModalidadDoc').innerHTML =
+                        `El docente se desempeña ${better} (diferencia de <b>${Math.abs(diff)} puntos</b>).`;
+                }
+            }
+        }
+
+        function pintarAsistencia(a) {
+            if (!a || !Number(a.total_sesiones)) {
+                document.getElementById('kpiAsistencia').innerHTML = '<p class="col-span-4 text-center text-slate-400 text-xs">Sin registros de asistencia.</p>';
+                document.getElementById('insightAsistencia').textContent = '';
+                return;
+            }
+            const cells = [
+                { lab: 'Sesiones', val: fmt(a.total_sesiones), foot: fmt(a.horas_dictadas) + ' h', cls: 'text-slate-800 dark:text-white' },
+                { lab: '% Presente', val: a.pct_presente + '%', foot: fmt(a.presente), cls: 'text-emerald-600' },
+                { lab: '% Tarde', val: a.pct_tarde + '%', foot: fmt(a.tarde), cls: 'text-amber-500' },
+                { lab: '% Falta', val: a.pct_falta + '%', foot: fmt(a.falta), cls: 'text-red-500' }
+            ];
+            document.getElementById('kpiAsistencia').innerHTML = cells.map(x => `
+                <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
+                    <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${x.lab}</p>
+                    <p class="text-xl font-black ${x.cls} mt-1">${x.val}</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">${x.foot}</p>
+                </div>`).join('');
+            const pctTard = Number(a.pct_tarde), pctF = Number(a.pct_falta);
+            let msg;
+            if (pctF < 1 && pctTard < 2) msg = `Excelente puntualidad: <b>${a.pct_presente}%</b> de presencia en ${fmt(a.total_sesiones)} sesiones.`;
+            else if (pctF < 3 && pctTard < 5) msg = `Puntualidad aceptable. <b>${a.pct_tarde}%</b> de tardanzas y <b>${a.pct_falta}%</b> de faltas en ${fmt(a.total_sesiones)} sesiones.`;
+            else if (pctF < 5) msg = `Atención: <b>${a.pct_tarde}%</b> de tardanzas en ${fmt(a.total_sesiones)} sesiones — revisar puntualidad.`;
+            else msg = `<b>Alerta:</b> <b>${a.pct_falta}%</b> de faltas y <b>${a.pct_tarde}%</b> de tardanzas en ${fmt(a.total_sesiones)} sesiones.`;
+            document.getElementById('insightAsistencia').innerHTML = msg;
         }
 
         function pintarPregunta(rows) {
