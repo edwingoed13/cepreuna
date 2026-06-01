@@ -2844,7 +2844,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       ${JOIN_ASIST}
-      WHERE cr.tipo='1' AND cr.estado='1'
+      WHERE cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
       GROUP BY cr.id, cr.denominacion
       ORDER BY promedio DESC
     `);
@@ -3128,7 +3128,7 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN criterios cr ON cr.id = cdd.criterios_id
       ${JOIN_ASIST}
-      WHERE cr.tipo='1' AND cr.estado='1'
+      WHERE cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
       GROUP BY cr.id, cr.denominacion
       HAVING n_docente > 0
       ORDER BY promedio_docente DESC
@@ -3371,7 +3371,7 @@ app.get('/api/stats/docentes-stats/heatmap', requireAdmin, cacheMiddleware(180),
       JOIN docentes d ON d.id = cd.docentes_id
       JOIN criterios cr ON cr.id = cdd.criterios_id
       ${JOIN_ASIST}
-      WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1'
+      WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
       GROUP BY cd.docentes_id, cdd.criterios_id
     `, [curso]);
 
@@ -3853,7 +3853,10 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       FROM calificacion_docente_detalles cdd
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
-      JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
+      -- La pregunta debe corresponder a la modalidad de la clase (cr.modalidad =
+      -- cd.modalidad): descarta respuestas cruzadas (p.ej. 1 alumno que respondió
+      -- preguntas virtuales en una clase presencial).
+      JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
       GROUP BY cd.docentes_id, cdd.criterios_id
     `);
     const pregMap = new Map();
