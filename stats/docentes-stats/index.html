@@ -256,6 +256,48 @@
                             <p class="insight mt-4" id="insightSedeProm">—</p>
                         </div>
                     </div>
+
+                    <!-- Ranking de docentes por curso -->
+                    <div class="card p-5">
+                        <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
+                            <h3 class="font-bold text-slate-700 dark:text-slate-200">Ranking de docentes por curso</h3>
+                            <select id="selectCurso" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary min-w-[200px]">
+                                <option value="">Selecciona un curso…</option>
+                            </select>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mb-3">Puntaje corregido <b>local al curso</b> — los docentes se comparan contra la media del propio curso, no contra la institucional.</p>
+                        <div id="cursoEmpty" class="text-center py-10 text-slate-400 text-xs">
+                            <span class="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-700">menu_book</span>
+                            <p class="mt-2">Selecciona un curso del menú para ver el ranking de sus docentes.</p>
+                        </div>
+                        <div id="cursoContent" class="hidden">
+                            <div class="flex flex-wrap gap-4 text-xs mb-4 text-slate-600 dark:text-slate-300">
+                                <span><b>Curso:</b> <span id="cursoNombre">—</span></span>
+                                <span><b>Media del curso (C):</b> <span id="cursoC">—</span></span>
+                                <span><b>Docentes:</b> <span id="cursoNDocentes">—</span></span>
+                                <span><b>Total calificaciones:</b> <span id="cursoNTotal">—</span></span>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-xs">
+                                    <thead class="text-slate-600 dark:text-slate-400 uppercase tracking-tight bg-slate-50 dark:bg-slate-800/50">
+                                        <tr>
+                                            <th class="text-right px-3 py-2 font-bold">#</th>
+                                            <th class="text-left px-3 py-2 font-bold">Docente</th>
+                                            <th class="text-left px-3 py-2 font-bold">DNI</th>
+                                            <th class="text-left px-3 py-2 font-bold">Vínculo</th>
+                                            <th class="text-right px-3 py-2 font-bold">Score</th>
+                                            <th class="text-right px-3 py-2 font-bold">Crudo</th>
+                                            <th class="text-right px-3 py-2 font-bold">Calificaciones</th>
+                                            <th class="text-right px-3 py-2 font-bold">Grupos</th>
+                                            <th class="text-left px-3 py-2 font-bold">Robustez</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tblCursoDocentes" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+                                </table>
+                            </div>
+                            <p class="insight mt-4" id="insightCursoDocentes">—</p>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- ============ SECCIÓN 4: POR PREGUNTA ============ -->
@@ -549,7 +591,68 @@
             const m = rows[0], p = rows[rows.length - 1];
             document.getElementById('insightCurso').innerHTML =
                 `El curso mejor evaluado es <b>${esc(m.etiqueta)}</b> con <b>${m.promedio}</b>, y el peor es <b>${esc(p.etiqueta)}</b> con <b>${p.promedio}</b>. Diferencia de <b>${(m.promedio - p.promedio).toFixed(2)} puntos</b> entre el mejor y el peor curso.`;
+
+            // Poblar el selector de curso (ordenado alfabéticamente)
+            const sel = document.getElementById('selectCurso');
+            const cursos = [...rows].map(r => r.etiqueta).sort((a, b) => a.localeCompare(b, 'es'));
+            sel.innerHTML = '<option value="">Selecciona un curso…</option>' +
+                cursos.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
         }
+
+        async function cargarRankingCurso(curso) {
+            const empty = document.getElementById('cursoEmpty');
+            const content = document.getElementById('cursoContent');
+            if (!curso) { empty.classList.remove('hidden'); content.classList.add('hidden'); return; }
+            try {
+                const r = await fetch('/api/stats/docentes-stats/curso?curso=' + encodeURIComponent(curso), { headers: { Authorization: 'Bearer ' + TOKEN } });
+                if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!r.ok) { alert('Error al cargar el ranking del curso.'); return; }
+                const d = await r.json();
+                pintarRankingCurso(d);
+            } catch (e) { console.error(e); alert('Error de red.'); }
+        }
+
+        function pintarRankingCurso(d) {
+            document.getElementById('cursoEmpty').classList.add('hidden');
+            document.getElementById('cursoContent').classList.remove('hidden');
+            document.getElementById('cursoNombre').textContent = d.curso;
+            document.getElementById('cursoC').textContent = d.bayes?.C ?? '—';
+            document.getElementById('cursoNDocentes').textContent = fmt(d.total_docentes);
+            document.getElementById('cursoNTotal').textContent = fmt(d.total_calificaciones);
+
+            const tbody = document.getElementById('tblCursoDocentes');
+            if (!d.docentes.length) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-6 text-slate-400">Sin docentes con calificaciones en este curso.</td></tr>';
+                document.getElementById('insightCursoDocentes').textContent = '';
+                return;
+            }
+            const robBadge = { robusta: 'badge-ok', referencial: 'badge-warn', insuficiente: 'badge-bad' };
+            tbody.innerHTML = d.docentes.map((x, i) => {
+                const s = Number(x.score);
+                const cls = s >= 4.5 ? 'text-emerald-600' : s >= 4.0 ? 'text-lime-600' : s >= 3.5 ? 'text-amber-500' : s >= 3.0 ? 'text-orange-500' : 'text-red-500';
+                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="window.location.href='/stats/docentes-stats/docente?id=${x.id}'">
+                    <td class="px-3 py-2 text-right font-mono text-slate-500">${i + 1}</td>
+                    <td class="px-3 py-2 font-semibold">${esc(x.docente)}</td>
+                    <td class="px-3 py-2 font-mono">${esc(x.dni || '—')}</td>
+                    <td class="px-3 py-2">${esc(x.vinculo)}</td>
+                    <td class="px-3 py-2 text-right font-mono font-bold ${cls}">${s.toFixed(2)}</td>
+                    <td class="px-3 py-2 text-right font-mono text-slate-500">${Number(x.promedio_crudo).toFixed(2)}</td>
+                    <td class="px-3 py-2 text-right font-mono">${fmt(x.participantes)}</td>
+                    <td class="px-3 py-2 text-right font-mono">${fmt(x.grupos)}</td>
+                    <td class="px-3 py-2"><span class="badge ${robBadge[x.robustez] || 'badge-bad'}">${x.robustez}</span></td>
+                </tr>`;
+            }).join('');
+
+            const top = d.docentes[0], bot = d.docentes[d.docentes.length - 1];
+            const dif = (Number(top.score) - Number(bot.score)).toFixed(2);
+            document.getElementById('insightCursoDocentes').innerHTML =
+                `En <b>${esc(d.curso)}</b> el docente líder es <b>${esc(top.docente)}</b> (${top.score} · ${fmt(top.participantes)} alumnos). ` +
+                `El más bajo: <b>${esc(bot.docente)}</b> (${bot.score} · ${fmt(bot.participantes)} alumnos). ` +
+                `Brecha de <b>${dif} puntos</b> entre el mejor y el peor del curso. ` +
+                `<span class="text-primary font-semibold">Clic en cualquier fila para ver la ficha completa.</span>`;
+        }
+
+        document.getElementById('selectCurso').addEventListener('change', e => cargarRankingCurso(e.target.value));
 
         function pintarArea(rows) {
             bar('chArea', rows, 'promedio', r => r.etiqueta, { horizontal: false });

@@ -2961,6 +2961,75 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
   }
 });
 
+// ---- Ranking de docentes dentro de un curso (score bayesiano local al curso) ----
+app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), async (req, res) => {
+  const curso = String(req.query.curso || '').trim();
+  if (curso.length < 2) return res.status(400).json({ error: 'Parámetro "curso" requerido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    // C y m LOCALES al curso (no globales): permite comparación justa entre docentes del mismo curso
+    const [perDoc] = await conn.query(`
+      SELECT cd.docentes_id,
+             AVG(cd.promedio) AS prom_doc,
+             SUM(cd.participantes) AS n
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      WHERE cd.participantes > 0 AND c.denominacion = ?
+      GROUP BY cd.docentes_id
+    `, [curso]);
+
+    if (!perDoc.length) {
+      conn.release();
+      return res.json({ curso, bayes: null, docentes: [], total_calificaciones: 0 });
+    }
+
+    const proms = perDoc.map(r => Number(r.prom_doc));
+    const ns = perDoc.map(r => Number(r.n)).sort((a, b) => a - b);
+    const C = Number((proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(3));
+    const medianaN = ns[Math.floor(ns.length / 2)] || 20;
+    const M = Math.max(10, medianaN);  // umbral más bajo que el global (intra-curso = muestras menores)
+
+    const [docentes] = await conn.query(`
+      SELECT d.id,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             d.nro_documento AS dni,
+             CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+             ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
+             SUM(cd.participantes) AS participantes,
+             COUNT(DISTINCT cd.carga_academicas_id) AS grupos,
+             CASE WHEN SUM(cd.participantes) >= 30 THEN 'robusta'
+                  WHEN SUM(cd.participantes) >= 15 THEN 'referencial'
+                  ELSE 'insuficiente' END AS robustez
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN docentes d ON d.id = cd.docentes_id
+      WHERE cd.participantes > 0 AND c.denominacion = ?
+      GROUP BY d.id
+      ORDER BY score DESC, participantes DESC
+    `, [M, C, M, curso]);
+
+    const total = docentes.reduce((a, b) => a + Number(b.participantes), 0);
+    conn.release();
+    res.json({
+      curso,
+      bayes: { C, m: M, formula: 'score local al curso = (n·prom_doc + m·C_curso)/(n+m)' },
+      docentes,
+      total_calificaciones: total,
+      total_docentes: docentes.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error ranking por curso:', e);
+    res.status(500).json({ error: 'Error al generar el ranking', message: e.message });
+  }
+});
+
 // ============ REPORTES AUXILIARES (horas docentes + cobertura) ============
 
 // Helper: parsea un parámetro multi-valor (acepta array o CSV) y devuelve array limpio.

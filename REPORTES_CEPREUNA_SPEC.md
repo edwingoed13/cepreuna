@@ -315,6 +315,7 @@ Tag de robustez por número de participantes:
 GET /api/stats/docentes-stats/dashboard
 GET /api/stats/docentes-stats/buscar?q=<dni|codigo|nombre>
 GET /api/stats/docentes-stats/docente/:id
+GET /api/stats/docentes-stats/curso?curso=<denominacion>
 ```
 
 #### `GET /dashboard` — Vista institucional
@@ -367,6 +368,25 @@ Mínimo 2 caracteres. Hace `LIKE %q%` simultáneamente sobre `nro_documento`, `c
 ```
 
 `posicion` solo se calcula si `n >= 30`; de lo contrario es `null`.
+
+#### `GET /curso?curso=...` — Ranking de docentes dentro de un curso
+
+Devuelve los docentes que dictan el curso indicado, ordenados por **score bayesiano local al curso** (la media `C` es la del curso, no la institucional → permite comparación justa entre pares que enseñan lo mismo).
+
+```json
+{
+  "curso": "Razonamiento Verbal",
+  "bayes": { "C": 4.538, "m": 65, "formula": "score local al curso = (n·prom_doc + m·C_curso)/(n+m)" },
+  "docentes": [
+    { "id": 12, "docente": "LUJANO QUISPE FRESNIL ALBERT", "dni": "44538378", "vinculo": "Particular",
+      "promedio_crudo": 4.88, "score": 4.76, "participantes": 118, "grupos": 5, "robustez": "robusta" },
+    ...
+  ],
+  "total_docentes": 69, "total_calificaciones": 4830
+}
+```
+
+Umbrales de robustez intra-curso (más laxos que los institucionales, porque los volúmenes por docente×curso son menores): `n ≥ 30` robusta · `n ≥ 15` referencial · `n < 15` insuficiente.
 
 ### Query SQL clave — Top docentes con score bayesiano
 
