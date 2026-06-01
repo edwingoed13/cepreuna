@@ -3773,7 +3773,11 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
     ranks.forEach((r, i) => posMap.set(Number(r.docentes_id), i + 1));
     const totalRanking = ranks.length;
 
-    // Base: TODOS los titulares del periodo (incl. sin calificaciones) + identidad + alcance + desempeño
+    // Base: TODOS los docentes con datos del periodo = titulares activos UNION evaluados.
+    // Se incluye una carga si está ACTIVA (titular actual) o si tiene calificación activa
+    // (fue evaluada, aunque su carga se haya reasignado/desactivado luego). Así el padrón
+    // cuadra con el universo de la media institucional (580) y no pierde docentes evaluados
+    // que ya no figuran como titulares activos.
     const [base] = await conn.query(`
       SELECT d.id,
              d.nro_documento AS dni,
@@ -3790,9 +3794,13 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
              GROUP_CONCAT(DISTINCT t.denominacion ORDER BY t.denominacion SEPARATOR ', ') AS turnos,
              GROUP_CONCAT(DISTINCT COALESCE(s.denominacion,'—') ORDER BY s.denominacion SEPARATOR ', ') AS sedes,
              ROUND(AVG(CASE WHEN cd.modalidad='0' THEN cd.promedio END), 2) AS prom_presencial,
-             ROUND(AVG(CASE WHEN cd.modalidad='1' THEN cd.promedio END), 2) AS prom_virtual
+             ROUND(AVG(CASE WHEN cd.modalidad='1' THEN cd.promedio END), 2) AS prom_virtual,
+             MAX(ca.estado='1') AS tiene_carga_activa
       FROM docentes d
-      JOIN carga_academicas ca ON ca.docentes_id = d.id AND ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
+      JOIN carga_academicas ca ON ca.docentes_id = d.id AND ca.tipo='1'
+        AND ( (ca.periodos_id=1 AND ca.estado='1')
+              OR EXISTS (SELECT 1 FROM calificacion_docentes cdx
+                         WHERE cdx.carga_academicas_id = ca.id AND cdx.estado='1' AND cdx.participantes > 0) )
       LEFT JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1' AND cd.participantes > 0
       LEFT JOIN cursos cur ON cur.id = ca.cursos_id
       LEFT JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
@@ -3872,7 +3880,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
     wb.creator = 'CEPREUNA Stats';
     const ws = wb.addWorksheet('Padrón docentes');
 
-    const headersFijos = ['#', 'DNI', 'Apellidos y Nombres', 'Vínculo', 'Cód. UNAP', 'Profesión', 'Email',
+    const headersFijos = ['#', 'DNI', 'Apellidos y Nombres', 'Vínculo', 'Cód. UNAP', 'Profesión', 'Email', 'Estado carga',
       'Score (todas)', 'Score (válidas ≥80%)', 'Promedio crudo', 'Participantes', 'Robustez', 'Posición',
       '% Top (5)', '% Crítica (1-2)',
       'N° cursos', 'N° grupos', 'N° asignaciones', 'Cursos', 'Áreas', 'Turnos', 'Sedes',
@@ -3920,8 +3928,9 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       const asi = asistMap.get(id) || {};
       const pr = pregMap.get(id) || {};
 
+      const estadoCarga = Number(d.tiene_carga_activa) === 1 ? 'Activo' : 'Reasignado/inactivo';
       const fijos = [
-        idx + 1, d.dni || '', d.nombre, d.vinculo, d.codigo_unap || '', d.profesion || '', d.email || '',
+        idx + 1, d.dni || '', d.nombre, d.vinculo, d.codigo_unap || '', d.profesion || '', d.email || '', estadoCarga,
         score, scoreV, promCrudo, n, robustez, posMap.get(id) || '',
         pol.pct_top != null ? Number(pol.pct_top) : '', pol.pct_critica != null ? Number(pol.pct_critica) : '',
         Number(d.n_cursos || 0), Number(d.n_grupos || 0), Number(d.n_asignaciones || 0),
@@ -3940,8 +3949,8 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       });
     });
 
-    // Anchos
-    const widthsFijos = [4, 11, 32, 11, 10, 20, 24, 11, 13, 12, 12, 12, 9, 9, 10, 9, 9, 12, 40, 22, 16, 22, 13, 12, 9, 10, 9, 9, 12];
+    // Anchos (incluye 'Estado carga' tras Email)
+    const widthsFijos = [4, 11, 32, 11, 10, 20, 24, 16, 11, 13, 12, 12, 12, 9, 9, 10, 9, 9, 12, 40, 22, 16, 22, 13, 12, 9, 10, 9, 9, 12];
     ws.columns = headers.map((h, i) => ({ width: i < widthsFijos.length ? widthsFijos[i] : 7 }));
     ws.views = [{ state: 'frozen', xSplit: 3, ySplit: 4 }];
 
