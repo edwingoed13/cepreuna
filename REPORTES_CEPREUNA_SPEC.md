@@ -333,21 +333,7 @@ El conteo de "calificó a todos / a algunos" se calcula así (idéntico en `/das
 
 Los pocos alumnos que calificaron a docentes ya movidos de su grupo pueden tener `X > Y`; se cuentan como completos y el % de cobertura se capa con `LEAST(100, …)`.
 
-### Congelar al cierre de evaluación (corte 23-mar a 29-may)
-
-Parámetro `corte=1` en `/dashboard` (**ON por defecto** en el frontend). Resuelve la inestabilidad de los conteos de participación: las calificaciones están congeladas (última el 28-may), pero administración sigue **reasignando docentes** (`carga_academicas`) después del cierre, lo que mueve el **denominador** ("cuántos docentes debe calificar el alumno") y por tanto los conteos completo/parcial.
-
-Con el corte activo, el denominador se **reconstruye al estado vigente al 29-may** usando la tabla `audits` (Laravel auditing):
-- `getCargasOverrideCorte(conn)` consulta los cambios de estado de `carga_academicas` posteriores al corte y, por cada carga, toma el `old_values.estado` del **primer** cambio post-corte = su estado al cierre.
-- `cargaActivaExpr(corteActivo, override)` genera la condición SQL "la carga estaba activa al corte": `created_at <= corte AND ((estado='1' AND id NOT IN inactivas_override) OR id IN activas_override)`.
-- Se aplica al subquery `tc` (denominador) y `cal` (numerador) de las 4 queries de cobertura (KPIs, distribución, cobertura por sede, grupos en riesgo).
-
-Detalles:
-- **No se cachea el override** a propósito: si se cachea, una carga tocada después del cache usaría su estado en vivo y el conteo se movería. Recalcular en cada request (161 ms con `auditable_type = 'App\Models\CargaAcademica'` exacto, que usa el índice; `LIKE '%...%'` escaneaba 605 k filas en ~16 s) garantiza estabilidad. El `cacheMiddleware(180)` del endpoint limita la frecuencia.
-- **El numerador NO se filtra por fecha**: las 399 k calificaciones caen todas en el periodo, así que el filtro sería redundante y costoso. El corte actúa solo sobre el denominador (cargas).
-- **Determinista**: dado un estado de BD, el corte siempre da el mismo resultado (verificado con corridas repetidas). Mientras administración reorganiza activamente las cargas, el valor se ajusta; converge cuando dejan de editar.
-- **Límite conocido**: reconstruye `carga_academicas.estado`, no `matriculas` (grupo del alumno) ni `carga_academicas.tipo`. En la práctica las matrículas casi no se mueven post-cierre.
-- Response incluye `corte_activo` y `periodo_corte: { desde, hasta }`.
+> **Nota histórica**: se evaluó un switch "Congelar al cierre" que reconstruía el estado de `carga_academicas` al 29-may vía la tabla `audits`. Se retiró una vez que la corrección del numerador (arriba) hizo el cálculo base estable por sí mismo: el problema no era el denominador sino el numerador atado al grupo de la carga.
 
 ### Switch "solo calificaciones válidas" (≥80% asistencia)
 

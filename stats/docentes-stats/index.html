@@ -162,19 +162,6 @@
                     <div class="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
                         <div class="flex items-center gap-3">
                             <label class="relative inline-flex items-center cursor-pointer">
-                                <input type="checkbox" id="switchCorte" class="sr-only peer" checked>
-                                <div class="w-11 h-6 bg-slate-300 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                            </label>
-                            <div>
-                                <p class="text-xs font-bold text-slate-700 dark:text-slate-200">Congelar al cierre de evaluación (23 mar – 29 may)</p>
-                                <p class="text-[10px] text-slate-400">Reconstruye las asignaciones docentes al 29-may. Los conteos no cambian aunque administración reasigne docentes después del cierre.</p>
-                            </div>
-                        </div>
-                        <span id="corteBadge" class="text-[11px] px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 font-bold whitespace-nowrap">Cerrado al 29-may</span>
-                    </div>
-                    <div class="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
-                        <div class="flex items-center gap-3">
-                            <label class="relative inline-flex items-center cursor-pointer">
                                 <input type="checkbox" id="switchValidas" class="sr-only peer">
                                 <div class="w-11 h-6 bg-slate-300 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                             </label>
@@ -563,8 +550,6 @@
             if (area) p.set('area', area);
             if (turno) p.set('turno', turno);
             if (document.getElementById('switchValidas').checked) p.set('solo_validas', '1');
-            // corte explícito (1/0) para que el estado persista al recargar (default ON)
-            p.set('corte', document.getElementById('switchCorte').checked ? '1' : '0');
             return p;
         }
         function getFiltrosQueryString() {
@@ -589,7 +574,6 @@
             if (activos) { badge.classList.remove('hidden'); badge.textContent = `${activos} filtro${activos === 1 ? '' : 's'} activo${activos === 1 ? '' : 's'}`; }
             else badge.classList.add('hidden');
             document.getElementById('validasBadge').classList.toggle('hidden', !d.solo_validas);
-            document.getElementById('corteBadge').classList.toggle('hidden', !d.corte_activo);
 
             pintarKPIs(d.kpis);
             document.getElementById('paramC').textContent = d.bayes.C;
@@ -1234,7 +1218,6 @@
             if (params.get('area'))  document.getElementById('filterArea').value  = params.get('area');
             if (params.get('turno')) document.getElementById('filterTurno').value = params.get('turno');
             if (params.get('solo_validas') === '1') document.getElementById('switchValidas').checked = true;
-            if (params.get('corte') === '0') document.getElementById('switchCorte').checked = false;
         }
 
         function aplicarFiltros() {
@@ -1264,7 +1247,6 @@
                 if (!document.getElementById('heatmapContainer').classList.contains('hidden')) cargarHeatmap(curso);
             }
         });
-        document.getElementById('switchCorte').addEventListener('change', aplicarFiltros);
 
         (async () => {
             await cargarCatalogos();

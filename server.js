@@ -2467,50 +2467,6 @@ app.get('/api/stats/calificaciones', requireStatsAuth, async (req, res) => {
 // Importante: TODAS las queries que tocan carga_academicas filtran tipo='1'
 // (solo titulares); los suplentes no se cuentan como docentes a calificar.
 
-// ---- Congelar al cierre de evaluación (rango 23-mar a 29-may 2026) ----
-// Los conteos de participación dependen del DENOMINADOR (carga_academicas activas).
-// Administración sigue reasignando docentes después del cierre, lo que mueve los
-// números aunque las calificaciones estén congeladas. Con el corte activo, el
-// denominador se RECONSTRUYE al estado vigente al 29-may usando la tabla `audits`
-// (Laravel auditing): para cada carga cuyo estado cambió después del corte, se usa
-// el valor previo (old_values.estado del primer cambio post-corte).
-const PERIODO_CORTE = { desde: '2026-03-23 00:00:00', hasta: '2026-05-29 23:59:59' };
-
-// Override de estado al corte. NO se cachea en memoria a propósito: si administración
-// modifica una carga DESPUÉS de cachear, esa carga usaría su estado en vivo (no el
-// reconstruido) y el conteo se movería. Recalcular en cada request garantiza que toda
-// carga tocada post-corte use su estado-al-corte → resultado estable. El cacheMiddleware
-// del endpoint (180 s) ya limita la frecuencia de esta query a audits.
-const AUDIT_TIPO_CARGA = 'App\\Models\\CargaAcademica';
-async function getCargasOverrideCorte(conn) {
-  // auditable_type = exacto (usa el índice audits_auditable_type_auditable_id_index).
-  // LIKE '%...%' escaneaba las 605k filas (~16 s); con '=' baja a las ~21k de cargas.
-  const [rows] = await conn.query(`
-    SELECT auditable_id AS id,
-           SUBSTRING_INDEX(
-             GROUP_CONCAT(JSON_UNQUOTE(JSON_EXTRACT(old_values,'$.estado')) ORDER BY created_at), ',', 1
-           ) AS estado_corte
-    FROM audits
-    WHERE auditable_type = ?
-      AND created_at > ?
-      AND JSON_EXTRACT(new_values,'$.estado') IS NOT NULL
-    GROUP BY auditable_id
-  `, [AUDIT_TIPO_CARGA, PERIODO_CORTE.hasta]);
-  const activas = rows.filter(r => r.estado_corte === '1').map(r => Number(r.id));
-  const inactivas = rows.filter(r => r.estado_corte !== '1' && r.estado_corte != null).map(r => Number(r.id));
-  return { activas, inactivas };
-}
-
-// Devuelve la expresión SQL booleana "la carga (alias ca) estaba activa al corte".
-// Sin corte: estado actual. Con corte: estado reconstruido + creada antes del corte.
-function cargaActivaExpr(corteActivo, override) {
-  if (!corteActivo) return `ca.estado = '1'`;
-  const inA = override.activas.length ? override.activas.join(',') : '0';
-  const inI = override.inactivas.length ? override.inactivas.join(',') : '0';
-  return `(ca.created_at <= '${PERIODO_CORTE.hasta}'
-           AND ((ca.estado='1' AND ca.id NOT IN (${inI})) OR ca.id IN (${inA})))`;
-}
-
 // ---- Switch "solo calificaciones válidas" (>=80% asistencia del alumno) ----
 // Una calificación se considera válida solo si el alumno tuvo >=80% de asistencia
 // (presente=1 + tarde=2 cuentan; falta=3 no). Cuando el switch está activo, los
@@ -2611,36 +2567,25 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
   const JOIN_ASIST = soloValidas
     ? `JOIN (${ASIST_VALIDA_SQL}) av ON av.estudiantes_id = cdd.estudiantes_id`
     : '';
-  const corteActivo = req.query.corte === '1' || req.query.corte === 'true';
   try {
     conn = await pool.getConnection();
-    // Reconstruir el estado de las cargas al cierre (solo si el corte está activo)
-    const override = corteActivo ? await getCargasOverrideCorte(conn) : { activas: [], inactivas: [] };
-    const CA_ACTIVA = cargaActivaExpr(corteActivo, override);
-    // El numerador (qué calificó el alumno) NO se filtra por fecha: todas las
-    // calificaciones (399 k) caen dentro del periodo 23-mar a 29-may, así que el
-    // filtro sería redundante y costoso (~2 s/query). El corte se aplica solo al
-    // DENOMINADOR (cargas activas al cierre), que es la fuente real de inestabilidad.
-    const CAL_FECHA = '';
     // ------------------------------------------------------------------
     // COBERTURA correlacionada con lo que REALMENTE se calificó (estable).
     //
     //   DENOMINADOR (tc) por grupo = docentes titulares con calificación activa
-    //     (cd.estado='1') cuya carga pertenece al grupo. Usa cd como fuente, no
-    //     el estado vivo de la carga → no se rompe si la carga se reasigna.
+    //     (cd.estado='1') cuya carga pertenece al grupo. Usa cd como fuente.
     //   NUMERADOR (num) por ALUMNO = docentes distintos que el alumno
     //     efectivamente calificó (calificacion_docente_detalles). NO se agrupa
     //     por grupo de la carga: así, si una carga cambia de grupo/curso después
     //     de que el alumno la calificó, su calificación SIGUE contando. Esta era
     //     la causa de que los conteos cayeran al reasignar cargas.
     //
-    // El alumno se compara contra el denominador de SU grupo (matrícula). El
-    // corte (CA_ACTIVA) sigue disponible para reconstruir el denominador al cierre.
+    // El alumno se compara contra el denominador de SU grupo (matrícula).
     const TC_SUBQ = `
         SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
         FROM calificacion_docentes cd
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-        WHERE cd.estado='1' AND ca.periodos_id=1 AND ${CA_ACTIVA} AND ca.tipo='1'
+        WHERE cd.estado='1' AND ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
         GROUP BY ca.grupo_aulas_id`;
     // Numerador por alumno (inmutable): docentes distintos calificados. Sin grupo.
     const NUM_SUBQ = `
@@ -3016,8 +2961,6 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       bayes: { C, m: M, formula: 'score = (n·prom_doc + m·C)/(n+m); prom_doc = media de promedios por grupo' },
       solo_validas: soloValidas,
       umbral_asistencia: UMBRAL_ASISTENCIA,
-      corte_activo: corteActivo,
-      periodo_corte: corteActivo ? { desde: PERIODO_CORTE.desde.slice(0,10), hasta: PERIODO_CORTE.hasta.slice(0,10) } : null,
       filtros_aplicados: F.aplicados,
       distribucion_cumplimiento: distribucion,
       cobertura_por_sede: porSede,
