@@ -167,6 +167,7 @@
                     <div class="card p-4">
                         <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Alumnos inscritos</p>
                         <p class="text-2xl font-black text-slate-800 dark:text-white" id="kpiTotal">—</p>
+                        <p class="text-[10px] text-slate-400 mt-1" id="kpiSinGrupo"></p>
                     </div>
                     <div class="card p-4">
                         <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Calificaron a todos</p>
@@ -579,13 +580,18 @@
 
         function pintarKPIs(k) {
             const total = Number(k.total_alumnos || 0);
+            const sinGrupo = Number(k.sin_grupo || 0);
+            // Base para los porcentajes: alumnos que SÍ tienen docentes que calificar.
+            const base = total - sinGrupo;
             document.getElementById('kpiTotal').textContent = fmt(total);
+            const notaSinGrupo = document.getElementById('kpiSinGrupo');
+            notaSinGrupo.textContent = sinGrupo > 0 ? `${fmt(sinGrupo)} sin grupo (excluidos)` : '';
             document.getElementById('kpiCompletos').textContent = fmt(k.completos);
-            document.getElementById('kpiCompletosPct').textContent = pct(k.completos, total);
+            document.getElementById('kpiCompletosPct').textContent = pct(k.completos, base);
             document.getElementById('kpiParciales').textContent = fmt(k.parciales);
-            document.getElementById('kpiParcialesPct').textContent = pct(k.parciales, total);
+            document.getElementById('kpiParcialesPct').textContent = pct(k.parciales, base);
             document.getElementById('kpiSin').textContent = fmt(k.sin_calificar);
-            document.getElementById('kpiSinPct').textContent = pct(k.sin_calificar, total);
+            document.getElementById('kpiSinPct').textContent = pct(k.sin_calificar, base);
             document.getElementById('kpiCobertura').textContent = (k.cobertura_global_pct || 0) + '%';
             document.getElementById('kpiDocentesEval').textContent = fmt(k.docentes_evaluados);
         }

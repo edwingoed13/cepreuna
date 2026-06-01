@@ -508,6 +508,9 @@ ORDER BY promedio_docente DESC;
 - **Escala 1–5**: confirmada por inspección de `MIN/MAX/AVG(puntaje)` en `calificacion_docente_detalles`. Los rangos del histograma de calidad y la paleta `colorByProm` están calibrados para esta escala.
 - **Vínculo UNAP vs Particular**: `tipo_trabajador` y `contrato` están **null en los 988 docentes**. La distinción real viene de `condicion`: `'2'` = UNAP (119 docentes, todos con `codigo_unap`), `'1'` = Particular (869 docentes, sin código). Correlación 100% confirmada con `codigo_unap IS NOT NULL`.
 - **Caché**: dashboard 180 s, ficha 120 s. Buscador sin caché (volátil).
+- **Denominador de cobertura = titulares con `calificacion_docentes` activa** (`cd.estado='1'`), no todos los titulares asignados. Si la cd aún no está activa, el alumno no ve al docente en la encuesta y no debe contarse como pendiente (quedaría "parcial" sin remedio). Las 4 queries que cuentan cobertura usan este subquery; el endpoint `/api/stats/calificaciones` (página alumnos-calificación) usa la misma definición para que ambas vistas coincidan.
+- **Clasificación de alumnos en 4 categorías** (idéntica a alumnos-calificación):
+  `completo` (total>0, calif≥total) · `parcial` (total>0, 0<calif<total) · `sin_calificar` (total>0, calif=0) · `sin_grupo` (total=0 → inscrito sin matrícula, sin docentes que calificar). `sin_grupo` **no** entra en `sin_calificar`. El `cobertura_global_pct` y la `cobertura_por_sede` excluyen los `total=0` del promedio (NULL no entra al AVG). Los porcentajes de los KPIs se calculan sobre la base `total − sin_grupo`.
 
 ---
 
