@@ -2464,6 +2464,50 @@ app.get('/api/stats/calificaciones', requireStatsAuth, async (req, res) => {
 // Importante: TODAS las queries que tocan carga_academicas filtran tipo='1'
 // (solo titulares); los suplentes no se cuentan como docentes a calificar.
 
+// ---- Congelar al cierre de evaluación (rango 23-mar a 29-may 2026) ----
+// Los conteos de participación dependen del DENOMINADOR (carga_academicas activas).
+// Administración sigue reasignando docentes después del cierre, lo que mueve los
+// números aunque las calificaciones estén congeladas. Con el corte activo, el
+// denominador se RECONSTRUYE al estado vigente al 29-may usando la tabla `audits`
+// (Laravel auditing): para cada carga cuyo estado cambió después del corte, se usa
+// el valor previo (old_values.estado del primer cambio post-corte).
+const PERIODO_CORTE = { desde: '2026-03-23 00:00:00', hasta: '2026-05-29 23:59:59' };
+
+// Override de estado al corte. NO se cachea en memoria a propósito: si administración
+// modifica una carga DESPUÉS de cachear, esa carga usaría su estado en vivo (no el
+// reconstruido) y el conteo se movería. Recalcular en cada request garantiza que toda
+// carga tocada post-corte use su estado-al-corte → resultado estable. El cacheMiddleware
+// del endpoint (180 s) ya limita la frecuencia de esta query a audits.
+const AUDIT_TIPO_CARGA = 'App\\Models\\CargaAcademica';
+async function getCargasOverrideCorte(conn) {
+  // auditable_type = exacto (usa el índice audits_auditable_type_auditable_id_index).
+  // LIKE '%...%' escaneaba las 605k filas (~16 s); con '=' baja a las ~21k de cargas.
+  const [rows] = await conn.query(`
+    SELECT auditable_id AS id,
+           SUBSTRING_INDEX(
+             GROUP_CONCAT(JSON_UNQUOTE(JSON_EXTRACT(old_values,'$.estado')) ORDER BY created_at), ',', 1
+           ) AS estado_corte
+    FROM audits
+    WHERE auditable_type = ?
+      AND created_at > ?
+      AND JSON_EXTRACT(new_values,'$.estado') IS NOT NULL
+    GROUP BY auditable_id
+  `, [AUDIT_TIPO_CARGA, PERIODO_CORTE.hasta]);
+  const activas = rows.filter(r => r.estado_corte === '1').map(r => Number(r.id));
+  const inactivas = rows.filter(r => r.estado_corte !== '1' && r.estado_corte != null).map(r => Number(r.id));
+  return { activas, inactivas };
+}
+
+// Devuelve la expresión SQL booleana "la carga (alias ca) estaba activa al corte".
+// Sin corte: estado actual. Con corte: estado reconstruido + creada antes del corte.
+function cargaActivaExpr(corteActivo, override) {
+  if (!corteActivo) return `ca.estado = '1'`;
+  const inA = override.activas.length ? override.activas.join(',') : '0';
+  const inI = override.inactivas.length ? override.inactivas.join(',') : '0';
+  return `(ca.created_at <= '${PERIODO_CORTE.hasta}'
+           AND ((ca.estado='1' AND ca.id NOT IN (${inI})) OR ca.id IN (${inA})))`;
+}
+
 // ---- Switch "solo calificaciones válidas" (>=80% asistencia del alumno) ----
 // Una calificación se considera válida solo si el alumno tuvo >=80% de asistencia
 // (presente=1 + tarde=2 cuentan; falta=3 no). Cuando el switch está activo, los
@@ -2564,8 +2608,31 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
   const JOIN_ASIST = soloValidas
     ? `JOIN (${ASIST_VALIDA_SQL}) av ON av.estudiantes_id = cdd.estudiantes_id`
     : '';
+  const corteActivo = req.query.corte === '1' || req.query.corte === 'true';
   try {
     conn = await pool.getConnection();
+    // Reconstruir el estado de las cargas al cierre (solo si el corte está activo)
+    const override = corteActivo ? await getCargasOverrideCorte(conn) : { activas: [], inactivas: [] };
+    const CA_ACTIVA = cargaActivaExpr(corteActivo, override);
+    // El numerador (qué calificó el alumno) NO se filtra por fecha: todas las
+    // calificaciones (399 k) caen dentro del periodo 23-mar a 29-may, así que el
+    // filtro sería redundante y costoso (~2 s/query). El corte se aplica solo al
+    // DENOMINADOR (cargas activas al cierre), que es la fuente real de inestabilidad.
+    const CAL_FECHA = '';
+    // Subqueries de cobertura centralizados (denominador tc + numerador cal), con corte aplicado.
+    const TC_SUBQ = `
+        SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
+        FROM carga_academicas ca
+        JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1'
+        WHERE ca.periodos_id=1 AND ${CA_ACTIVA} AND ca.tipo='1'
+        GROUP BY ca.grupo_aulas_id`;
+    const CAL_SUBQ = `
+        SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
+        FROM calificacion_docente_detalles d
+        JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
+        WHERE ca.periodos_id=1 AND ${CA_ACTIVA} AND ca.tipo='1' ${CAL_FECHA}
+        GROUP BY d.estudiantes_id, ca.grupo_aulas_id`;
 
     // 1) KPIs globales (con filtros opcionales de sede/area/turno via perspectiva alumno)
     const [[kpis]] = await conn.query(`
@@ -2578,24 +2645,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         JOIN estudiantes e ON e.id = i.estudiantes_id
         LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
         ${F.joinsIm}
-        LEFT JOIN (
-          -- Denominador: solo titulares con calificacion_docentes ACTIVA.
-          -- Si la cd aun no esta activa, el alumno no ve al docente en la encuesta
-          -- y no debe contarse como pendiente (quedaria parcial sin remedio).
-          SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
-          FROM carga_academicas ca
-          JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado = '1'
-          WHERE ca.periodos_id = 1 AND ca.estado = '1' AND ca.tipo = '1'
-          GROUP BY ca.grupo_aulas_id
+        LEFT JOIN (${TC_SUBQ}
         ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-        LEFT JOIN (
-          SELECT d.estudiantes_id, ca.grupo_aulas_id,
-                 COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
-          FROM calificacion_docente_detalles d
-          JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
-          JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-          WHERE ca.periodos_id = 1 AND ca.estado = '1' AND ca.tipo = '1'
-          GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+        LEFT JOIN (${CAL_SUBQ}
         ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
         WHERE i.periodos_id = 1 AND i.estado = '1'
         ${F.whereIm}
@@ -2630,20 +2682,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         FROM inscripciones i
         JOIN estudiantes e ON e.id = i.estudiantes_id
         LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
-        LEFT JOIN (
-          SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
-          FROM carga_academicas ca
-          JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1'
-          WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
-          GROUP BY ca.grupo_aulas_id
+        LEFT JOIN (${TC_SUBQ}
         ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-        LEFT JOIN (
-          SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
-          FROM calificacion_docente_detalles d
-          JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
-          JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-          WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
-          GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+        LEFT JOIN (${CAL_SUBQ}
         ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
         WHERE i.periodos_id=1 AND i.estado='1'
           -- Excluir alumnos sin docentes evaluables (sin grupo): no tienen nada que calificar.
@@ -2672,25 +2713,14 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       SELECT s.denominacion AS sede,
              COUNT(DISTINCT CASE WHEN COALESCE(tc.total_docentes,0) > 0 THEN e.id END) AS alumnos,
              ROUND(AVG(CASE WHEN COALESCE(tc.total_docentes,0)=0 THEN NULL
-                            ELSE 100 * COALESCE(cal.calif,0) / tc.total_docentes END), 1) AS pct
+                            ELSE 100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes END), 1) AS pct
       FROM inscripciones i
       JOIN estudiantes e ON e.id = i.estudiantes_id
       JOIN sedes s ON s.id = i.sedes_id
       LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
-      LEFT JOIN (
-        SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
-        FROM carga_academicas ca
-        JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1'
-        WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
-        GROUP BY ca.grupo_aulas_id
+      LEFT JOIN (${TC_SUBQ}
       ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-      LEFT JOIN (
-        SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS calif
-        FROM calificacion_docente_detalles d
-        JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
-        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-        WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
-        GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+      LEFT JOIN (${CAL_SUBQ}
       ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
       WHERE i.periodos_id=1 AND i.estado='1'
       GROUP BY s.id ORDER BY pct DESC
@@ -2870,7 +2900,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              COALESCE(ANY_VALUE(sa.denominacion), ANY_VALUE(s.denominacion)) AS sede,
              COUNT(DISTINCT e.id) AS alumnos,
              ROUND(AVG(CASE WHEN COALESCE(tc.total_docentes,0)=0 THEN 0
-                            ELSE 100 * COALESCE(cal.calif,0) / tc.total_docentes END), 1) AS cobertura_pct
+                            ELSE 100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes END), 1) AS cobertura_pct
       FROM inscripciones i
       JOIN estudiantes e ON e.id = i.estudiantes_id
       JOIN sedes s ON s.id = i.sedes_id
@@ -2882,20 +2912,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       LEFT JOIN aulas au ON au.id = ga.aulas_id
       LEFT JOIN locales lo ON lo.id = au.locales_id
       LEFT JOIN sedes sa ON sa.id = lo.sedes_id
-      LEFT JOIN (
-        SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
-        FROM carga_academicas ca
-        JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1'
-        WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
-        GROUP BY ca.grupo_aulas_id
+      LEFT JOIN (${TC_SUBQ}
       ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-      LEFT JOIN (
-        SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS calif
-        FROM calificacion_docente_detalles d
-        JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
-        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-        WHERE ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
-        GROUP BY d.estudiantes_id, ca.grupo_aulas_id
+      LEFT JOIN (${CAL_SUBQ}
       ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
       WHERE i.periodos_id=1 AND i.estado='1' ${grWhereStr}
       GROUP BY ga.id
@@ -2980,6 +2999,8 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       bayes: { C, m: M, formula: 'score = (n·prom_doc + m·C)/(n+m); prom_doc = media de promedios por grupo' },
       solo_validas: soloValidas,
       umbral_asistencia: UMBRAL_ASISTENCIA,
+      corte_activo: corteActivo,
+      periodo_corte: corteActivo ? { desde: PERIODO_CORTE.desde.slice(0,10), hasta: PERIODO_CORTE.hasta.slice(0,10) } : null,
       filtros_aplicados: F.aplicados,
       distribucion_cumplimiento: distribucion,
       cobertura_por_sede: porSede,
