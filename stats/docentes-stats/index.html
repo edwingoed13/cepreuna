@@ -116,6 +116,9 @@
                     <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Calificación docente — Informe ejecutivo</h2>
                 </div>
                 <div class="flex items-center gap-3">
+                    <a href="/stats/docentes-stats/comparar" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-base">compare_arrows</span><span class="hidden sm:inline">Comparar</span>
+                    </a>
                     <button id="searchBtn" class="text-xs px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-light transition-colors flex items-center gap-1.5 font-semibold">
                         <span class="material-symbols-outlined text-base">person_search</span><span class="hidden sm:inline">Buscar docente</span>
                     </button>
@@ -301,6 +304,18 @@
                                 </table>
                             </div>
                             <p class="insight mt-4" id="insightCursoDocentes">—</p>
+
+                            <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                                <button id="btnHeatmap" class="text-xs px-3 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary hover:text-white transition-colors flex items-center gap-1.5 font-semibold">
+                                    <span class="material-symbols-outlined text-base">grid_on</span>Ver heatmap docente × pregunta
+                                </button>
+                                <div id="heatmapContainer" class="hidden mt-4">
+                                    <p class="text-[11px] text-slate-400 mb-2">Matriz de promedios (1–5) por docente y pregunta. Las celdas más rojas indican aspectos críticos del docente.</p>
+                                    <div class="overflow-x-auto">
+                                        <table class="text-[11px] border-collapse" id="tblHeatmap"></table>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -734,7 +749,83 @@
                 `<span class="text-primary font-semibold">Clic en cualquier fila para ver la ficha completa.</span>`;
         }
 
-        document.getElementById('selectCurso').addEventListener('change', e => cargarRankingCurso(e.target.value));
+        document.getElementById('selectCurso').addEventListener('change', e => {
+            cargarRankingCurso(e.target.value);
+            document.getElementById('heatmapContainer').classList.add('hidden');
+            document.getElementById('btnHeatmap').textContent = 'Ver heatmap docente × pregunta';
+        });
+
+        // Heatmap docente × pregunta
+        async function cargarHeatmap(curso) {
+            try {
+                const r = await fetch('/api/stats/docentes-stats/heatmap?curso=' + encodeURIComponent(curso), { headers: { Authorization: 'Bearer ' + TOKEN } });
+                if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!r.ok) { alert('Error al cargar heatmap.'); return; }
+                pintarHeatmap(await r.json());
+            } catch (e) { console.error(e); }
+        }
+
+        function pintarHeatmap(d) {
+            const tbl = document.getElementById('tblHeatmap');
+            // Color: 5=verde fuerte, 4=verde claro, 3=ámbar, 2=naranja, 1=rojo
+            const colorCell = (v) => {
+                if (v == null) return '#f1f5f9';
+                if (v >= 4.5) return '#10b981';
+                if (v >= 4.0) return '#84cc16';
+                if (v >= 3.5) return '#fbbf24';
+                if (v >= 3.0) return '#f97316';
+                return '#ef4444';
+            };
+            const textColor = (v) => v == null ? '#94a3b8' : v >= 3.5 ? '#fff' : '#0f172a';
+            // Cabecera: # · Docente · Prom · cada pregunta abreviada · n
+            const headerCells = d.preguntas.map((p, i) => {
+                const short = p.denominacion.length > 30 ? p.denominacion.slice(0, 27) + '…' : p.denominacion;
+                return `<th class="px-2 py-2 text-center font-bold align-bottom" style="writing-mode:vertical-rl; transform:rotate(180deg); min-width:32px; max-width:32px;" title="${esc(p.denominacion)}">P${i+1} · ${esc(short)}</th>`;
+            }).join('');
+            const summaryRow = `<tr class="bg-slate-100 dark:bg-slate-800 font-bold">
+                <td class="px-2 py-1 text-right text-slate-500">—</td>
+                <td class="px-2 py-1 sticky left-0 bg-slate-100 dark:bg-slate-800">Promedio del curso</td>
+                <td class="px-2 py-1 text-right text-slate-500">—</td>
+                ${d.promedio_curso_por_pregunta.map(v => `<td class="text-center font-mono" style="background:${colorCell(v)};color:${textColor(v)};min-width:32px;">${v == null ? '—' : v.toFixed(1)}</td>`).join('')}
+                <td class="px-2 py-1 text-right text-slate-500">—</td>
+            </tr>`;
+            const docRows = d.docentes.map((doc, i) => {
+                const cells = doc.valores.map(v => `<td class="text-center font-mono" style="background:${colorCell(v)};color:${textColor(v)};min-width:32px;">${v == null ? '—' : v.toFixed(1)}</td>`).join('');
+                return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onclick="window.location.href='/stats/docentes-stats/docente?id=${doc.id}'">
+                    <td class="px-2 py-1 text-right font-mono text-slate-500">${i+1}</td>
+                    <td class="px-2 py-1 sticky left-0 bg-white dark:bg-slate-900 font-semibold whitespace-nowrap">${esc(doc.nombre)}</td>
+                    <td class="px-2 py-1 text-right font-mono font-bold">${doc.promedio.toFixed(2)}</td>
+                    ${cells}
+                    <td class="px-2 py-1 text-right font-mono text-slate-500">${fmt(doc.n)}</td>
+                </tr>`;
+            }).join('');
+            tbl.innerHTML = `
+                <thead class="text-slate-600 dark:text-slate-400 uppercase tracking-tight bg-slate-50 dark:bg-slate-800/50 text-[10px]">
+                    <tr>
+                        <th class="px-2 py-2 text-right">#</th>
+                        <th class="px-2 py-2 text-left sticky left-0 bg-slate-50 dark:bg-slate-800/50">Docente</th>
+                        <th class="px-2 py-2 text-right">Prom</th>
+                        ${headerCells}
+                        <th class="px-2 py-2 text-right">n</th>
+                    </tr>
+                </thead>
+                <tbody>${summaryRow}${docRows}</tbody>`;
+        }
+
+        document.getElementById('btnHeatmap').addEventListener('click', () => {
+            const cont = document.getElementById('heatmapContainer');
+            const btn = document.getElementById('btnHeatmap');
+            const sel = document.getElementById('selectCurso');
+            if (!sel.value) { alert('Primero selecciona un curso.'); return; }
+            if (cont.classList.contains('hidden')) {
+                cont.classList.remove('hidden');
+                btn.innerHTML = '<span class="material-symbols-outlined text-base">visibility_off</span>Ocultar heatmap';
+                cargarHeatmap(sel.value);
+            } else {
+                cont.classList.add('hidden');
+                btn.innerHTML = '<span class="material-symbols-outlined text-base">grid_on</span>Ver heatmap docente × pregunta';
+            }
+        });
 
         function pintarArea(rows) {
             bar('chArea', rows, 'promedio', r => r.etiqueta, { horizontal: false });

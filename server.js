@@ -292,6 +292,9 @@ app.get('/stats/docentes-stats', (req, res) => {
 app.get('/stats/docentes-stats/docente', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'docentes-stats', 'docente', 'index.html'));
 });
+app.get('/stats/docentes-stats/comparar', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'docentes-stats', 'comparar', 'index.html'));
+});
 
 app.get('/stats/alumnos-calificacion', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'alumnos-calificacion', 'index.html'));
@@ -3055,6 +3058,23 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
       WHERE ad.docentes_id = ?
     `, [id]);
 
+    // 11) Observaciones del auxiliar (notas cualitativas de las sesiones)
+    const [observaciones] = await conn.query(`
+      SELECT ad.id, ad.fecha, ad.estado, ad.hora_inicio,
+             c.denominacion AS curso,
+             g.denominacion AS grupo,
+             ad.observacion AS texto
+      FROM asistencia_docentes ad
+      JOIN carga_academicas ca ON ca.id = ad.carga_academicas_id
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id
+      WHERE ad.docentes_id = ?
+        AND ad.observacion IS NOT NULL AND TRIM(ad.observacion) <> ''
+      ORDER BY ad.fecha DESC, ad.id DESC
+      LIMIT 30
+    `, [id]);
+
     conn.release();
     res.json({
       docente: doc,
@@ -3077,6 +3097,7 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
       polarizacion,
       consistencia,
       asistencia,
+      observaciones,
       timestamp: new Date().toISOString()
     });
   } catch (e) {
@@ -3168,6 +3189,70 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
     if (conn) conn.release();
     console.error('Error ranking por curso:', e);
     res.status(500).json({ error: 'Error al generar el ranking', message: e.message });
+  }
+});
+
+// ---- Heatmap docente × pregunta para un curso ----
+app.get('/api/stats/docentes-stats/heatmap', requireAdmin, cacheMiddleware(180), async (req, res) => {
+  const curso = String(req.query.curso || '').trim();
+  if (curso.length < 2) return res.status(400).json({ error: 'Parámetro "curso" requerido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    const [preguntas] = await conn.query(`
+      SELECT id, denominacion FROM criterios WHERE tipo='1' AND estado='1' ORDER BY id
+    `);
+
+    const [filas] = await conn.query(`
+      SELECT cd.docentes_id AS docente_id,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             cdd.criterios_id AS pregunta_id,
+             ROUND(AVG(cdd.puntaje), 2) AS promedio,
+             COUNT(*) AS n
+      FROM calificacion_docente_detalles cdd
+      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN cursos c ON c.id = ca.cursos_id
+      JOIN docentes d ON d.id = cd.docentes_id
+      JOIN criterios cr ON cr.id = cdd.criterios_id
+      WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1'
+      GROUP BY cd.docentes_id, cdd.criterios_id
+    `, [curso]);
+
+    // Pivotar en JS a matriz: filas = docentes, columnas = preguntas
+    const docentesMap = new Map();
+    for (const row of filas) {
+      if (!docentesMap.has(row.docente_id)) {
+        docentesMap.set(row.docente_id, { id: row.docente_id, nombre: row.docente, byPregunta: {}, n_total: 0 });
+      }
+      const d = docentesMap.get(row.docente_id);
+      d.byPregunta[row.pregunta_id] = Number(row.promedio);
+      d.n_total += Number(row.n);
+    }
+
+    const docentes = [...docentesMap.values()]
+      .map(d => {
+        const valores = preguntas.map(p => (d.byPregunta[p.id] != null ? d.byPregunta[p.id] : null));
+        const validos = valores.filter(v => v !== null);
+        const promedio = validos.length ? Number((validos.reduce((a, b) => a + b, 0) / validos.length).toFixed(2)) : 0;
+        return { id: d.id, nombre: d.nombre, valores, promedio, n: d.n_total };
+      })
+      .filter(d => d.valores.filter(v => v !== null).length >= 1)
+      .sort((a, b) => b.promedio - a.promedio);
+
+    // Promedio del curso por pregunta (para fila resumen)
+    const promedio_curso_por_pregunta = preguntas.map(p => {
+      const vals = docentes.map(d => d.valores[preguntas.indexOf(p)]).filter(v => v !== null);
+      return vals.length ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null;
+    });
+
+    conn.release();
+    res.json({ curso, preguntas, docentes, promedio_curso_por_pregunta, timestamp: new Date().toISOString() });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error heatmap:', e);
+    res.status(500).json({ error: 'Error al generar el heatmap', message: e.message });
   }
 });
 

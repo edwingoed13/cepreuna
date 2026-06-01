@@ -235,6 +235,13 @@
                         </div>
                     </div>
 
+                    <!-- Observaciones del auxiliar (timeline) -->
+                    <div class="card p-5" id="observacionesCard" style="display:none">
+                        <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Observaciones del auxiliar</h3>
+                        <p class="text-[11px] text-slate-400 mb-3">Notas cualitativas registradas en las sesiones (últimas 30). <span id="observacionesCount">—</span></p>
+                        <div id="observacionesList" class="space-y-2 max-h-[480px] overflow-y-auto"></div>
+                    </div>
+
                     <!-- Por pregunta -->
                     <div class="card p-5">
                         <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Desempeño por aspecto evaluado</h3>
@@ -400,9 +407,37 @@
             pintarConsistencia(d.consistencia, Number(r.score) || null);
             pintarModalidadDoc(d.por_modalidad);
             pintarAsistencia(d.asistencia);
+            pintarObservaciones(d.observaciones);
 
             // Por pregunta
             pintarPregunta(d.por_pregunta);
+        }
+
+        function pintarObservaciones(rows) {
+            const card = document.getElementById('observacionesCard');
+            if (!rows || !rows.length) { card.style.display = 'none'; return; }
+            card.style.display = '';
+            document.getElementById('observacionesCount').textContent = rows.length === 30 ? 'Hay 30 o más; mostrando las más recientes.' : `${rows.length} registro${rows.length === 1 ? '' : 's'}.`;
+            const list = document.getElementById('observacionesList');
+            const estadoMap = { '1': { label: 'Presente', cls: 'badge-ok', icon: 'check' }, '2': { label: 'Tarde', cls: 'badge-warn', icon: 'schedule' }, '3': { label: 'Falta', cls: 'badge-bad', icon: 'close' } };
+            list.innerHTML = rows.map(r => {
+                const e = estadoMap[r.estado] || { label: '—', cls: 'badge-info', icon: 'info' };
+                const fecha = r.fecha ? new Date(r.fecha).toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+                return `<div class="border-l-4 ${r.estado === '3' ? 'border-red-500' : r.estado === '2' ? 'border-amber-500' : 'border-emerald-500'} bg-slate-50 dark:bg-slate-800 rounded-r p-3">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <div class="flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                            <span class="material-symbols-outlined text-sm">${e.icon}</span>
+                            <b>${fecha}</b>
+                            <span class="text-slate-400">·</span>
+                            <span>${esc(r.curso)}</span>
+                            <span class="text-slate-400">·</span>
+                            <span>${esc(r.grupo)}</span>
+                        </div>
+                        <span class="badge ${e.cls}">${e.label}</span>
+                    </div>
+                    <p class="text-xs text-slate-700 dark:text-slate-200">${esc(r.texto)}</p>
+                </div>`;
+            }).join('');
         }
 
         function pintarPolarizacion(p) {
