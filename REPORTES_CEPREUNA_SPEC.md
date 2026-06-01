@@ -322,6 +322,17 @@ GET /api/stats/docentes-stats/export/curso.xlsx?curso=<denominacion>
 GET /api/stats/docentes-stats/export/ficha/:id.xlsx
 ```
 
+### Cobertura correlacionada con lo calificado (numerador estable)
+
+El conteo de "calificó a todos / a algunos" se calcula así (idéntico en `/dashboard` y `/api/stats/calificaciones`):
+- **Denominador (Y) por grupo** = docentes titulares con calificación activa (`cd.estado='1'`, `ca.tipo='1'`) cuya carga pertenece al grupo del alumno. Usa `calificacion_docentes` como fuente.
+- **Numerador (X) por alumno** = `COUNT(DISTINCT cd.docentes_id)` de los docentes que el alumno **efectivamente calificó** (`calificacion_docente_detalles`), **sin agrupar por el grupo de la carga**.
+- Completo si `X ≥ Y`, parcial si `0 < X < Y`, sin calificar si `X = 0`, sin grupo si `Y = 0`.
+
+**Por qué el numerador NO se ata al grupo de la carga**: cuando administración reasigna una carga a otro grupo/curso (`carga_academicas.grupo_aulas_id`/`cursos_id`), la calificación que el alumno **ya hizo** dejaría de coincidir con su grupo y "desaparecía" del conteo, haciendo caer los completos artificialmente (era la causa de que el número bajara de >4000 a ~3100). Contar los docentes distintos calificados por alumno hace el numerador **inmutable** ante reasignaciones.
+
+Los pocos alumnos que calificaron a docentes ya movidos de su grupo pueden tener `X > Y`; se cuentan como completos y el % de cobertura se capa con `LEAST(100, …)`.
+
 ### Congelar al cierre de evaluación (corte 23-mar a 29-may)
 
 Parámetro `corte=1` en `/dashboard` (**ON por defecto** en el frontend). Resuelve la inestabilidad de los conteos de participación: las calificaciones están congeladas (última el 28-may), pero administración sigue **reasignando docentes** (`carga_academicas`) después del cierre, lo que mueve el **denominador** ("cuántos docentes debe calificar el alumno") y por tanto los conteos completo/parcial.

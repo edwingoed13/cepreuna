@@ -2404,15 +2404,18 @@ const CALIFICACIONES_SQL_BASE = `
   -- X: docentes TITULARES del grupo que el alumno efectivamente calificó.
   -- Si una calificación quedó asociada a una carga de suplente (raro), no se
   -- cuenta: la cobertura se mide solo contra titulares (denominador en tc).
+  -- X: docentes TITULARES que el alumno calificó (numerador), por ALUMNO (no por
+  -- grupo de la carga). Así, si una carga se reasigna de grupo/curso después de
+  -- que el alumno la calificó, su calificación sigue contando. Misma definición
+  -- robusta que el dashboard docentes-stats.
   LEFT JOIN (
-    SELECT d.estudiantes_id, ca.grupo_aulas_id,
-           COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
+    SELECT d.estudiantes_id,
+           COUNT(DISTINCT cd.docentes_id) AS docentes_calificados
     FROM calificacion_docente_detalles d
     JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
-    JOIN carga_academicas ca      ON ca.id = cd.carga_academicas_id
-    WHERE ca.periodos_id = 1 AND ca.estado = '1' AND ca.tipo = '1'
-    GROUP BY d.estudiantes_id, ca.grupo_aulas_id
-  ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+    JOIN carga_academicas ca      ON ca.id = cd.carga_academicas_id AND ca.tipo = '1'
+    GROUP BY d.estudiantes_id
+  ) cal ON cal.estudiantes_id = e.id
   WHERE i.periodos_id = 1 AND i.estado = '1'
 `;
 
@@ -2619,20 +2622,33 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     // filtro sería redundante y costoso (~2 s/query). El corte se aplica solo al
     // DENOMINADOR (cargas activas al cierre), que es la fuente real de inestabilidad.
     const CAL_FECHA = '';
-    // Subqueries de cobertura centralizados (denominador tc + numerador cal), con corte aplicado.
+    // ------------------------------------------------------------------
+    // COBERTURA correlacionada con lo que REALMENTE se calificó (estable).
+    //
+    //   DENOMINADOR (tc) por grupo = docentes titulares con calificación activa
+    //     (cd.estado='1') cuya carga pertenece al grupo. Usa cd como fuente, no
+    //     el estado vivo de la carga → no se rompe si la carga se reasigna.
+    //   NUMERADOR (num) por ALUMNO = docentes distintos que el alumno
+    //     efectivamente calificó (calificacion_docente_detalles). NO se agrupa
+    //     por grupo de la carga: así, si una carga cambia de grupo/curso después
+    //     de que el alumno la calificó, su calificación SIGUE contando. Esta era
+    //     la causa de que los conteos cayeran al reasignar cargas.
+    //
+    // El alumno se compara contra el denominador de SU grupo (matrícula). El
+    // corte (CA_ACTIVA) sigue disponible para reconstruir el denominador al cierre.
     const TC_SUBQ = `
         SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
-        FROM carga_academicas ca
-        JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1'
-        WHERE ca.periodos_id=1 AND ${CA_ACTIVA} AND ca.tipo='1'
+        FROM calificacion_docentes cd
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
+        WHERE cd.estado='1' AND ca.periodos_id=1 AND ${CA_ACTIVA} AND ca.tipo='1'
         GROUP BY ca.grupo_aulas_id`;
-    const CAL_SUBQ = `
-        SELECT d.estudiantes_id, ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS docentes_calificados
+    // Numerador por alumno (inmutable): docentes distintos calificados. Sin grupo.
+    const NUM_SUBQ = `
+        SELECT d.estudiantes_id, COUNT(DISTINCT cd.docentes_id) AS docentes_calificados
         FROM calificacion_docente_detalles d
         JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
-        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-        WHERE ca.periodos_id=1 AND ${CA_ACTIVA} AND ca.tipo='1' ${CAL_FECHA}
-        GROUP BY d.estudiantes_id, ca.grupo_aulas_id`;
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        GROUP BY d.estudiantes_id`;
 
     // 1) KPIs globales (con filtros opcionales de sede/area/turno via perspectiva alumno)
     const [[kpis]] = await conn.query(`
@@ -2647,8 +2663,8 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         ${F.joinsIm}
         LEFT JOIN (${TC_SUBQ}
         ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-        LEFT JOIN (${CAL_SUBQ}
-        ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+        LEFT JOIN (${NUM_SUBQ}
+        ) cal ON cal.estudiantes_id = e.id
         WHERE i.periodos_id = 1 AND i.estado = '1'
         ${F.whereIm}
       )
@@ -2665,8 +2681,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         SUM(CASE WHEN total > 0 AND calif = 0 THEN 1 ELSE 0 END)                 AS sin_calificar,
         SUM(CASE WHEN total = 0 THEN 1 ELSE 0 END)                              AS sin_grupo,
         -- Cobertura promedio solo sobre alumnos con docentes evaluables (total>0):
-        -- los total=0 (NULL) los ignora AVG automáticamente.
-        ROUND(AVG(CASE WHEN total = 0 THEN NULL ELSE 100 * calif / total END), 1) AS cobertura_global_pct,
+        -- los total=0 (NULL) los ignora AVG automáticamente. LEAST(100,...) capea
+        -- a los alumnos que calificaron a docentes ya movidos de su grupo (calif>total).
+        ROUND(AVG(CASE WHEN total = 0 THEN NULL ELSE LEAST(100, 100 * calif / total) END), 1) AS cobertura_global_pct,
         (SELECT COUNT(*) FROM calificacion_docentes)                 AS total_calificaciones_docente,
         (SELECT COUNT(*) FROM calificacion_docente_detalles)         AS total_respuestas_criterios,
         (SELECT COUNT(DISTINCT docentes_id) FROM calificacion_docentes) AS docentes_evaluados
@@ -2678,14 +2695,14 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       WITH cobertura AS (
         SELECT
           CASE WHEN COALESCE(tc.total_docentes,0) = 0 THEN 0
-               ELSE ROUND(100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes) END AS pct
+               ELSE LEAST(100, ROUND(100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes)) END AS pct
         FROM inscripciones i
         JOIN estudiantes e ON e.id = i.estudiantes_id
         LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
         LEFT JOIN (${TC_SUBQ}
         ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-        LEFT JOIN (${CAL_SUBQ}
-        ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+        LEFT JOIN (${NUM_SUBQ}
+        ) cal ON cal.estudiantes_id = e.id
         WHERE i.periodos_id=1 AND i.estado='1'
           -- Excluir alumnos sin docentes evaluables (sin grupo): no tienen nada que calificar.
           AND COALESCE(tc.total_docentes,0) > 0
@@ -2713,15 +2730,15 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       SELECT s.denominacion AS sede,
              COUNT(DISTINCT CASE WHEN COALESCE(tc.total_docentes,0) > 0 THEN e.id END) AS alumnos,
              ROUND(AVG(CASE WHEN COALESCE(tc.total_docentes,0)=0 THEN NULL
-                            ELSE 100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes END), 1) AS pct
+                            ELSE LEAST(100, 100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes) END), 1) AS pct
       FROM inscripciones i
       JOIN estudiantes e ON e.id = i.estudiantes_id
       JOIN sedes s ON s.id = i.sedes_id
       LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
       LEFT JOIN (${TC_SUBQ}
       ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-      LEFT JOIN (${CAL_SUBQ}
-      ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+      LEFT JOIN (${NUM_SUBQ}
+      ) cal ON cal.estudiantes_id = e.id
       WHERE i.periodos_id=1 AND i.estado='1'
       GROUP BY s.id ORDER BY pct DESC
     `);
@@ -2900,7 +2917,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              COALESCE(ANY_VALUE(sa.denominacion), ANY_VALUE(s.denominacion)) AS sede,
              COUNT(DISTINCT e.id) AS alumnos,
              ROUND(AVG(CASE WHEN COALESCE(tc.total_docentes,0)=0 THEN 0
-                            ELSE 100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes END), 1) AS cobertura_pct
+                            ELSE LEAST(100, 100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes) END), 1) AS cobertura_pct
       FROM inscripciones i
       JOIN estudiantes e ON e.id = i.estudiantes_id
       JOIN sedes s ON s.id = i.sedes_id
@@ -2914,8 +2931,8 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       LEFT JOIN sedes sa ON sa.id = lo.sedes_id
       LEFT JOIN (${TC_SUBQ}
       ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-      LEFT JOIN (${CAL_SUBQ}
-      ) cal ON cal.estudiantes_id = e.id AND cal.grupo_aulas_id = m.grupo_aulas_id
+      LEFT JOIN (${NUM_SUBQ}
+      ) cal ON cal.estudiantes_id = e.id
       WHERE i.periodos_id=1 AND i.estado='1' ${grWhereStr}
       GROUP BY ga.id
       HAVING alumnos >= 10
