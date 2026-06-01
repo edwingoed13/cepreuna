@@ -3718,6 +3718,242 @@ app.get('/api/stats/docentes-stats/export/ficha/:id.xlsx', requireAdmin, async (
   }
 });
 
+// ---- Export: Padrón de desempeño docente (una fila por docente, lineal) ----
+app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    // Criterios activos → columnas por pregunta
+    const [criterios] = await conn.query(`
+      SELECT id, denominacion FROM criterios WHERE tipo='1' AND estado='1' ORDER BY id
+    `);
+
+    // Parámetros bayesianos C, m (todas las calificaciones)
+    const calcCM = (rows) => {
+      const proms = rows.map(r => Number(r.prom_doc)).filter(x => !isNaN(x));
+      const ns = rows.map(r => Number(r.n)).filter(x => !isNaN(x)).sort((a, b) => a - b);
+      const C = proms.length ? Number((proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(3)) : 4.3;
+      const M = Math.max(20, ns.length ? ns[Math.floor(ns.length / 2)] : 30);
+      return { C, M };
+    };
+    const [perDocAll] = await conn.query(`
+      SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.participantes > 0 GROUP BY cd.docentes_id
+    `);
+    const { C, M } = calcCM(perDocAll);
+    const [perDocVal] = await conn.query(`
+      WITH asist_valida AS (${ASIST_VALIDA_SQL})
+      SELECT AVG(sub.prom) AS prom_doc, SUM(sub.n) AS n FROM (
+        SELECT cd.docentes_id, AVG(cdd.puntaje) AS prom, COUNT(DISTINCT cdd.estudiantes_id) AS n
+        FROM calificacion_docente_detalles cdd
+        JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
+        JOIN asist_valida av ON av.estudiantes_id = cdd.estudiantes_id
+        GROUP BY cd.docentes_id, cd.carga_academicas_id
+      ) sub GROUP BY sub.docentes_id
+    `);
+    const { C: Cv, M: Mv } = calcCM(perDocVal);
+
+    // Ranking institucional (para columna posición), todas
+    const [ranks] = await conn.query(`
+      SELECT cd.docentes_id,
+             (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?) AS sc
+      FROM calificacion_docentes cd
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      WHERE cd.participantes > 0
+      GROUP BY cd.docentes_id
+      HAVING SUM(cd.participantes) >= 30
+      ORDER BY sc DESC
+    `, [M, C, M]);
+    const posMap = new Map();
+    ranks.forEach((r, i) => posMap.set(Number(r.docentes_id), i + 1));
+    const totalRanking = ranks.length;
+
+    // Base: TODOS los titulares del periodo (incl. sin calificaciones) + identidad + alcance + desempeño
+    const [base] = await conn.query(`
+      SELECT d.id,
+             d.nro_documento AS dni,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS nombre,
+             CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+             d.codigo_unap, d.profesion, d.email,
+             ROUND(AVG(cd.promedio), 2) AS prom_crudo,
+             COALESCE(SUM(cd.participantes), 0) AS n,
+             COUNT(DISTINCT ca.cursos_id) AS n_cursos,
+             COUNT(DISTINCT ca.grupo_aulas_id) AS n_grupos,
+             COUNT(DISTINCT ca.id) AS n_asignaciones,
+             GROUP_CONCAT(DISTINCT cur.denominacion ORDER BY cur.denominacion SEPARATOR ', ') AS cursos,
+             GROUP_CONCAT(DISTINCT ar.denominacion ORDER BY ar.denominacion SEPARATOR ', ') AS areas,
+             GROUP_CONCAT(DISTINCT t.denominacion ORDER BY t.denominacion SEPARATOR ', ') AS turnos,
+             GROUP_CONCAT(DISTINCT COALESCE(s.denominacion,'—') ORDER BY s.denominacion SEPARATOR ', ') AS sedes,
+             ROUND(AVG(CASE WHEN cd.modalidad='0' THEN cd.promedio END), 2) AS prom_presencial,
+             ROUND(AVG(CASE WHEN cd.modalidad='1' THEN cd.promedio END), 2) AS prom_virtual
+      FROM docentes d
+      JOIN carga_academicas ca ON ca.docentes_id = d.id AND ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
+      LEFT JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1' AND cd.participantes > 0
+      LEFT JOIN cursos cur ON cur.id = ca.cursos_id
+      LEFT JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      LEFT JOIN areas ar ON ar.id = ga.areas_id
+      LEFT JOIN turnos t ON t.id = ga.turnos_id
+      LEFT JOIN aulas au ON au.id = ga.aulas_id
+      LEFT JOIN locales lo ON lo.id = au.locales_id
+      LEFT JOIN sedes s ON s.id = lo.sedes_id
+      GROUP BY d.id
+      ORDER BY d.paterno, d.materno, d.nombres
+    `);
+
+    // Score solo válidas por docente (media de promedios por carga, ya filtrada por asistencia)
+    const [valRows] = await conn.query(`
+      WITH asist_valida AS (${ASIST_VALIDA_SQL})
+      SELECT docentes_id, AVG(prom) AS prom_doc, SUM(n) AS n FROM (
+        SELECT cd.docentes_id, AVG(cdd.puntaje) AS prom, COUNT(DISTINCT cdd.estudiantes_id) AS n
+        FROM calificacion_docente_detalles cdd
+        JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
+        JOIN asist_valida av ON av.estudiantes_id = cdd.estudiantes_id
+        GROUP BY cd.docentes_id, cd.carga_academicas_id
+      ) sub GROUP BY docentes_id
+    `);
+    const valMap = new Map(valRows.map(r => [Number(r.docentes_id), r]));
+
+    // Polarización por docente (% top, % crítica)
+    const [polar] = await conn.query(`
+      SELECT cd.docentes_id,
+             ROUND(100 * SUM(cdd.puntaje=5) / COUNT(*), 1) AS pct_top,
+             ROUND(100 * SUM(cdd.puntaje IN (1,2)) / COUNT(*), 1) AS pct_critica
+      FROM calificacion_docente_detalles cdd
+      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
+      GROUP BY cd.docentes_id
+    `);
+    const polarMap = new Map(polar.map(r => [Number(r.docentes_id), r]));
+
+    // Asistencia del docente
+    const [asist] = await conn.query(`
+      SELECT ad.docentes_id,
+             COUNT(*) AS sesiones,
+             ROUND(100*SUM(ad.estado='1')/COUNT(*),1) AS pct_presente,
+             ROUND(100*SUM(ad.estado='2')/COUNT(*),1) AS pct_tarde,
+             ROUND(100*SUM(ad.estado='3')/COUNT(*),1) AS pct_falta,
+             COALESCE(SUM(ad.cantidad_horas),0) AS horas
+      FROM asistencia_docentes ad
+      JOIN carga_academicas ca ON ca.id = ad.carga_academicas_id AND ca.tipo='1'
+      GROUP BY ad.docentes_id
+    `);
+    const asistMap = new Map(asist.map(r => [Number(r.docentes_id), r]));
+
+    // Promedio por pregunta (docente × criterio)
+    const [pregRows] = await conn.query(`
+      SELECT cd.docentes_id, cdd.criterios_id, ROUND(AVG(cdd.puntaje), 2) AS prom
+      FROM calificacion_docente_detalles cdd
+      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
+      GROUP BY cd.docentes_id, cdd.criterios_id
+    `);
+    const pregMap = new Map();
+    for (const r of pregRows) {
+      const k = Number(r.docentes_id);
+      if (!pregMap.has(k)) pregMap.set(k, {});
+      pregMap.get(k)[Number(r.criterios_id)] = Number(r.prom);
+    }
+
+    // Construir el workbook
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+    const ws = wb.addWorksheet('Padrón docentes');
+
+    const headersFijos = ['#', 'DNI', 'Apellidos y Nombres', 'Vínculo', 'Cód. UNAP', 'Profesión', 'Email',
+      'Score (todas)', 'Score (válidas ≥80%)', 'Promedio crudo', 'Participantes', 'Robustez', 'Posición',
+      '% Top (5)', '% Crítica (1-2)',
+      'N° cursos', 'N° grupos', 'N° asignaciones', 'Cursos', 'Áreas', 'Turnos', 'Sedes',
+      'Prom. presencial', 'Prom. virtual',
+      'Sesiones', '% Presente', '% Tarde', '% Falta', 'Horas dictadas'];
+    const headersPreg = criterios.map((cr, i) => `P${i + 1}`);
+    const headers = [...headersFijos, ...headersPreg];
+
+    const lastCol = headers.length;
+    ws.mergeCells(1, 1, 1, lastCol);
+    ws.getCell(1, 1).value = 'Padrón de desempeño docente · CEPREUNA';
+    ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+    ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+    ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 24;
+    ws.mergeCells(2, 1, 2, lastCol);
+    ws.getCell(2, 1).value = `Generado: ${new Date().toLocaleString('es-PE')} · C=${C} m=${M} · Score válidas: C=${Cv} m=${Mv} · Leyenda P1..P${criterios.length}: ` +
+      criterios.map((cr, i) => `P${i + 1}=${cr.denominacion}`).join('  |  ');
+    ws.getCell(2, 1).font = { italic: true, size: 9, color: { argb: 'FF666666' } };
+    ws.getCell(2, 1).alignment = { horizontal: 'left', wrapText: true };
+    ws.getRow(2).height = 42;
+
+    const headerRow = ws.getRow(4);
+    headerRow.values = headers;
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, size: 9 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+
+    base.forEach((d, idx) => {
+      const id = Number(d.id);
+      const n = Number(d.n) || 0;
+      const promCrudo = d.prom_crudo != null ? Number(d.prom_crudo) : null;
+      const score = n > 0 && promCrudo != null ? Number(((n * promCrudo + M * C) / (n + M)).toFixed(2)) : null;
+      const v = valMap.get(id);
+      const nv = v ? Number(v.n) : 0;
+      const promV = v ? Number(v.prom_doc) : null;
+      // Score válidas solo si el docente está evaluado (n>0): evita mostrar score
+      // a partir de cd con participantes desactualizado.
+      const scoreV = (n > 0 && nv > 0 && promV != null) ? Number(((nv * promV + Mv * Cv) / (nv + Mv)).toFixed(2)) : null;
+      const robustez = n >= 50 ? 'robusta' : n >= 30 ? 'referencial' : n > 0 ? 'insuficiente' : 'sin evaluar';
+      const pol = polarMap.get(id) || {};
+      const asi = asistMap.get(id) || {};
+      const pr = pregMap.get(id) || {};
+
+      const fijos = [
+        idx + 1, d.dni || '', d.nombre, d.vinculo, d.codigo_unap || '', d.profesion || '', d.email || '',
+        score, scoreV, promCrudo, n, robustez, posMap.get(id) || '',
+        pol.pct_top != null ? Number(pol.pct_top) : '', pol.pct_critica != null ? Number(pol.pct_critica) : '',
+        Number(d.n_cursos || 0), Number(d.n_grupos || 0), Number(d.n_asignaciones || 0),
+        d.cursos || '', d.areas || '', d.turnos || '', d.sedes || '',
+        d.prom_presencial != null ? Number(d.prom_presencial) : '', d.prom_virtual != null ? Number(d.prom_virtual) : '',
+        Number(asi.sesiones || 0), asi.pct_presente != null ? Number(asi.pct_presente) : '',
+        asi.pct_tarde != null ? Number(asi.pct_tarde) : '', asi.pct_falta != null ? Number(asi.pct_falta) : '',
+        Number(asi.horas || 0)
+      ];
+      const pregVals = criterios.map(cr => pr[Number(cr.id)] != null ? pr[Number(cr.id)] : '');
+      const row = ws.getRow(5 + idx);
+      row.values = [...fijos, ...pregVals];
+      row.eachCell((cell) => {
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        cell.font = { size: 9 };
+      });
+    });
+
+    // Anchos
+    const widthsFijos = [4, 11, 32, 11, 10, 20, 24, 11, 13, 12, 12, 12, 9, 9, 10, 9, 9, 12, 40, 22, 16, 22, 13, 12, 9, 10, 9, 9, 12];
+    ws.columns = headers.map((h, i) => ({ width: i < widthsFijos.length ? widthsFijos[i] : 7 }));
+    ws.views = [{ state: 'frozen', xSplit: 3, ySplit: 4 }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    conn.release();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="padron-docentes-${new Date().toISOString().slice(0,10)}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error export padron:', e);
+    res.status(500).json({ error: 'Error al generar el padrón', message: e.message });
+  }
+});
+
 // ============ REPORTES AUXILIARES (horas docentes + cobertura) ============
 
 // Helper: parsea un parámetro multi-valor (acepta array o CSV) y devuelve array limpio.

@@ -477,7 +477,19 @@ Cada docente trae además `pct_top` (% de respuestas con puntaje 5) y `pct_criti
 
 ### Exportación a Excel
 
-Los 3 endpoints `/export/*.xlsx` proxean con descarga forzada (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`). Estilo: título azul `#003366`, fecha de generación, tabla con bordes. Multi-hoja en el caso de la ficha (Resumen / Cursos y grupos / Por pregunta / Observaciones). El frontend usa `fetch + blob + download` para enviar el `Authorization: Bearer ...` (los `<a href>` no llevan headers).
+Los endpoints `/export/*.xlsx` proxean con descarga forzada (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`). Estilo: título azul `#003366`, fecha de generación, tabla con bordes. Multi-hoja en el caso de la ficha (Resumen / Cursos y grupos / Por pregunta / Observaciones). El frontend usa `fetch + blob + download` para enviar el `Authorization: Bearer ...` (los `<a href>` no llevan headers).
+
+- `GET /export/intervenciones.xlsx?[filtros]`
+- `GET /export/curso.xlsx?curso=<denominacion>`
+- `GET /export/ficha/:id.xlsx`
+- `GET /export/padron.xlsx` — **Padrón de desempeño docente**: una fila por docente (todos los titulares del periodo, ~573), 42 columnas:
+  - Identidad (`docentes`): DNI, nombre, vínculo UNAP/Particular, código UNAP, profesión, email.
+  - Desempeño: **Score (todas)** y **Score (válidas ≥80% asistencia)** —doble columna—, promedio crudo, participantes, robustez, posición en ranking, % top, % crítica.
+  - Alcance (`carga_academicas` + catálogos): N° cursos/grupos/asignaciones, y listas (`GROUP_CONCAT`) de cursos, áreas, turnos, sedes.
+  - Modalidad: promedio presencial / virtual.
+  - Asistencia del docente (`asistencia_docentes`): sesiones, % presente/tarde/falta, horas dictadas.
+  - **13 columnas P1..P13**: promedio del docente en cada criterio activo (la fila 2 lleva la leyenda con el texto completo de cada pregunta).
+  - Docentes sin calificaciones aparecen con robustez "sin evaluar" y scores vacíos. Paneles congelados (3 cols × cabecera). Botón "Padrón Excel" en el header del dashboard.
 
 ### Query SQL clave — Top docentes con score bayesiano
 
