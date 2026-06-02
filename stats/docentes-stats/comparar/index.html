@@ -192,6 +192,9 @@
         let dataA = null, dataB = null;
         let chartComp = null;
 
+        const BUSCANDO_HTML = '<div class="px-4 py-4 flex items-center justify-center gap-2 text-xs text-slate-400">' +
+            '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span>Buscando…</div>';
+
         function setupBuscador(letra) {
             const input = document.getElementById('input' + letra);
             const results = document.getElementById('results' + letra);
@@ -200,6 +203,8 @@
                 clearTimeout(timer);
                 const q = input.value.trim();
                 if (q.length < 2) { results.classList.add('hidden'); return; }
+                results.innerHTML = BUSCANDO_HTML;
+                results.classList.remove('hidden');
                 timer = setTimeout(() => buscar(letra, q), 250);
             });
             document.addEventListener('click', e => {
@@ -210,9 +215,11 @@
 
         async function buscar(letra, q) {
             const results = document.getElementById('results' + letra);
-            const r = await fetch('/api/stats/docentes-stats/buscar?q=' + encodeURIComponent(q), { headers: { Authorization: 'Bearer ' + TOKEN } });
+            let r;
+            try { r = await fetch('/api/stats/docentes-stats/buscar?q=' + encodeURIComponent(q), { headers: { Authorization: 'Bearer ' + TOKEN } }); }
+            catch (e) { results.innerHTML = '<div class="px-4 py-3 text-xs text-red-500">Error de red.</div>'; results.classList.remove('hidden'); return; }
             if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
-            if (!r.ok) return;
+            if (!r.ok) { results.innerHTML = '<div class="px-4 py-3 text-xs text-red-500">Error en la búsqueda.</div>'; results.classList.remove('hidden'); return; }
             const d = await r.json();
             if (!d.resultados.length) { results.innerHTML = '<div class="px-4 py-3 text-xs text-slate-400">Sin resultados.</div>'; results.classList.remove('hidden'); return; }
             results.innerHTML = d.resultados.map(x => `
@@ -234,12 +241,20 @@
             const url = new URL(window.location.href);
             url.searchParams.set(letra.toLowerCase(), id);
             history.pushState({}, '', url);
-            const r = await fetch('/api/stats/docentes-stats/docente/' + id, { headers: { Authorization: 'Bearer ' + TOKEN } });
-            if (!r.ok) { alert('Error al cargar el docente ' + letra); return; }
-            const d = await r.json();
-            if (letra === 'A') dataA = d; else dataB = d;
-            document.getElementById('label' + letra).textContent = d.docente.nombre;
-            if (dataA && dataB) pintar();
+            const label = document.getElementById('label' + letra);
+            label.textContent = 'Cargando…';
+            try {
+                const r = await fetch('/api/stats/docentes-stats/docente/' + id, { headers: { Authorization: 'Bearer ' + TOKEN } });
+                if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!r.ok) { alert('Error al cargar el docente ' + letra); label.textContent = 'Docente ' + letra; return; }
+                const d = await r.json();
+                if (letra === 'A') dataA = d; else dataB = d;
+                label.textContent = d.docente.nombre;
+                if (dataA && dataB) pintar();
+            } catch (e) {
+                console.error(e); alert('Error de red al cargar el docente ' + letra);
+                label.textContent = 'Docente ' + letra;
+            }
         }
 
         function pintar() {

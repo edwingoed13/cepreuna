@@ -46,6 +46,13 @@
     </style>
 </head>
 <body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <!-- Overlay de carga (el dashboard puede tardar varios segundos en frío) -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm">
+        <div class="flex flex-col items-center gap-3 rounded-2xl bg-white dark:bg-slate-800 px-8 py-6 shadow-xl border border-slate-200 dark:border-slate-700">
+            <span class="material-symbols-outlined text-4xl text-primary animate-spin">progress_activity</span>
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Cargando estadísticas…</p>
+        </div>
+    </div>
     <script>
         const sessionDataString = localStorage.getItem('stats_session');
         const sessionData = sessionDataString ? JSON.parse(sessionDataString) : null;
@@ -581,12 +588,21 @@
             return document.getElementById('switchValidas').checked ? '?solo_validas=1' : '';
         }
 
+        // Muestra/oculta un overlay de carga sobre el dashboard. El backend puede
+        // tardar varios segundos en frío; sin esto la página parece congelada.
+        function setCargando(on) {
+            const ov = document.getElementById('loadingOverlay');
+            if (ov) ov.classList.toggle('hidden', !on);
+        }
+
         async function cargar() {
             const qs = getFiltrosQueryString();
-            const r = await fetch('/api/stats/docentes-stats/dashboard' + qs, { headers: { Authorization: 'Bearer ' + TOKEN } });
-            if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
-            if (!r.ok) { alert('Error al cargar datos'); return; }
-            const d = await r.json();
+            setCargando(true);
+            try {
+                const r = await fetch('/api/stats/docentes-stats/dashboard' + qs, { headers: { Authorization: 'Bearer ' + TOKEN } });
+                if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
+                if (!r.ok) { alert('Error al cargar datos'); return; }
+                const d = await r.json();
             // Badge visual cuando hay filtros activos
             const fa = d.filtros_aplicados || {};
             const activos = Object.values(fa).filter(v => v).length;
@@ -619,6 +635,9 @@
             pintarEvol(d.evolucion);
 
             document.getElementById('lastUpdate').textContent = 'Actualizado: ' + new Date(d.timestamp).toLocaleTimeString('es-PE');
+            } finally {
+                setCargando(false);
+            }
         }
 
         function pintarRobustezResumen(r, umbral) {
@@ -1166,10 +1185,16 @@
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); abrirBuscador(); }
         });
 
+        // Spinner reutilizable para el buscador (DNI / nombre).
+        const buscandoHTML = '<div class="px-4 py-4 flex items-center justify-center gap-2 text-xs text-slate-400">' +
+            '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span>Buscando…</div>';
+
         modalInput.addEventListener('input', () => {
             clearTimeout(searchTimer);
             const q = modalInput.value.trim();
             if (q.length < 2) { modalResults.innerHTML = ''; return; }
+            // Feedback inmediato mientras corre el debounce + la consulta.
+            modalResults.innerHTML = buscandoHTML;
             searchTimer = setTimeout(() => buscarDocente(q), 250);
         });
 
@@ -1177,7 +1202,7 @@
             try {
                 const r = await fetch('/api/stats/docentes-stats/buscar?q=' + encodeURIComponent(q), { headers: { Authorization: 'Bearer ' + TOKEN } });
                 if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
-                if (!r.ok) return;
+                if (!r.ok) { modalResults.innerHTML = '<div class="px-4 py-3 text-xs text-red-500 text-center">Error en la búsqueda.</div>'; return; }
                 const d = await r.json();
                 if (!d.resultados.length) {
                     modalResults.innerHTML = '<div class="px-4 py-3 text-xs text-slate-400 text-center">Sin resultados.</div>';
@@ -1193,7 +1218,10 @@
                         window.location.href = '/stats/docentes-stats/docente?id=' + b.dataset.id;
                     });
                 });
-            } catch (e) { console.error(e); }
+            } catch (e) {
+                console.error(e);
+                modalResults.innerHTML = '<div class="px-4 py-3 text-xs text-red-500 text-center">Error de red en la búsqueda.</div>';
+            }
         }
 
         // ---------- DESCARGA CON TOKEN (Excel) ----------
@@ -1263,12 +1291,16 @@
             if (['50','80','100'].includes(params.get('umbral'))) document.getElementById('filterUmbral').value = params.get('umbral');
         }
 
+        // Debounce: al cambiar varios filtros seguidos, se hace una sola recarga
+        // tras 250ms de inactividad (evita ráfaga de queries pesadas al backend).
+        let _filtrosTimer = null;
         function aplicarFiltros() {
             const qs = getFiltrosQueryString();
             const url = new URL(window.location.href);
             url.search = qs;
             history.replaceState({}, '', url);
-            cargar();
+            clearTimeout(_filtrosTimer);
+            _filtrosTimer = setTimeout(cargar, 250);
         }
 
         document.getElementById('filterApply').addEventListener('click', aplicarFiltros);
