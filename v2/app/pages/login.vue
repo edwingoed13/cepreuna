@@ -6,8 +6,9 @@ import { esAdmin } from '~/utils/roles'
 definePageMeta({ layout: 'auth' })
 
 const { save } = useAuth()
-const { api } = useApi()
+const config = useRuntimeConfig()
 const toast = useToast()
+const apiBase = config.public.apiBase || ''
 
 const schema = z.object({
   email: z.string().email('Correo inválido'),
@@ -21,14 +22,16 @@ const loading = ref(false)
 async function onSubmit(event: FormSubmitEvent<Schema>) {
   loading.value = true
   try {
-    const res = await api<{ success: boolean; token: string; user: any }>('/api/stats/login', {
+    // $fetch directo (no useApi) para que el 401 de credenciales muestre el
+    // mensaje del backend en vez de disparar el auto-logout.
+    const res = await $fetch<{ success: boolean; token: string; user: any }>(apiBase + '/api/stats/login', {
       method: 'POST',
       body: { email: event.data.email, password: event.data.password }
     })
     save({ user: res.user, token: res.token })
     await navigateTo(esAdmin(res.user?.role) ? '/' : '/alumnos')
   } catch (err: any) {
-    const msg = err?.data?.error || 'No se pudo iniciar sesión'
+    const msg = err?.data?.error || err?.response?._data?.error || 'No se pudo iniciar sesión. ¿Está corriendo el backend en :3000?'
     toast.add({ title: 'Error', description: msg, color: 'error' })
   } finally {
     loading.value = false
