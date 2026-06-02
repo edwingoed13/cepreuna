@@ -1,0 +1,27 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+/* Paleta de marca CEPREUNA (azul #003366). El tono de marca queda en el 700;
+   Nuxt UI usa el 500 para `primary` en claro y 400 en oscuro. */
+@theme static {
+  --color-cepreuna-50: #e7f0f9;
+  --color-cepreuna-100: #c4d9ee;
+  --color-cepreuna-200: #9bbfe1;
+  --color-cepreuna-300: #6ca2d2;
+  --color-cepreuna-400: #3d83c1;
+  --color-cepreuna-500: #1a64a8;
+  --color-cepreuna-600: #0a4d8a;
+  --color-cepreuna-700: #003366; /* marca */
+  --color-cepreuna-800: #00284f;
+  --color-cepreuna-900: #001d3a;
+  --color-cepreuna-950: #001226;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Inter desde Google Fonts (mismo look que la v1) */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  --ui-radius: 0.5rem;
+}
