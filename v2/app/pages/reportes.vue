@@ -8,24 +8,24 @@ interface SedeR { sede_id: number; sede: string; es_virtual: boolean; turnos: Tu
 const { api } = useApi()
 const reporte = ref<SedeR[]>([])
 const loading = ref(true)
+const error = ref(false)
 
 async function cargar() {
   loading.value = true
+  error.value = false
   try {
     const d = await api<{ reporte: SedeR[] }>('/api/stats-inscripciones/reporte-sedes')
     reporte.value = d.reporte || []
+  } catch {
+    error.value = true
   } finally {
     loading.value = false
   }
 }
 
-// Totales por sede (header de cada tab).
 function totalesSede(s: SedeR) {
   let inscritos = 0, capacidad = 0
-  for (const t of s.turnos) for (const a of t.areas) {
-    inscritos += a.total_inscritos
-    capacidad += a.capacidad
-  }
+  for (const t of s.turnos) for (const a of t.areas) { inscritos += a.total_inscritos; capacidad += a.capacidad }
   return { inscritos, capacidad, libres: Math.max(0, capacidad - inscritos) }
 }
 
@@ -36,37 +36,50 @@ function ocupacion(a: AreaR) {
 function estadoArea(a: AreaR): { color: string; bar: string; texto?: string } {
   const pct = ocupacion(a)
   if (pct === null) return { color: 'text-muted', bar: '#94a3b8' }
-  if (a.vacantes_disponibles <= 0) return { color: 'text-red-600', bar: '#ef4444', texto: '¡AGOTADO!' }
-  if (pct >= 90) return { color: 'text-amber-600', bar: '#f97316', texto: 'Pocas vacantes' }
-  return { color: 'text-cepreuna-600', bar: '#0381d9' }
+  if (a.vacantes_disponibles <= 0) return { color: 'text-red-600 dark:text-red-400', bar: '#ef4444', texto: 'Agotado' }
+  if (pct >= 90) return { color: 'text-amber-600 dark:text-amber-400', bar: '#f97316', texto: 'Pocas vacantes' }
+  return { color: 'text-cepreuna-600 dark:text-cepreuna-300', bar: '#0381d9' }
 }
 
-// Items de tabs (UTabs).
 const tabItems = computed(() => reporte.value.map((s, i) => ({
   label: s.sede,
   value: String(i),
-  badge: fmtNumero(totalesSede(s).inscritos)
+  icon: s.es_virtual ? 'i-lucide-monitor' : 'i-lucide-building-2'
 })))
 const tab = ref('0')
-
-onMounted(cargar)
 </script>
 
 <template>
   <div class="p-4 lg:p-6 space-y-4">
-    <div v-if="loading" class="text-center py-16 text-muted">Cargando reporte…</div>
+    <!-- Loading -->
+    <div v-if="loading" class="space-y-4">
+      <div class="h-9 rounded-lg bg-elevated animate-pulse w-full max-w-md" />
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div v-for="n in 4" :key="n" class="h-20 rounded-xl bg-elevated animate-pulse" />
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div v-for="n in 3" :key="n" class="h-48 rounded-xl bg-elevated animate-pulse" />
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div v-else-if="error" class="text-center py-16">
+      <UIcon name="i-lucide-wifi-off" class="size-10 text-muted mx-auto mb-3" />
+      <p class="text-sm text-muted mb-4">No se pudo cargar el reporte de sedes.</p>
+      <UButton label="Reintentar" icon="i-lucide-refresh-cw" @click="cargar" />
+    </div>
 
     <template v-else-if="reporte.length">
-      <UTabs v-model="tab" :items="tabItems" class="w-full" />
+      <UTabs v-model="tab" :items="tabItems" class="w-full" :ui="{ list: 'overflow-x-auto' }" />
 
       <template v-for="(s, i) in reporte" :key="s.sede_id">
         <div v-show="tab === String(i)" class="space-y-4">
           <!-- Header de sede -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <KpiCard label="Sede" :value="s.sede" />
-            <KpiCard label="Inscritos" :value="fmtNumero(totalesSede(s).inscritos)" color="primary" />
-            <KpiCard label="Capacidad" :value="s.es_virtual ? '—' : fmtNumero(totalesSede(s).capacidad)" />
-            <KpiCard label="Libres" :value="s.es_virtual ? '—' : fmtNumero(totalesSede(s).libres)" color="success" />
+            <KpiCard label="Sede" :value="s.sede" :icon="s.es_virtual ? 'i-lucide-monitor' : 'i-lucide-building-2'" />
+            <KpiCard label="Inscritos" :value="fmtNumero(totalesSede(s).inscritos)" color="primary" icon="i-lucide-users" />
+            <KpiCard label="Capacidad" :value="s.es_virtual ? '— Ilimitada' : fmtNumero(totalesSede(s).capacidad)" icon="i-lucide-layout-grid" />
+            <KpiCard label="Vacantes libres" :value="s.es_virtual ? '—' : fmtNumero(totalesSede(s).libres)" color="success" icon="i-lucide-door-open" />
           </div>
 
           <!-- Turnos -->
@@ -74,7 +87,7 @@ onMounted(cargar)
             <UCard v-for="t in s.turnos" :key="t.turno_id">
               <template #header>
                 <div class="flex items-center justify-between">
-                  <h3 class="font-bold text-sm">{{ t.turno }}</h3>
+                  <h3 class="font-bold text-sm flex items-center gap-1.5"><UIcon name="i-lucide-clock-3" class="size-4 text-cepreuna-600" />{{ t.turno }}</h3>
                   <span class="text-xs text-muted">{{ fmtNumero(t.areas.reduce((acc, a) => acc + a.total_inscritos, 0)) }} inscritos</span>
                 </div>
               </template>
@@ -84,13 +97,16 @@ onMounted(cargar)
                     <span class="font-medium">{{ a.area }}</span>
                     <span class="font-mono" :class="estadoArea(a).color">
                       <template v-if="s.es_virtual || a.capacidad <= 0">{{ fmtNumero(a.total_inscritos) }}</template>
-                      <template v-else>{{ fmtNumero(a.total_inscritos) }}/{{ fmtNumero(a.capacidad) }} · {{ ocupacion(a) }}%</template>
+                      <template v-else>{{ fmtNumero(a.total_inscritos) }}/{{ fmtNumero(a.capacidad) }} · <b>{{ ocupacion(a) }}%</b></template>
                     </span>
                   </div>
                   <div v-if="!s.es_virtual && a.capacidad > 0" class="h-2 rounded-full bg-elevated overflow-hidden">
                     <div class="h-full rounded-full transition-all duration-500" :style="{ width: Math.min(100, ocupacion(a) || 0) + '%', backgroundColor: estadoArea(a).bar }" />
                   </div>
-                  <p v-if="estadoArea(a).texto" class="text-[10px] font-bold" :class="estadoArea(a).color">{{ estadoArea(a).texto }} · {{ fmtNumero(a.vacantes_disponibles) }} vacantes</p>
+                  <p v-if="estadoArea(a).texto" class="text-[10px] font-bold flex items-center gap-1" :class="estadoArea(a).color">
+                    <UIcon :name="a.vacantes_disponibles <= 0 ? 'i-lucide-octagon-x' : 'i-lucide-triangle-alert'" class="size-3" />
+                    {{ estadoArea(a).texto }} · {{ fmtNumero(a.vacantes_disponibles) }} vacantes
+                  </p>
                 </div>
                 <p v-if="!t.areas.length" class="text-xs text-muted text-center py-2">Sin áreas.</p>
               </div>
