@@ -324,7 +324,7 @@
                         </div>
                         <div class="card p-5">
                             <h3 class="font-bold text-slate-700 dark:text-slate-200 mb-1">Promedio por sede física</h3>
-                            <p class="text-[11px] text-slate-400 mb-3">Ranking de sedes según calidad docente percibida.</p>
+                            <p class="text-[11px] text-slate-400 mb-3">Score ajustado por tamaño de muestra y participación. Borde rojo = baja participación (&lt;50%), promedio poco representativo.</p>
                             <div class="chart-wrap"><canvas id="chSedeProm"></canvas></div>
                             <p class="insight mt-4" id="insightSedeProm">—</p>
                         </div>
@@ -988,10 +988,47 @@
         }
 
         function pintarSedeProm(rows) {
-            bar('chSedeProm', rows, 'promedio', r => r.etiqueta);
+            destroy('chSedeProm');
+            const labels = rows.map(r => r.etiqueta);
+            const data = rows.map(r => Number(r.score != null ? r.score : r.promedio));
+            const robTxt = { alta: 'representativa', media: 'representatividad media', baja: '⚠ poco representativa', 'sin-dato': 'sin dato de participación' };
+            charts['chSedeProm'] = new Chart(document.getElementById('chSedeProm'), {
+                type: 'bar',
+                data: { labels, datasets: [{
+                    data,
+                    backgroundColor: data.map(colorByProm),
+                    borderColor: rows.map(r => r.robustez === 'baja' ? '#ef4444' : 'rgba(0,0,0,0)'),
+                    borderWidth: rows.map(r => r.robustez === 'baja' ? 2 : 0),
+                    label: 'Score'
+                }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false },
+                        tooltip: { callbacks: {
+                            label: ctx => 'Score ajustado: ' + ctx.parsed.x.toFixed(2),
+                            afterLabel: ctx => {
+                                const r = rows[ctx.dataIndex];
+                                const part = r.participacion == null ? 's/d' : r.participacion + '%';
+                                return [
+                                    'Promedio crudo: ' + Number(r.promedio_crudo != null ? r.promedio_crudo : r.promedio).toFixed(2),
+                                    'Participación: ' + part + ' (' + (robTxt[r.robustez] || '') + ')',
+                                    fmt(r.participantes) + ' calificaciones · ' + fmt(r.docentes) + ' docentes'
+                                ];
+                            }
+                        } } },
+                    scales: { x: { min: 3.5, max: 5, ticks: { stepSize: 0.25 } } }
+                }
+            });
             const m = rows[0], p = rows[rows.length - 1];
+            const partTxt = r => r.participacion == null ? 'sin dato de participación' : `<b>${r.participacion}%</b> de participación`;
+            const bajas = rows.filter(r => r.robustez === 'baja');
+            const score = r => Number(r.score != null ? r.score : r.promedio).toFixed(2);
+            let aviso = '';
+            if (bajas.length) {
+                aviso = ` <span class="text-amber-600 dark:text-amber-400">⚠ ${bajas.map(b => esc(b.etiqueta)).join(', ')} ${bajas.length > 1 ? 'tienen' : 'tiene'} participación &lt;50%; su promedio es poco representativo aunque la nota sea alta.</span>`;
+            }
             document.getElementById('insightSedeProm').innerHTML =
-                `Mejor sede: <b>${esc(m.etiqueta)}</b> con <b>${m.promedio}</b> (${fmt(m.participantes)} calificaciones). Más débil: <b>${esc(p.etiqueta)}</b> con <b>${p.promedio}</b>. Las sedes con pocas calificaciones pueden tener resultados menos confiables.`;
+                `Mejor sede (score ajustado): <b>${esc(m.etiqueta)}</b> con <b>${score(m)}</b> · ${partTxt(m)}. Más débil: <b>${esc(p.etiqueta)}</b> con <b>${score(p)}</b>. El score encoge hacia la media institucional las sedes con poca evidencia, y la participación indica qué tan representativa es la nota.${aviso}`;
         }
 
         // ---------- SECCIÓN 4 ----------

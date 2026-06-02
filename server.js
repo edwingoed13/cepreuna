@@ -2903,6 +2903,32 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     const medianaN = ns.length ? ns[Math.floor(ns.length/2)] : 30;
     const M = Math.max(20, medianaN);  // mínimo 20
 
+    // ------------------------------------------------------------------
+    // Ranking por SEDE física: anti-sesgo de muestra + de participación.
+    // (1) score bayesiano: prom crudo "encogido" hacia la media global C con
+    //     peso M, igual que el ranking de docentes → sedes con poca evidencia
+    //     dejan de copar el top por azar.
+    // (2) participación: se cruza la cobertura (% de docentes que cada alumno
+    //     calificó) por nombre de sede. Una nota alta con baja participación es
+    //     poco representativa (sesgo de no-respuesta), así que se etiqueta.
+    //       >= 70% → alta · 50-69% → media · < 50% → baja (⚠️ poco representativa)
+    // ------------------------------------------------------------------
+    {
+      const cobMap = {};
+      for (const r of porSede) cobMap[r.sede] = r.pct == null ? null : Number(r.pct);
+      const etiquetaRobustez = (p) => p == null ? 'sin-dato' : p >= 70 ? 'alta' : p >= 50 ? 'media' : 'baja';
+      for (const r of rankingPorSede) {
+        const n = Number(r.participantes) || 0;
+        const prom = Number(r.promedio) || 0;
+        r.promedio_crudo = Number(prom.toFixed(2));
+        r.score = Number(((n * prom + M * C) / (n + M)).toFixed(2));
+        r.participacion = (r.etiqueta in cobMap) ? cobMap[r.etiqueta] : null;
+        r.robustez = etiquetaRobustez(r.participacion);
+      }
+      // Reordenar por el score honesto (no por el promedio crudo).
+      rankingPorSede.sort((a, b) => b.score - a.score || b.participantes - a.participantes);
+    }
+
     // ================== OLA 2: queries que dependen de C y M (paralelas) ==================
     const [topDocentes, bottomDocentes, distPromedios, intervenciones] = await Promise.all([
     // 4) Top 15 docentes (score bayesiano sobre media de grupos, filtrable)
