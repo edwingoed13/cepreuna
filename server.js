@@ -2397,12 +2397,13 @@ const CALIFICACIONES_SQL_BASE = `
   -- titular ya calificado quedaba contabilizado y el suplente sumaba como
   -- "no calificado", dando un PARCIAL falso. Suplentes no califican.
   LEFT JOIN (
-    -- Denominador: solo titulares con calificacion_docentes ACTIVA.
-    -- Si la cd aun no esta activa, el alumno no ve al docente en la encuesta.
+    -- Denominador ESTABLE: titulares con calificacion_docentes ACTIVA por grupo.
+    -- Se ancla en cd.estado='1' y NO filtra ca.estado: si la carga se reasigna o
+    -- desactiva tras la evaluacion, sigue contando → el % del alumno no varia.
     SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
     FROM carga_academicas ca
     JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado = '1'
-    WHERE ca.periodos_id = 1 AND ca.estado = '1' AND ca.tipo = '1'
+    WHERE ca.periodos_id = 1 AND ca.tipo = '1'
     GROUP BY ca.grupo_aulas_id
   ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
   -- X: docentes TITULARES del grupo que el alumno efectivamente calificó.
@@ -2591,11 +2592,16 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     //     la causa de que los conteos cayeran al reasignar cargas.
     //
     // El alumno se compara contra el denominador de SU grupo (matrícula).
+    // Denominador ESTABLE: docentes titulares evaluados por grupo. Se ancla en la
+    // calificación (cd.estado='1') y NO filtra ca.estado: si una carga se reasigna
+    // o desactiva tras la evaluación sigue contando, así el denominador no cambia
+    // (antes ca.estado='1' lo hacía variar en cada F5). Lo usan KPIs, distribución,
+    // cobertura por sede y grupos en riesgo.
     const TC_SUBQ = `
         SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
         FROM calificacion_docentes cd
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-        WHERE cd.estado='1' AND ca.periodos_id=1 AND ca.estado='1' AND ca.tipo='1'
+        WHERE cd.estado='1' AND ca.periodos_id=1 AND ca.tipo='1'
         GROUP BY ca.grupo_aulas_id`;
     // Numerador por alumno (inmutable): docentes distintos calificados. Sin grupo.
     const NUM_SUBQ = `
@@ -2604,6 +2610,31 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         GROUP BY d.estudiantes_id`;
+
+    // ------------------------------------------------------------------
+    // COBERTURA ANCLADA EN calificacion_docente_detalles (estable e inmutable).
+    //
+    // Problema previo: completos/parciales partían de `inscripciones` (estado
+    // vivo) y el denominador filtraba `ca.estado='1'`. Al reasignar/desactivar
+    // cargas (hay 46 evaluadas hoy inactivas) el denominador del grupo cambiaba
+    // y los alumnos saltaban completo↔parcial en cada F5. Y los alumnos
+    // retirados (sin inscripción activa) desaparecían del conteo.
+    //
+    // Solución: el universo y el numerador salen de lo REALMENTE calificado
+    // (cdd → cd → carga tipo='1'), que no cambia. El denominador es el total de
+    // docentes titulares evaluados del grupo SIN depender de ca.estado.
+    //   universo = alumnos que calificaron a un titular (incluye retirados)
+    //   numerador (calif) = docentes distintos que el alumno calificó
+    //   grupo_ref = grupo de las cargas que calificó (para el denominador)
+    // ------------------------------------------------------------------
+    const CALIF_SRC = `
+        SELECT cdd.estudiantes_id,
+               COUNT(DISTINCT cd.docentes_id) AS calif,
+               MAX(ca.grupo_aulas_id) AS grupo_ref
+        FROM calificacion_docente_detalles cdd
+        JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        GROUP BY cdd.estudiantes_id`;
 
     // Helper de ranking por dimensión (curso/área/turno/sede). Definido aquí
     // arriba para poder lanzarlo dentro de la ola 1.
@@ -2632,6 +2663,21 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     if (F.aplicados.sede)  { grWhere.push('(lo.sedes_id = ? OR i.sedes_id = ?)'); grValues.push(F.aplicados.sede, F.aplicados.sede); }
     const grWhereStr = grWhere.length ? 'AND ' + grWhere.join(' AND ') : '';
 
+    // Filtros para la cobertura anclada en cdd: se aplican sobre el grupo de
+    // referencia (ga_r) derivado de las cargas que el alumno calificó.
+    const gr2Joins = [];
+    const gr2Where = [];
+    const gr2Values = [];
+    if (F.aplicados.area)  { gr2Where.push('ga_r.areas_id = ?');  gr2Values.push(F.aplicados.area); }
+    if (F.aplicados.turno) { gr2Where.push('ga_r.turnos_id = ?'); gr2Values.push(F.aplicados.turno); }
+    if (F.aplicados.sede)  {
+      gr2Joins.push('LEFT JOIN aulas au_r ON au_r.id = ga_r.aulas_id');
+      gr2Joins.push('LEFT JOIN locales lo_r ON lo_r.id = au_r.locales_id');
+      gr2Where.push('lo_r.sedes_id = ?'); gr2Values.push(F.aplicados.sede);
+    }
+    const gr2JoinsStr = gr2Joins.join('\n        ');
+    const gr2WhereStr = gr2Where.length ? 'WHERE ' + gr2Where.join(' AND ') : '';
+
     // ================== OLA 1: queries independientes del score (paralelas) ==================
     const [
       kpisRows, distribucion, porSede, perDoc,
@@ -2641,21 +2687,19 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     ] = await Promise.all([
     // 1) KPIs globales (con filtros opcionales de sede/area/turno via perspectiva alumno)
     q(`
-      WITH cobertura AS (
+      WITH calif_src AS (${CALIF_SRC}
+      ),
+      cobertura AS (
         SELECT
-          e.id,
-          COALESCE(tc.total_docentes, 0)        AS total,
-          COALESCE(cal.docentes_calificados, 0) AS calif
-        FROM inscripciones i
-        JOIN estudiantes e ON e.id = i.estudiantes_id
-        LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
-        ${F.joinsIm}
+          cs.estudiantes_id AS id,
+          COALESCE(tc.total_docentes, 0) AS total,
+          cs.calif AS calif
+        FROM calif_src cs
+        JOIN grupo_aulas ga_r ON ga_r.id = cs.grupo_ref
+        ${gr2JoinsStr}
         LEFT JOIN (${TC_SUBQ}
-        ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-        LEFT JOIN (${NUM_SUBQ}
-        ) cal ON cal.estudiantes_id = e.id
-        WHERE i.periodos_id = 1 AND i.estado = '1'
-        ${F.whereIm}
+        ) tc ON tc.grupo_aulas_id = cs.grupo_ref
+        ${gr2WhereStr}
       )
       SELECT
         COUNT(*) AS total_alumnos,
@@ -2677,24 +2721,22 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         (SELECT COUNT(*) FROM calificacion_docente_detalles)         AS total_respuestas_criterios,
         (SELECT COUNT(DISTINCT docentes_id) FROM calificacion_docentes) AS docentes_evaluados
       FROM cobertura
-    `, F.valuesIm),
+    `, gr2Values),
 
-    // 2) Distribución de cumplimiento (histograma)
+    // 2) Distribución de cumplimiento (histograma) — mismo universo cdd estable
     q(`
-      WITH cobertura AS (
+      WITH calif_src AS (${CALIF_SRC}
+      ),
+      cobertura AS (
         SELECT
           CASE WHEN COALESCE(tc.total_docentes,0) = 0 THEN 0
-               ELSE LEAST(100, ROUND(100 * COALESCE(cal.docentes_calificados,0) / tc.total_docentes)) END AS pct
-        FROM inscripciones i
-        JOIN estudiantes e ON e.id = i.estudiantes_id
-        LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+               ELSE LEAST(100, ROUND(100 * cs.calif / tc.total_docentes)) END AS pct
+        FROM calif_src cs
+        JOIN grupo_aulas ga_r ON ga_r.id = cs.grupo_ref
+        ${gr2JoinsStr}
         LEFT JOIN (${TC_SUBQ}
-        ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
-        LEFT JOIN (${NUM_SUBQ}
-        ) cal ON cal.estudiantes_id = e.id
-        WHERE i.periodos_id=1 AND i.estado='1'
-          -- Excluir alumnos sin docentes evaluables (sin grupo): no tienen nada que calificar.
-          AND COALESCE(tc.total_docentes,0) > 0
+        ) tc ON tc.grupo_aulas_id = cs.grupo_ref
+        ${gr2WhereStr ? gr2WhereStr + ' AND' : 'WHERE'} COALESCE(tc.total_docentes,0) > 0
       )
       SELECT rango, alumnos FROM (
         SELECT
@@ -2712,7 +2754,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         GROUP BY rango
       ) x
       ORDER BY ord
-    `),
+    `, gr2Values),
 
     // 3) Cobertura por sede (excluye alumnos sin docentes evaluables: NULL no entra al AVG)
     q(`
@@ -3861,12 +3903,23 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
     ranks.forEach((r, i) => posMap.set(Number(r.docentes_id), i + 1));
     const totalRanking = ranks.length;
 
-    // Base: TODOS los docentes con datos del periodo = titulares activos UNION evaluados.
-    // Se incluye una carga si está ACTIVA (titular actual) o si tiene calificación activa
-    // (fue evaluada, aunque su carga se haya reasignado/desactivado luego). Así el padrón
-    // cuadra con el universo de la media institucional (580) y no pierde docentes evaluados
-    // que ya no figuran como titulares activos.
+    // Base: SOLO docentes que están en calificacion_docentes/calificacion_docente_detalles
+    // (fueron realmente evaluados). El universo y las métricas se anclan en cd.docentes_id
+    // —a quién calificaron— NO en ca.docentes_id (titular actual de la carga). Si una carga
+    // se reasigna o desactiva tras la evaluación, la calificación SIGUE contando para el
+    // docente evaluado (caso 29534119: evaluada en Álgebra, carga luego desasignada).
+    // Los titulares activos que NUNCA recibieron calificación NO aparecen aquí
+    // (caso 44124860: sin filas en cdd → fuera del padrón).
     const [base] = await conn.query(`
+      WITH doc_cargas AS (
+        -- Cargas donde el docente fue REALMENTE evaluado (inmutable, por cdd → cd).
+        SELECT cd.docentes_id AS doc_id, cd.carga_academicas_id AS carga_id
+        FROM calificacion_docentes cd
+        WHERE cd.estado='1' AND cd.participantes > 0 AND cd.docentes_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM calificacion_docente_detalles cdd
+                      WHERE cdd.calificacion_docentes_id = cd.id)
+        GROUP BY cd.docentes_id, cd.carga_academicas_id
+      )
       SELECT d.id,
              d.nro_documento AS dni,
              CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS nombre,
@@ -3883,13 +3936,13 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
              GROUP_CONCAT(DISTINCT COALESCE(s.denominacion,'—') ORDER BY s.denominacion SEPARATOR ', ') AS sedes,
              ROUND(AVG(CASE WHEN cd.modalidad='0' THEN cd.promedio END), 2) AS prom_presencial,
              ROUND(AVG(CASE WHEN cd.modalidad='1' THEN cd.promedio END), 2) AS prom_virtual,
-             MAX(ca.estado='1') AS tiene_carga_activa
-      FROM docentes d
-      JOIN carga_academicas ca ON ca.docentes_id = d.id AND ca.tipo='1'
-        AND ( (ca.periodos_id=1 AND ca.estado='1')
-              OR EXISTS (SELECT 1 FROM calificacion_docentes cdx
-                         WHERE cdx.carga_academicas_id = ca.id AND cdx.estado='1' AND cdx.participantes > 0) )
-      LEFT JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado='1' AND cd.participantes > 0
+             EXISTS (SELECT 1 FROM carga_academicas cax
+                     WHERE cax.docentes_id = d.id AND cax.tipo='1' AND cax.periodos_id=1 AND cax.estado='1') AS tiene_carga_activa
+      FROM doc_cargas dc
+      JOIN docentes d ON d.id = dc.doc_id
+      JOIN carga_academicas ca ON ca.id = dc.carga_id
+      LEFT JOIN calificacion_docentes cd ON cd.docentes_id = dc.doc_id AND cd.carga_academicas_id = dc.carga_id
+        AND cd.estado='1' AND cd.participantes > 0
       LEFT JOIN cursos cur ON cur.id = ca.cursos_id
       LEFT JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
       LEFT JOIN areas ar ON ar.id = ga.areas_id
@@ -3969,7 +4022,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
     const ws = wb.addWorksheet('Padrón docentes');
 
     const headersFijos = ['#', 'DNI', 'Apellidos y Nombres', 'Vínculo', 'Cód. UNAP', 'Profesión', 'Email', 'Estado carga',
-      'Score (todas)', 'Score (válidas ≥80%)', 'Promedio crudo', 'Participantes', 'Robustez', 'Posición',
+      'Score (todas)', 'Score (válidas ≥80%)', `vs Media (C=${C})`, 'Promedio crudo', 'Participantes', 'Robustez', 'Posición',
       '% Top (5)', '% Crítica (1-2)',
       'N° cursos', 'N° grupos', 'N° asignaciones', 'Cursos', 'Áreas', 'Turnos', 'Sedes',
       'Prom. presencial', 'Prom. virtual',
@@ -4000,6 +4053,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
     });
 
+    const colVsMedia = headersFijos.findIndex(h => h.startsWith('vs Media')) + 1;
     base.forEach((d, idx) => {
       const id = Number(d.id);
       const n = Number(d.n) || 0;
@@ -4011,6 +4065,9 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       // Score válidas solo si el docente está evaluado (n>0): evita mostrar score
       // a partir de cd con participantes desactualizado.
       const scoreV = (n > 0 && nv > 0 && promV != null) ? Number(((nv * promV + Mv * Cv) / (nv + Mv)).toFixed(2)) : null;
+      // Comparación contra la media institucional C (mismo criterio que la línea
+      // de referencia en las gráficas): ≥ Media si el score alcanza o supera C.
+      const vsMedia = score == null ? '' : (score >= C ? '≥ Media' : '< Media');
       const robustez = n >= 50 ? 'robusta' : n >= 30 ? 'referencial' : n > 0 ? 'insuficiente' : 'sin evaluar';
       const pol = polarMap.get(id) || {};
       const asi = asistMap.get(id) || {};
@@ -4019,7 +4076,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       const estadoCarga = Number(d.tiene_carga_activa) === 1 ? 'Activo' : 'Reasignado/inactivo';
       const fijos = [
         idx + 1, d.dni || '', d.nombre, d.vinculo, d.codigo_unap || '', d.profesion || '', d.email || '', estadoCarga,
-        score, scoreV, promCrudo, n, robustez, posMap.get(id) || '',
+        score, scoreV, vsMedia, promCrudo, n, robustez, posMap.get(id) || '',
         pol.pct_top != null ? Number(pol.pct_top) : '', pol.pct_critica != null ? Number(pol.pct_critica) : '',
         Number(d.n_cursos || 0), Number(d.n_grupos || 0), Number(d.n_asignaciones || 0),
         d.cursos || '', d.areas || '', d.turnos || '', d.sedes || '',
@@ -4035,10 +4092,18 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
         cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
         cell.font = { size: 9 };
       });
+      // Resaltar la celda vs Media (verde = alcanza/supera, ámbar = por debajo)
+      if (vsMedia) {
+        const cell = row.getCell(colVsMedia);
+        const verde = vsMedia.startsWith('≥');
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: verde ? 'FFD1FAE5' : 'FFFEF3C7' } };
+        cell.font = { size: 9, bold: true, color: { argb: verde ? 'FF065F46' : 'FF92400E' } };
+        cell.alignment = { horizontal: 'center' };
+      }
     });
 
     // Anchos (incluye 'Estado carga' tras Email)
-    const widthsFijos = [4, 11, 32, 11, 10, 20, 24, 16, 11, 13, 12, 12, 12, 9, 9, 10, 9, 9, 12, 40, 22, 16, 22, 13, 12, 9, 10, 9, 9, 12];
+    const widthsFijos = [4, 11, 32, 11, 10, 20, 24, 16, 11, 13, 12, 12, 12, 12, 9, 9, 10, 9, 9, 12, 40, 22, 16, 22, 13, 12, 9, 10, 9, 9, 12];
     ws.columns = headers.map((h, i) => ({ width: i < widthsFijos.length ? widthsFijos[i] : 7 }));
     ws.views = [{ state: 'frozen', xSplit: 3, ySplit: 4 }];
 

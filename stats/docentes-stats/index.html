@@ -203,7 +203,7 @@
                 <!-- ============ KPIs ============ -->
                 <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div class="card p-4">
-                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Alumnos inscritos</p>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Alumnos que calificaron</p>
                         <p class="text-2xl font-black text-slate-800 dark:text-white" id="kpiTotal">—</p>
                         <p class="text-[10px] text-slate-400 mt-1" id="kpiSinGrupo"></p>
                     </div>
@@ -218,12 +218,12 @@
                         <p class="text-[10px] text-slate-400 mt-1" id="kpiParcialesPct">—</p>
                     </div>
                     <div class="card p-4">
-                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">No calificaron a nadie</p>
-                        <p class="text-2xl font-black text-red-500" id="kpiSin">—</p>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Respuestas registradas</p>
+                        <p class="text-2xl font-black text-slate-800 dark:text-white" id="kpiSin">—</p>
                         <p class="text-[10px] text-slate-400 mt-1" id="kpiSinPct">—</p>
                     </div>
                     <div class="card p-4">
-                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Participación global</p>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cobertura promedio</p>
                         <p class="text-2xl font-black text-primary dark:text-white" id="kpiCobertura">—</p>
                         <p class="text-[10px] text-slate-400 mt-1"><span id="kpiDocentesEval">—</span> docentes evaluados</p>
                     </div>
@@ -566,6 +566,45 @@
         let charts = {};
         const destroy = (k) => { if (charts[k]) { charts[k].destroy(); charts[k] = null; } };
 
+        // Media institucional general (C bayesiano). Se fija al cargar el dashboard
+        // y se usa como línea de referencia en las gráficas de docentes.
+        let MEDIA_C = null;
+
+        // Plugin inline: dibuja una línea vertical punteada en la media institucional
+        // sobre el eje de puntaje (gráficas horizontales). Solo actúa si el chart
+        // define options.plugins.mediaLine.value.
+        const mediaLinePlugin = {
+            id: 'mediaLine',
+            afterDatasetsDraw(chart, args, opts) {
+                const value = opts && opts.value;
+                if (value == null) return;
+                const xScale = chart.scales.x;
+                if (!xScale) return;
+                const { ctx, chartArea } = chart;
+                const x = xScale.getPixelForValue(value);
+                if (x < chartArea.left || x > chartArea.right) return;
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(x, chartArea.top);
+                ctx.lineTo(x, chartArea.bottom);
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 4]);
+                ctx.strokeStyle = '#6366f1';
+                ctx.stroke();
+                ctx.setLineDash([]);
+                const label = 'Media ' + Number(value).toFixed(2);
+                ctx.font = 'bold 10px sans-serif';
+                const tw = ctx.measureText(label).width;
+                const lx = Math.min(x + 4, chartArea.right - tw - 4);
+                ctx.fillStyle = '#6366f1';
+                ctx.fillRect(lx - 3, chartArea.top, tw + 6, 15);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, lx, chartArea.top + 11);
+                ctx.restore();
+            }
+        };
+        Chart.register(mediaLinePlugin);
+
         function getFiltrosParams() {
             const p = new URLSearchParams();
             const sede = document.getElementById('filterSede').value;
@@ -613,6 +652,7 @@
             pintarRobustezResumen(d.robustez_conteo, d.umbral_robusta);
 
             pintarKPIs(d.kpis);
+            MEDIA_C = d.bayes && d.bayes.C != null ? Number(d.bayes.C) : null;
             document.getElementById('paramC').textContent = d.bayes.C;
             document.getElementById('paramM').textContent = d.bayes.m;
 
@@ -660,13 +700,15 @@
             const base = total - sinGrupo;
             document.getElementById('kpiTotal').textContent = fmt(total);
             const notaSinGrupo = document.getElementById('kpiSinGrupo');
-            notaSinGrupo.textContent = sinGrupo > 0 ? `${fmt(sinGrupo)} sin grupo (excluidos)` : '';
+            notaSinGrupo.textContent = 'universo inmutable (incluye retirados)';
             document.getElementById('kpiCompletos').textContent = fmt(k.completos);
             document.getElementById('kpiCompletosPct').textContent = pct(k.completos, base);
             document.getElementById('kpiParciales').textContent = fmt(k.parciales);
             document.getElementById('kpiParcialesPct').textContent = pct(k.parciales, base);
-            document.getElementById('kpiSin').textContent = fmt(k.sin_calificar);
-            document.getElementById('kpiSinPct').textContent = pct(k.sin_calificar, base);
+            // Card repurpuesta: el universo es "quienes calificaron", así que
+            // "sin calificar" es 0 por definición → mostramos volumen de respuestas.
+            document.getElementById('kpiSin').textContent = fmt(k.total_respuestas_criterios);
+            document.getElementById('kpiSinPct').textContent = 'respuestas a criterios';
             document.getElementById('kpiCobertura').textContent = (k.cobertura_global_pct || 0) + '%';
             document.getElementById('kpiDocentesEval').textContent = fmt(k.docentes_evaluados);
         }
@@ -687,12 +729,12 @@
                     scales: { x: { beginAtZero: true } }
                 }
             });
-            // Lectura clave
+            // Lectura clave (universo = quienes calificaron)
             const total = Number(kpis.total_alumnos);
-            const sin = Number(kpis.sin_calificar);
             const compl = Number(kpis.completos);
+            const parc = Number(kpis.parciales);
             document.getElementById('insightDistribucion').innerHTML =
-                `De cada 10 alumnos, <b>${Math.round(10*compl/total)}</b> ya calificaron a todos sus docentes y <b>${Math.round(10*sin/total)}</b> no han calificado a ninguno. Quedan <b>${fmt(sin)}</b> alumnos pendientes de empezar la encuesta.`;
+                `De los <b>${fmt(total)}</b> alumnos que calificaron, <b>${Math.round(100*compl/total)}%</b> evaluó a <b>todos</b> sus docentes y <b>${fmt(parc)}</b> (${Math.round(100*parc/total)}%) solo a algunos. Cobertura promedio de <b>${kpis.cobertura_global_pct}%</b>.`;
         }
 
         function pintarCoberturaSede(rows) {
@@ -737,14 +779,23 @@
                     onClick: (evt, els) => { if (els.length) irAFicha(rows[els[0].index].id); },
                     onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
                     plugins: { legend: { display: false },
+                        mediaLine: { value: MEDIA_C },
                         tooltip: { callbacks: {
                             label: ctx => 'Puntaje corregido: ' + ctx.parsed.x.toFixed(2),
-                            afterLabel: ctx => [
-                                'Promedio crudo: ' + Number(rows[ctx.dataIndex].promedio_crudo).toFixed(2),
-                                'Participantes: ' + fmt(rows[ctx.dataIndex].participantes),
-                                'Robustez: ' + rows[ctx.dataIndex].robustez,
-                                '— Clic para ver ficha —'
-                            ]
+                            afterLabel: ctx => {
+                                const r = rows[ctx.dataIndex];
+                                const out = [
+                                    'Promedio crudo: ' + Number(r.promedio_crudo).toFixed(2),
+                                    'Participantes: ' + fmt(r.participantes),
+                                    'Robustez: ' + r.robustez
+                                ];
+                                if (MEDIA_C != null) {
+                                    const dif = Number(r.score) - MEDIA_C;
+                                    out.push((dif >= 0 ? '≥ Media (+' : '< Media (') + dif.toFixed(2) + ') · media ' + MEDIA_C.toFixed(2));
+                                }
+                                out.push('— Clic para ver ficha —');
+                                return out;
+                            }
                         } } },
                     scales: { x: { min: 3, max: 5, ticks: { stepSize: 0.25 } } }
                 }
@@ -754,15 +805,18 @@
         function pintarTop(rows) {
             pintarRankingDocentes('chTop', 'top', rows);
             const m = rows[0];
+            const linea = MEDIA_C != null ? ` La línea punteada marca la <b>media institucional (${MEDIA_C.toFixed(2)})</b>: todos superan la media.` : '';
             document.getElementById('insightTop').innerHTML =
-                `El docente con mejor puntuación corregida es <b>${esc(m.docente)}</b> con <b>${m.score}</b> sobre 5 (a partir de ${fmt(m.participantes)} alumnos). Los 15 mejores tienen al menos <b>${rows[rows.length-1].score}</b>. <span class="text-primary font-semibold">Clic en cualquier barra para ver la ficha.</span>`;
+                `El docente con mejor puntuación corregida es <b>${esc(m.docente)}</b> con <b>${m.score}</b> sobre 5 (a partir de ${fmt(m.participantes)} alumnos). Los 15 mejores tienen al menos <b>${rows[rows.length-1].score}</b>.${linea} <span class="text-primary font-semibold">Clic en cualquier barra para ver la ficha.</span>`;
         }
 
         function pintarBottom(rows) {
             pintarRankingDocentes('chBottom', 'bot', rows);
             const p = rows[0];
+            const bajoMedia = MEDIA_C != null ? rows.filter(r => Number(r.score) < MEDIA_C).length : null;
+            const linea = MEDIA_C != null ? ` La línea punteada marca la <b>media institucional (${MEDIA_C.toFixed(2)})</b>: <b>${bajoMedia}</b> de estos 15 están por debajo.` : '';
             document.getElementById('insightBottom').innerHTML =
-                `El docente con menor puntuación corregida es <b>${esc(p.docente)}</b> con <b>${p.score}</b> sobre 5 (a partir de ${fmt(p.participantes)} alumnos). Recomendable acompañamiento pedagógico inmediato. <span class="text-primary font-semibold">Clic en cualquier barra para ver la ficha.</span>`;
+                `El docente con menor puntuación corregida es <b>${esc(p.docente)}</b> con <b>${p.score}</b> sobre 5 (a partir de ${fmt(p.participantes)} alumnos). Recomendable acompañamiento pedagógico inmediato.${linea} <span class="text-primary font-semibold">Clic en cualquier barra para ver la ficha.</span>`;
         }
 
         function pintarDistProm(rows) {
