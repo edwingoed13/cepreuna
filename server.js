@@ -2683,7 +2683,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       kpisRows, distribucion, porSede, perDoc,
       rankingPorCurso, rankingPorArea, rankingPorTurno, rankingPorSede,
       porPregunta, gruposRiesgo, evolucion, robustezRows,
-      porModalidad, varianzaCursos,
+      porModalidad, varianzaCursos, participacionCiclo,
     ] = await Promise.all([
     // 1) KPIs globales (con filtros opcionales de sede/area/turno via perspectiva alumno)
     q(`
@@ -2931,6 +2931,23 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       ORDER BY desviacion DESC
       LIMIT 10
     `),
+
+    // 12) Participación del ciclo: total de estudiantes inscritos (activos) y cuántos
+    // de ellos NO calificaron. "Calificó" = tiene al menos una respuesta en cdd sobre
+    // una carga titular (tipo='1'). Métrica de inscripción, separada del universo cdd.
+    q(`
+      SELECT
+        COUNT(DISTINCT i.estudiantes_id) AS total_inscritos,
+        COUNT(DISTINCT c.estudiantes_id) AS inscritos_calificaron
+      FROM inscripciones i
+      LEFT JOIN (
+        SELECT DISTINCT cdd.estudiantes_id
+        FROM calificacion_docente_detalles cdd
+        JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+      ) c ON c.estudiantes_id = i.estudiantes_id
+      WHERE i.periodos_id = 1 AND i.estado = '1'
+    `),
     ]); // ===== fin OLA 1 =====
 
     const kpis = kpisRows[0];
@@ -3081,6 +3098,11 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       umbral_robusta: umbralRobusta,
       robustez_conteo: robustez,
       filtros_aplicados: F.aplicados,
+      participacion_ciclo: {
+        total_inscritos: Number(participacionCiclo[0]?.total_inscritos || 0),
+        calificaron: Number(participacionCiclo[0]?.inscritos_calificaron || 0),
+        no_calificaron: Number(participacionCiclo[0]?.total_inscritos || 0) - Number(participacionCiclo[0]?.inscritos_calificaron || 0),
+      },
       distribucion_cumplimiento: distribucion,
       cobertura_por_sede: porSede,
       top_docentes: topDocentes,
