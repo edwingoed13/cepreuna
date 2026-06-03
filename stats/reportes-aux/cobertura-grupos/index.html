@@ -632,6 +632,14 @@
             return d.toISOString().slice(0, 10);
         }
 
+        // Numeración de semanas del CICLO académico (no del rango filtrado).
+        // Semana 1 = lunes 23/03/2026 (inicio de clases); el ciclo va hasta el 10/07/2026.
+        const CICLO_INICIO_LUNES = '2026-03-23';
+        function semanaDelCiclo(lunesISO) {
+            const ms = new Date(lunesISO + 'T00:00:00') - new Date(CICLO_INICIO_LUNES + 'T00:00:00');
+            return Math.floor(ms / (7 * 86400000)) + 1;
+        }
+
         function pintar() {
             if (!lastData) return;
             const { grupos, asistencias, desde, hasta } = lastData;
@@ -666,9 +674,10 @@
                     semanas.get(k)[f.dow] = f.fecha;
                 }
                 const lunesOrden = [...semanas.keys()].sort();
-                lunesOrden.forEach((lun, si) => {
+                lunesOrden.forEach((lun) => {
                     const dias = semanas.get(lun);
                     const finSem = Object.values(dias).sort().pop();
+                    const nroSem = semanaDelCiclo(lun); // semana real del ciclo (desde 23/03/2026)
                     for (const g of grupos) {
                         const cells = columnasMatriz.map(col => {
                             const fecha = dias[col.dow];
@@ -682,7 +691,7 @@
                         const total = evaluables.length;
                         const pct = total > 0 ? Math.round(100 * tomados / total) : 0;
                         filas.push({ g, cells, tomados, total, faltantes: total - tomados, pct,
-                                     semanaNum: si + 1, semanaLabel: `Semana ${si + 1}`, semanaRango: `${lun} a ${finSem}` });
+                                     semanaNum: nroSem, semanaLabel: `Semana ${nroSem}`, semanaRango: `${lun} a ${finSem}` });
                     }
                 });
             } else {
