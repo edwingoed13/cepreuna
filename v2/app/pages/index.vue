@@ -15,7 +15,6 @@ const dias = ref<DiaRow[]>([])
 const loading = ref(true)
 const error = ref(false)
 const ultima = ref<Date | null>(null)
-let timer: ReturnType<typeof setInterval> | null = null
 
 async function cargar() {
   error.value = false
@@ -53,11 +52,7 @@ const barrasAreas = computed(() => areas.value.map(a => ({
 
 const trendData = computed(() => dias.value.map(d => ({ fecha: d.fecha, valor: d.total_inscritos })))
 
-onMounted(() => {
-  cargar()
-  timer = setInterval(cargar, 60000)
-})
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onMounted(cargar)
 </script>
 
 <template>
@@ -65,7 +60,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <div class="flex items-center justify-between">
       <p class="text-xs text-muted flex items-center gap-1.5">
         <span v-if="error" class="text-red-500 flex items-center gap-1"><UIcon name="i-lucide-wifi-off" class="size-3.5" />Sin conexión con la API</span>
-        <span v-else-if="ultima"><UIcon name="i-lucide-clock" class="size-3 inline" /> Actualizado {{ fmtHora(ultima) }} · auto 60s</span>
+        <span v-else-if="ultima"><UIcon name="i-lucide-clock" class="size-3 inline" /> Actualizado {{ fmtHora(ultima) }}</span>
         <span v-else>Cargando…</span>
       </p>
       <UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" size="sm" :loading="loading" label="Refrescar" @click="cargar" />
@@ -86,10 +81,10 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <!-- Distribución por área -->
-      <UCard>
+      <UCard class="card-hover">
         <template #header>
           <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-bar-chart-3" class="size-4 text-cepreuna-600" />
+            <UIcon name="i-lucide-bar-chart-3" class="size-4 text-sky-600 dark:text-sky-400" />
             <h3 class="font-bold text-sm">Distribución por área</h3>
           </div>
         </template>
@@ -100,10 +95,10 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
       </UCard>
 
       <!-- Top sedes -->
-      <UCard>
+      <UCard class="card-hover">
         <template #header>
           <div class="flex items-center gap-2">
-            <UIcon name="i-lucide-map-pin" class="size-4 text-cepreuna-600" />
+            <UIcon name="i-lucide-map-pin" class="size-4 text-sky-600 dark:text-sky-400" />
             <h3 class="font-bold text-sm">Inscritos por sede</h3>
           </div>
         </template>
@@ -114,7 +109,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           <div v-for="s in sedes" :key="s.sede_id" class="flex items-center gap-3">
             <span class="text-xs font-medium w-28 truncate shrink-0">{{ s.sede }}</span>
             <div class="flex-1 h-5 rounded bg-elevated overflow-hidden relative">
-              <div class="h-full rounded bg-cepreuna-500/80 transition-all duration-500" :style="{ width: (100 * s.total_inscritos / maxSede) + '%' }" />
+              <div class="h-full rounded bg-gradient-to-r from-sky-500 to-sky-400 transition-all duration-500" :style="{ width: (100 * s.total_inscritos / maxSede) + '%' }" />
             </div>
             <span class="text-xs font-mono font-bold w-20 text-right shrink-0">
               {{ fmtNumero(s.total_inscritos) }}
@@ -127,10 +122,10 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     </div>
 
     <!-- Tendencia -->
-    <UCard>
+    <UCard class="card-hover">
       <template #header>
         <div class="flex items-center gap-2">
-          <UIcon name="i-lucide-trending-up" class="size-4 text-cepreuna-600" />
+          <UIcon name="i-lucide-trending-up" class="size-4 text-sky-600 dark:text-sky-400" />
           <h3 class="font-bold text-sm">Tendencia de inscripciones por día</h3>
         </div>
       </template>

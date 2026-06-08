@@ -30,7 +30,7 @@ export default defineNuxtRouteMiddleware((to) => {
 
   // Ruta solo-admin con usuario no-admin → su landing permitido.
   const admin = esAdmin(session.value?.user?.role)
-  const esRutaAdmin = ADMIN_ONLY.some(p => to.path === p || to.path.startsWith('/reportes-aux'))
+  const esRutaAdmin = ADMIN_ONLY.some(p => to.path === p) || to.path.startsWith('/reportes-aux') || to.path.startsWith('/docentes')
   if (esRutaAdmin && !admin) {
     return navigateTo('/alumnos')
   }

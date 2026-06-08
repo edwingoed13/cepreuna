@@ -20,23 +20,24 @@ const loading = ref(false)
 const error = ref(false)
 
 const dni = ref('')
-const estado = ref<'' | 'completo' | 'parcial' | 'sin'>('')
+// 'todos' es el sentinel de "sin filtro" (USelect/Reka no admite value '').
+const estado = ref<'todos' | 'completo' | 'parcial' | 'sin'>('todos')
 
 const estadoOpts = [
-  { label: 'Todos', value: '' },
+  { label: 'Todos', value: 'todos' },
   { label: '✓ Completa', value: 'completo' },
   { label: '◐ Parcial', value: 'parcial' },
   { label: '✗ Sin calificar', value: 'sin' }
 ]
 
-const filtrosActivos = computed(() => [dni.value.trim(), estado.value].filter(Boolean).length)
+const filtrosActivos = computed(() => (dni.value.trim() ? 1 : 0) + (estado.value !== 'todos' ? 1 : 0))
 
 async function cargar() {
   loading.value = true
   error.value = false
   try {
-    const qs = dni.value.trim() ? '?q=' + encodeURIComponent(dni.value.trim()) : ''
-    const d = await api<{ registros: RegistroCalif[] }>('/api/stats/calificaciones' + qs)
+    // Carga única (cacheada en backend); DNI/estado se filtran client-side en vivo.
+    const d = await api<{ registros: RegistroCalif[] }>('/api/stats/calificaciones')
     registros.value = d.registros || []
   } catch {
     error.value = true
@@ -46,14 +47,18 @@ async function cargar() {
   }
 }
 
-function limpiar() { dni.value = ''; estado.value = ''; cargar() }
+function limpiar() { dni.value = ''; estado.value = 'todos' }
 
 function clasif(r: RegistroCalif) {
   return estadoCalificacion(Number(r.docentes_calificados) || 0, Number(r.total_docentes) || 0)
 }
 
 const tabla = useTablaAlumnos<RegistroCalif>(registros, {
-  extraFilter: (r) => !estado.value || clasif(r).tipo === estado.value,
+  extraFilter: (r) => {
+    const query = dni.value.trim().toLowerCase()
+    if (query && !`${r.nro_documento} ${r.paterno} ${r.materno} ${r.nombres}`.toLowerCase().includes(query)) return false
+    return estado.value === 'todos' || clasif(r).tipo === estado.value
+  },
   sortAccessors: {
     nro_documento: r => r.nro_documento,
     nombre: r => `${r.paterno} ${r.materno} ${r.nombres}`,
@@ -66,7 +71,7 @@ const tabla = useTablaAlumnos<RegistroCalif>(registros, {
   }
 })
 
-watch(estado, () => { tabla.page.value = 1 })
+watch([estado, dni], () => { tabla.page.value = 1 })
 
 const kpis = computed(() => {
   let comp = 0, parc = 0, sin = 0
@@ -112,14 +117,14 @@ onMounted(cargar)
 
     <UCard :ui="{ body: 'p-3 sm:p-4' }">
       <div class="flex flex-wrap items-end gap-3">
-        <UFormField label="Buscar DNI" class="flex-1 min-w-[180px]">
-          <UInput v-model="dni" placeholder="DNI + Enter…" icon="i-lucide-search" class="w-full" @keydown.enter="cargar" />
+        <UFormField label="Buscar" class="flex-1 min-w-[180px]">
+          <UInput v-model="dni" placeholder="DNI o nombre…" icon="i-lucide-search" class="w-full" />
         </UFormField>
         <UFormField label="Estado">
-          <USelectMenu v-model="estado" :items="estadoOpts" value-key="value" class="w-44" />
+          <USelect v-model="estado" :items="estadoOpts" value-key="value" class="w-44" />
         </UFormField>
-        <UButton label="Aplicar" icon="i-lucide-filter" :loading="loading" @click="cargar" />
         <UButton v-if="filtrosActivos" label="Limpiar" color="neutral" variant="ghost" icon="i-lucide-x" @click="limpiar" />
+        <UButton icon="i-lucide-refresh-cw" color="neutral" variant="ghost" :loading="loading" aria-label="Recargar" @click="cargar" />
       </div>
       <p v-if="filtrosActivos" class="text-[11px] text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
         <UIcon name="i-lucide-filter" class="size-3" />{{ filtrosActivos }} filtro{{ filtrosActivos === 1 ? '' : 's' }} activo{{ filtrosActivos === 1 ? '' : 's' }}
@@ -137,7 +142,7 @@ onMounted(cargar)
     <UCard :ui="{ header: 'p-3 sm:px-4', body: 'p-0' }">
       <template #header>
         <h3 class="font-bold text-sm flex items-center gap-2">
-          <UIcon name="i-lucide-clipboard-check" class="size-4 text-cepreuna-600" />
+          <UIcon name="i-lucide-clipboard-check" class="size-4 text-sky-600 dark:text-sky-400" />
           Calificación docente
           <span class="text-muted font-normal">· {{ fmtNumero(tabla.totalFiltrado.value) }}</span>
         </h3>
@@ -152,7 +157,7 @@ onMounted(cargar)
                 v-for="(c, ci) in cols"
                 :key="c.key"
                 class="px-3 py-2 text-left font-bold cursor-pointer select-none whitespace-nowrap bg-elevated/80 backdrop-blur border-b border-default"
-                :class="[c.sticky ? 'sticky z-20' : '', c.sticky && ci === 0 ? 'left-12' : '', sortActive(c.key) ? 'text-cepreuna-600' : '']"
+                :class="[c.sticky ? 'sticky z-20' : '', c.sticky && ci === 0 ? 'left-12' : '', sortActive(c.key) ? 'text-sky-600 dark:text-sky-400' : '']"
                 :style="c.sticky && ci === 1 ? 'left: 7.5rem' : ''"
                 @click="tabla.ordenar(c.key)"
               >
@@ -160,7 +165,7 @@ onMounted(cargar)
               </th>
               <th
                 class="px-3 py-2 text-center font-bold cursor-pointer select-none bg-elevated/80 backdrop-blur border-b border-default"
-                :class="sortActive('calif') ? 'text-cepreuna-600' : ''"
+                :class="sortActive('calif') ? 'text-sky-600 dark:text-sky-400' : ''"
                 @click="tabla.ordenar('calif')"
               >
                 <span class="inline-flex items-center gap-1">Calificación<UIcon :name="tabla.sortIcon('calif')" class="size-3" /></span>
@@ -168,11 +173,11 @@ onMounted(cargar)
             </tr>
           </thead>
           <tbody>
-            <template v-if="loading">
-              <tr v-for="n in 8" :key="'sk' + n" class="border-b border-default">
-                <td v-for="c in 8" :key="c" class="px-3 py-2"><div class="h-3 rounded bg-elevated animate-pulse" /></td>
-              </tr>
-            </template>
+            <tr v-if="loading">
+              <td colspan="8" class="p-0">
+                <AcademicLoader title="Calculando calificaciones" subtitle="Procesando la cobertura por alumno — la primera vez puede tardar unos segundos." />
+              </td>
+            </tr>
             <tr v-else-if="error">
               <td colspan="8" class="text-center py-12">
                 <UIcon name="i-lucide-wifi-off" class="size-8 text-muted mx-auto mb-2" />

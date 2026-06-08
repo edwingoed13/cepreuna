@@ -22,11 +22,11 @@ const hoy = new Date()
 const desde = ref(ymd(lunesSemana(hoy)))
 const hasta = ref(ymd(new Date(lunesSemana(hoy).getTime() + 4 * 86400000)))
 
-const estado = ref('')   // '' | faltas | 100 | sin
+const estado = ref('todos')   // 'todos' | faltas | 100 | sin
 const diasModo = ref('habiles') // habiles | todos
 const vista = ref<'semanal' | 'dinamica'>('semanal')
 const estadoOpts = [
-  { label: 'Todos', value: '' },
+  { label: 'Todos', value: 'todos' },
   { label: 'Con faltas', value: 'faltas' },
   { label: '100% cumplimiento', value: '100' },
   { label: 'Sin auxiliar', value: 'sin' }
@@ -193,9 +193,14 @@ onMounted(cargarCatalogos)
 
 <template>
   <div class="p-4 lg:p-6 space-y-4">
-    <div>
-      <h2 class="text-lg font-bold flex items-center gap-2"><UIcon name="i-lucide-grid-3x3" class="size-5 text-cepreuna-600" />Cobertura de asistencia</h2>
-      <p class="text-sm text-muted">Matriz SI/NO por grupo y día con % de cumplimiento.</p>
+    <div class="flex items-center gap-3">
+      <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+        <UIcon name="i-lucide-grid-3x3" class="size-5" />
+      </span>
+      <div>
+        <h2 class="text-lg font-black">Cobertura de asistencia</h2>
+        <p class="text-sm text-muted">Matriz SI/NO por grupo y día con % de cumplimiento.</p>
+      </div>
     </div>
 
     <!-- Filtros -->
@@ -217,8 +222,8 @@ onMounted(cargarCatalogos)
         <UFormField label="Auxiliar"><FiltroMulti v-model="selAuxes" :items="itemsAuxes" placeholder="Todos" icon="i-lucide-user" /></UFormField>
       </div>
       <div class="flex flex-wrap items-end gap-3 mt-3">
-        <UFormField label="Estado"><USelectMenu v-model="estado" :items="estadoOpts" value-key="value" class="w-44" /></UFormField>
-        <UFormField label="Días"><USelectMenu v-model="diasModo" :items="diasOpts" value-key="value" class="w-48" /></UFormField>
+        <UFormField label="Estado"><USelect v-model="estado" :items="estadoOpts" value-key="value" class="w-44" /></UFormField>
+        <UFormField label="Días"><USelect v-model="diasModo" :items="diasOpts" value-key="value" class="w-48" /></UFormField>
         <UButton label="Generar" icon="i-lucide-play" :loading="loading" @click="generar" />
         <div v-if="generado" class="flex items-end gap-2 ml-auto">
           <UButtonGroup>
@@ -231,7 +236,7 @@ onMounted(cargarCatalogos)
     </UCard>
 
     <!-- KPIs -->
-    <div v-if="generado" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div v-if="generado && !loading" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <KpiCard label="Grupos" :value="fmtNumero(kpis.grupos)" color="primary" icon="i-lucide-layers" />
       <KpiCard label="Cumplimiento prom." :value="kpis.prom + '%'" :color="kpis.prom >= 90 ? 'success' : kpis.prom >= 60 ? 'warning' : 'error'" icon="i-lucide-gauge" />
       <KpiCard label="Con faltas" :value="fmtNumero(kpis.conFaltas)" color="warning" icon="i-lucide-calendar-x" />
@@ -239,7 +244,7 @@ onMounted(cargarCatalogos)
     </div>
 
     <!-- Matriz -->
-    <UCard v-if="generado" :ui="{ body: 'p-0' }">
+    <UCard v-if="generado && !loading" :ui="{ body: 'p-0' }">
       <div class="overflow-x-auto max-h-[65vh] overflow-y-auto">
         <!-- VISTA SEMANAL -->
         <table v-if="vista === 'semanal'" class="w-full text-xs border-separate border-spacing-0">
@@ -304,7 +309,10 @@ onMounted(cargarCatalogos)
       </div>
     </UCard>
 
-    <div v-else class="text-center py-16 text-muted">
+    <!-- Generando -->
+    <AcademicLoader v-if="loading" title="Generando cobertura" subtitle="Pivoteando la asistencia por grupo y día." icon="i-lucide-grid-3x3" />
+
+    <div v-else-if="!generado" class="text-center py-16 text-muted">
       <UIcon name="i-lucide-sliders-horizontal" class="size-10 mx-auto mb-3 opacity-50" />
       <p class="text-sm">Ajusta los filtros y pulsa <b>Generar</b>.</p>
     </div>

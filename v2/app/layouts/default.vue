@@ -2,7 +2,6 @@
 import type { NavigationMenuItem } from '#ui/types'
 
 const { user, role, isAdmin, logout } = useAuth()
-const colorMode = useColorMode()
 const route = useRoute()
 
 // Items del sidebar, filtrados por rol.
@@ -12,16 +11,12 @@ const navItems = computed<NavigationMenuItem[][]>(() => {
     { label: 'Reportes', icon: 'i-lucide-file-text', to: '/reportes', adminOnly: true },
     { label: 'Alumnos', icon: 'i-lucide-users', to: '/alumnos' },
     { label: 'Calificación', icon: 'i-lucide-clipboard-check', to: '/alumnos-calificacion' },
+    { label: 'Docentes', icon: 'i-lucide-award', to: '/docentes', adminOnly: true },
     { label: 'Reportes auxiliares', icon: 'i-lucide-user-cog', to: '/reportes-aux', adminOnly: true }
   ]
   const visibles = todos.filter(i => !i.adminOnly || isAdmin.value)
   return [visibles]
 })
-
-const themeIcon = computed(() => colorMode.value === 'dark' ? 'i-lucide-moon' : 'i-lucide-sun')
-function toggleTheme() {
-  colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark'
-}
 
 const titulo = computed(() => {
   const map: Record<string, string> = {
@@ -44,11 +39,11 @@ const iniciales = computed(() => (user.value?.name || 'A').charAt(0).toUpperCase
     <UDashboardSidebar collapsible :ui="{ footer: 'border-t border-default' }">
       <template #header="{ collapsed }">
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-lg bg-cepreuna-700 text-white flex items-center justify-center shrink-0">
-            <UIcon name="i-lucide-graduation-cap" class="size-5" />
-          </div>
+          <span class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-white p-1 shadow-sm ring-1 ring-slate-200 dark:ring-white/15">
+            <BrandLogo class="size-full object-contain" />
+          </span>
           <div v-if="!collapsed" class="min-w-0">
-            <p class="font-bold text-cepreuna-700 dark:text-white leading-none">CEPREUNA</p>
+            <p class="font-black text-cepreuna-700 dark:text-white leading-none">CEPREUNA</p>
             <p class="text-[10px] text-muted uppercase tracking-widest mt-1">Estadísticas</p>
           </div>
         </div>
@@ -58,20 +53,11 @@ const iniciales = computed(() => (user.value?.name || 'A').charAt(0).toUpperCase
 
       <template #footer="{ collapsed }">
         <div class="flex items-center gap-3 w-full">
-          <UAvatar :text="iniciales" size="sm" />
+          <UAvatar :text="iniciales" size="sm" :ui="{ root: 'bg-cepreuna-700 text-white' }" />
           <div v-if="!collapsed" class="flex-1 min-w-0">
             <p class="text-sm font-semibold truncate">{{ user?.name || 'Usuario' }}</p>
             <p class="text-[10px] text-muted truncate">{{ role || '—' }}</p>
           </div>
-          <UButton
-            v-if="!collapsed"
-            icon="i-lucide-log-out"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            aria-label="Cerrar sesión"
-            @click="logout()"
-          />
         </div>
       </template>
     </UDashboardSidebar>
@@ -83,14 +69,16 @@ const iniciales = computed(() => (user.value?.name || 'A').charAt(0).toUpperCase
             <UDashboardSidebarCollapse />
           </template>
           <template #right>
-            <UButton :icon="themeIcon" color="neutral" variant="ghost" aria-label="Cambiar tema" @click="toggleTheme" />
+            <ThemeSwitch />
             <UButton icon="i-lucide-log-out" color="neutral" variant="ghost" aria-label="Salir" @click="logout()" />
           </template>
         </UDashboardNavbar>
       </template>
 
       <template #body>
-        <slot />
+        <div class="dash-surface min-h-full">
+          <slot />
+        </div>
       </template>
     </UDashboardPanel>
   </UDashboardGroup>

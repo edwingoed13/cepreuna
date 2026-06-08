@@ -38,7 +38,7 @@ function estadoArea(a: AreaR): { color: string; bar: string; texto?: string } {
   if (pct === null) return { color: 'text-muted', bar: '#94a3b8' }
   if (a.vacantes_disponibles <= 0) return { color: 'text-red-600 dark:text-red-400', bar: '#ef4444', texto: 'Agotado' }
   if (pct >= 90) return { color: 'text-amber-600 dark:text-amber-400', bar: '#f97316', texto: 'Pocas vacantes' }
-  return { color: 'text-cepreuna-600 dark:text-cepreuna-300', bar: '#0381d9' }
+  return { color: 'text-sky-600 dark:text-sky-400', bar: '#0ea5e9' }
 }
 
 const tabItems = computed(() => reporte.value.map((s, i) => ({
@@ -47,19 +47,15 @@ const tabItems = computed(() => reporte.value.map((s, i) => ({
   icon: s.es_virtual ? 'i-lucide-monitor' : 'i-lucide-building-2'
 })))
 const tab = ref('0')
+
+onMounted(cargar)
 </script>
 
 <template>
   <div class="p-4 lg:p-6 space-y-4">
     <!-- Loading -->
-    <div v-if="loading" class="space-y-4">
-      <div class="h-9 rounded-lg bg-elevated animate-pulse w-full max-w-md" />
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div v-for="n in 4" :key="n" class="h-20 rounded-xl bg-elevated animate-pulse" />
-      </div>
-      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-        <div v-for="n in 3" :key="n" class="h-48 rounded-xl bg-elevated animate-pulse" />
-      </div>
+    <div v-if="loading">
+      <AcademicLoader title="Cargando reporte de sedes" subtitle="Consolidando inscritos y vacantes por sede, turno y área." icon="i-lucide-building-2" />
     </div>
 
     <!-- Error -->
@@ -87,7 +83,7 @@ const tab = ref('0')
             <UCard v-for="t in s.turnos" :key="t.turno_id">
               <template #header>
                 <div class="flex items-center justify-between">
-                  <h3 class="font-bold text-sm flex items-center gap-1.5"><UIcon name="i-lucide-clock-3" class="size-4 text-cepreuna-600" />{{ t.turno }}</h3>
+                  <h3 class="font-bold text-sm flex items-center gap-1.5"><UIcon name="i-lucide-clock-3" class="size-4 text-sky-600 dark:text-sky-400" />{{ t.turno }}</h3>
                   <span class="text-xs text-muted">{{ fmtNumero(t.areas.reduce((acc, a) => acc + a.total_inscritos, 0)) }} inscritos</span>
                 </div>
               </template>

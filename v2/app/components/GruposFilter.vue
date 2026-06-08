@@ -31,7 +31,7 @@ const resumen = computed(() => {
       @click="abierto = !abierto"
     >
       <div class="flex items-center gap-2 min-w-0">
-        <UIcon name="i-lucide-layers" class="size-4 text-cepreuna-600 shrink-0" />
+        <UIcon name="i-lucide-layers" class="size-4 text-sky-600 dark:text-sky-400 shrink-0" />
         <span class="text-[10px] font-bold uppercase tracking-widest text-muted">Grupos asignados</span>
         <span
           v-if="seleccionados.size"

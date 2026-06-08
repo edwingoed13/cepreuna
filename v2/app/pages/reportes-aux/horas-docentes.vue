@@ -35,9 +35,9 @@ function ymd(d: Date) { return d.toISOString().slice(0, 10) }
 const hoy = new Date()
 const desde = ref(ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 1)))
 const hasta = ref(ymd(hoy))
-const tipoCarga = ref('')
+const tipoCarga = ref('todos')
 const tipoOpts = [
-  { label: 'Titulares y suplentes', value: '' },
+  { label: 'Titulares y suplentes', value: 'todos' },
   { label: 'Solo titulares', value: '1' },
   { label: 'Solo suplentes', value: '2' }
 ]
@@ -104,7 +104,7 @@ function queryString() {
   const p = new URLSearchParams()
   p.set('desde', desde.value)
   p.set('hasta', hasta.value)
-  if (tipoCarga.value) p.set('tipo_carga', tipoCarga.value)
+  if (tipoCarga.value !== 'todos') p.set('tipo_carga', tipoCarga.value)
   const csv = (arr: number[]) => arr.join(',')
   if (selSedes.value.length) p.set('sedes', csv(selSedes.value))
   if (selTurnos.value.length) p.set('turnos', csv(selTurnos.value))
@@ -145,7 +145,7 @@ async function exportar() {
 function limpiar() {
   selSedes.value = []; selTurnos.value = []; selAreas.value = []
   selGrupos.value = []; selCoords.value = []; selAuxes.value = []
-  tipoCarga.value = ''
+  tipoCarga.value = 'todos'
 }
 
 // Orden de la tabla
@@ -192,9 +192,14 @@ onMounted(cargarCatalogos)
 
 <template>
   <div class="p-4 lg:p-6 space-y-4">
-    <div>
-      <h2 class="text-lg font-bold flex items-center gap-2"><UIcon name="i-lucide-banknote" class="size-5 text-cepreuna-600" />Horas pago por docentes</h2>
-      <p class="text-sm text-muted">Horas a pagar por coordinador, auxiliar, sede, turno, área y grupo.</p>
+    <div class="flex items-center gap-3">
+      <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
+        <UIcon name="i-lucide-banknote" class="size-5" />
+      </span>
+      <div>
+        <h2 class="text-lg font-black">Horas pago por docentes</h2>
+        <p class="text-sm text-muted">Horas a pagar por coordinador, auxiliar, sede, turno, área y grupo.</p>
+      </div>
     </div>
 
     <!-- Filtros -->
@@ -202,7 +207,7 @@ onMounted(cargarCatalogos)
       <div class="flex flex-wrap items-end gap-3">
         <UFormField label="Desde"><UInput v-model="desde" type="date" class="w-40" /></UFormField>
         <UFormField label="Hasta"><UInput v-model="hasta" type="date" class="w-40" /></UFormField>
-        <UFormField label="Tipo de carga"><USelectMenu v-model="tipoCarga" :items="tipoOpts" value-key="value" class="w-48" /></UFormField>
+        <UFormField label="Tipo de carga"><USelect v-model="tipoCarga" :items="tipoOpts" value-key="value" class="w-48" /></UFormField>
       </div>
       <div class="flex flex-wrap items-end gap-3 mt-3">
         <UFormField label="Sede"><FiltroMulti v-model="selSedes" :items="itemsSedes" placeholder="Todas las sedes" icon="i-lucide-map-pin" /></UFormField>
@@ -215,12 +220,12 @@ onMounted(cargarCatalogos)
       <div class="flex items-center gap-3 mt-4">
         <UButton label="Generar reporte" icon="i-lucide-play" :loading="loading" @click="generar" />
         <UButton label="Limpiar filtros" color="neutral" variant="ghost" icon="i-lucide-x" @click="limpiar" />
-        <UButton v-if="generado" label="Excel" icon="i-lucide-download" color="success" variant="soft" class="ml-auto" @click="exportar" />
+        <UButton v-if="generado && !loading" label="Excel" icon="i-lucide-download" color="success" variant="soft" class="ml-auto" @click="exportar" />
       </div>
     </UCard>
 
     <!-- KPIs -->
-    <div v-if="generado" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div v-if="generado && !loading" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <KpiCard label="Horas pago" :value="fmtNumero(totales?.horas_pago)" color="primary" icon="i-lucide-banknote" />
       <KpiCard label="Horas dictadas" :value="fmtNumero(totales?.horas_dictadas)" icon="i-lucide-clock" />
       <KpiCard label="Filas (grupos)" :value="fmtNumero(totales?.registros)" icon="i-lucide-rows-3" />
@@ -228,7 +233,7 @@ onMounted(cargarCatalogos)
     </div>
 
     <!-- Tabla -->
-    <UCard v-if="generado" :ui="{ body: 'p-0' }">
+    <UCard v-if="generado && !loading" :ui="{ body: 'p-0' }">
       <div class="overflow-x-auto max-h-[65vh] overflow-y-auto">
         <table class="w-full text-xs border-separate border-spacing-0">
           <thead class="sticky top-0 z-10">
@@ -237,7 +242,7 @@ onMounted(cargarCatalogos)
                 v-for="c in cols"
                 :key="c.key"
                 class="px-3 py-2 font-bold cursor-pointer select-none whitespace-nowrap bg-elevated/80 backdrop-blur border-b border-default"
-                :class="[c.num ? 'text-right' : 'text-left', sortBy === c.key ? 'text-cepreuna-600' : '']"
+                :class="[c.num ? 'text-right' : 'text-left', sortBy === c.key ? 'text-sky-600 dark:text-sky-400' : '']"
                 @click="ordenar(c.key)"
               >
                 <span class="inline-flex items-center gap-1">{{ c.label }}<UIcon :name="sortIcon(c.key)" class="size-3" /></span>
@@ -245,8 +250,7 @@ onMounted(cargarCatalogos)
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="9" class="text-center py-10 text-muted">Consultando…</td></tr>
-            <tr v-else-if="!filasOrdenadas.length"><td colspan="9" class="text-center py-10 text-muted">Sin resultados para los filtros.</td></tr>
+            <tr v-if="!filasOrdenadas.length"><td colspan="9" class="text-center py-10 text-muted">Sin resultados para los filtros.</td></tr>
             <tr v-for="(f, i) in filasOrdenadas" v-else :key="i" class="border-b border-default hover:bg-elevated/40">
               <td class="px-3 py-1.5">{{ f.coordinador || '—' }}</td>
               <td class="px-3 py-1.5">{{ f.auxiliar || '—' }}</td>
@@ -270,8 +274,11 @@ onMounted(cargarCatalogos)
       </div>
     </UCard>
 
+    <!-- Generando -->
+    <AcademicLoader v-if="loading" title="Generando reporte" subtitle="Calculando las horas de pago por docente." icon="i-lucide-banknote" />
+
     <!-- Estado inicial -->
-    <div v-else class="text-center py-16 text-muted">
+    <div v-else-if="!generado" class="text-center py-16 text-muted">
       <UIcon name="i-lucide-sliders-horizontal" class="size-10 mx-auto mb-3 opacity-50" />
       <p class="text-sm">Ajusta los filtros y pulsa <b>Generar reporte</b>.</p>
     </div>
