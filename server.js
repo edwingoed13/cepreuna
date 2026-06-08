@@ -2239,7 +2239,7 @@ function buildReportePagosQuery(req) {
 
 // El SQL base no tiene WHERE; lo envolvemos en `SELECT * FROM (...) AS t` para
 // poder filtrar por las columnas alias (estado_cuota1, etc.) sin tocar el SQL fuente.
-app.get('/api/stats/reporte-pagos', requireStatsAuth, async (req, res) => {
+app.get('/api/stats/reporte-pagos', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
   let connection;
   try {
     const q = buildReportePagosQuery(req);
@@ -2496,7 +2496,7 @@ const CALIFICACIONES_SQL_BASE = `
   WHERE i.periodos_id = 1 AND i.estado = '1'
 `;
 
-app.get('/api/stats/calificaciones', requireStatsAuth, async (req, res) => {
+app.get('/api/stats/calificaciones', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
   let connection;
   try {
     const { q } = req.query;
