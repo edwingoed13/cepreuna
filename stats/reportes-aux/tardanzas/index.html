@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>CEPREUNA - Tardanzas Docentes</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: { extend: { colors: {
+                "primary": "#003366", "primary-light": "#004080",
+                "background-light": "#f5f7f8", "background-dark": "#0f1923",
+            }, fontFamily: { "display": ["Inter", "sans-serif"] } } },
+        }
+    </script>
+    <style>
+        .sidebar-item-active { background-color: rgba(0, 51, 102, 0.1); color: #003366; border-right: 4px solid #003366; }
+        .dark .sidebar-item-active { background-color: rgba(255, 255, 255, 0.05); color: #fff; border-right-color: #fff; }
+        @media (max-width: 1024px) { .sidebar { display: none; } }
+        .table-fixed-head thead th { position: sticky; top: 0; z-index: 5; background-color: #f1f5f9; }
+        .dark .table-fixed-head thead th { background-color: #1e293b; }
+        th[data-sort] { cursor: pointer; user-select: none; }
+        th[data-sort]:hover { background-color: #e2e8f0; }
+        .dark th[data-sort]:hover { background-color: #334155; }
+        .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.3; font-size: 9px; }
+        .sort-arrow.active { opacity: 1; color: #003366; }
+        .dark .sort-arrow.active { color: #fff; }
+        select[multiple] { min-height: 92px; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <script>
+        const sessionDataString = localStorage.getItem('stats_session');
+        const sessionData = sessionDataString ? JSON.parse(sessionDataString) : null;
+        function _tokenVencido(t) {
+            try { const p = JSON.parse(atob(String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return !p.exp || p.exp * 1000 < Date.now(); }
+            catch (e) { return true; }
+        }
+        let _redir = false;
+        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_') || _tokenVencido(sessionData.token)) {
+            localStorage.removeItem('stats_session');
+            window.location.href = '/stats/login';
+            _redir = true;
+        }
+        // Solo administradores acceden a /stats/reportes-aux; el resto cae a /stats/alumnos.
+        const _role = sessionData?.user?.role;
+        if (!_redir && !['Administrador', 'Super Admin', 'Oficina de Administración'].includes(_role)) {
+            window.location.href = '/stats/alumnos';
+        }
+    </script>
+
+    <div class="flex h-screen overflow-hidden">
+        <aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex">
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white"><span class="material-symbols-outlined text-2xl">school</span></div>
+                <div>
+                    <h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1>
+                    <p class="text-slate-500 text-[10px] font-medium uppercase tracking-widest mt-1">Estadísticas</p>
+                </div>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-1">
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats"><span class="material-symbols-outlined">dashboard</span><span class="font-medium">Resumen</span></a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes"><span class="material-symbols-outlined">description</span><span class="font-medium">Reportes</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos"><span class="material-symbols-outlined">group</span><span class="font-medium">Alumnos</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos-calificacion"><span class="material-symbols-outlined">grading</span><span class="font-medium">Alumnos-Calificación</span></a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/docentes-stats"><span class="material-symbols-outlined">insights</span><span class="font-medium">Docentes-Stats</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/reportes-aux"><span class="material-symbols-outlined">supervisor_account</span><span class="font-medium">Reportes auxiliares</span></a>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3 p-2">
+                    <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold" id="userInitial">A</div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold truncate" id="userNameDisplay">Admin</p>
+                        <p class="text-[10px] text-slate-500 truncate" id="userEmailDisplay">—</p>
+                    </div>
+                    <button id="logoutBtn" class="text-slate-400 hover:text-red-500 transition-colors"><span class="material-symbols-outlined text-sm">logout</span></button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 lg:px-8 sticky top-0 z-10">
+                <div class="flex items-center gap-2">
+                    <a href="/stats/reportes-aux" class="text-slate-400 hover:text-primary"><span class="material-symbols-outlined">arrow_back</span></a>
+                    <span class="material-symbols-outlined text-amber-600">alarm</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Tardanzas y faltas docentes</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button id="themeToggle" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"><span class="material-symbols-outlined text-xl" id="themeIcon">dark_mode</span></button>
+                    <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600 transition-colors" title="Cerrar Sesión"><span class="material-symbols-outlined text-xl">logout</span></button>
+                </div>
+            </header>
+
+            <div class="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto w-full">
+                <!-- Filtros -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-base">filter_alt</span> Filtros</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Desde</label>
+                            <input id="fDesde" type="date" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"/>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Hasta</label>
+                            <input id="fHasta" type="date" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"/>
+                        </div>
+                        <div class="flex gap-1 items-end">
+                            <button class="qr px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800" data-r="semana">Semana</button>
+                            <button class="qr px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800" data-r="mes">Mes</button>
+                            <button class="qr px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800" data-r="ciclo">Ciclo</button>
+                        </div>
+                        <div class="flex gap-2 items-end">
+                            <button id="btnGenerar" class="flex-1 px-4 py-2 rounded-lg bg-primary text-white text-sm font-bold flex items-center justify-center gap-1.5 hover:bg-primary-light"><span class="material-symbols-outlined text-base">play_arrow</span>Generar</button>
+                            <button id="btnExcel" class="hidden px-3 py-2 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white text-sm font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-base">download</span>Excel</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                        <div><label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Sede</label><select id="fSedes" multiple class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select></div>
+                        <div><label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Turno</label><select id="fTurnos" multiple class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select></div>
+                        <div><label class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Área</label><select id="fAreas" multiple class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"></select></div>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2">Ctrl/Cmd + clic para seleccionar varias. Sin selección = todas.</p>
+                </div>
+
+                <!-- Semana del ciclo -->
+                <div id="semanaInfo" class="hidden flex items-center gap-2 text-sm">
+                    <span class="material-symbols-outlined text-amber-600 text-lg">date_range</span>
+                    <span class="font-bold text-slate-700 dark:text-slate-200" id="semanaLabel">—</span>
+                    <span class="text-slate-400 text-xs" id="semanaRango">—</span>
+                    <span class="text-[10px] text-slate-400">· ciclo 23/03 – 10/07/2026 (16 semanas)</span>
+                </div>
+
+                <!-- KPIs -->
+                <div id="kpis" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Docentes con tardanzas</p><p class="text-2xl font-black text-amber-600" id="kDoc">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Tardanzas totales</p><p class="text-2xl font-black text-amber-600" id="kTard">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Faltas totales</p><p class="text-2xl font-black text-red-500" id="kFalt">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Horas de descuento</p><p class="text-2xl font-black text-primary dark:text-white" id="kHrs">—</p></div>
+                </div>
+
+                <!-- Tabla -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto max-h-[60vh] overflow-y-auto table-fixed-head">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="text-left text-slate-500 uppercase tracking-tight border-b border-slate-200 dark:border-slate-800">
+                                    <th class="px-4 py-3 font-bold" data-sort="dni">DNI</th>
+                                    <th class="px-4 py-3 font-bold" data-sort="docente">Docente</th>
+                                    <th class="px-4 py-3 font-bold text-right" data-sort="tardanzas_total">Tardanzas</th>
+                                    <th class="px-4 py-3 font-bold text-right" data-sort="tardanzas_presencial">Presencial</th>
+                                    <th class="px-4 py-3 font-bold text-right" data-sort="tardanzas_virtual">Virtual</th>
+                                    <th class="px-4 py-3 font-bold text-right" data-sort="faltas">Faltas</th>
+                                    <th class="px-4 py-3 font-bold text-right" data-sort="horas_descuento_total">Hrs desc.</th>
+                                    <th class="px-4 py-3"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody" class="divide-y divide-slate-100 dark:divide-slate-800">
+                                <tr><td colspan="8" class="text-center py-16 text-slate-400 text-xs">Ajusta el rango y pulsa <b>Generar</b>.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ===== MODAL DETALLE ===== -->
+    <div id="modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" id="modalBackdrop"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-2xl">
+                <div class="sticky top-0 bg-primary text-white px-5 py-4 flex items-start justify-between rounded-t-2xl">
+                    <div><h3 class="font-bold text-lg leading-tight" id="mNombre">—</h3><p class="text-[11px] opacity-80 mt-0.5" id="mSub">—</p></div>
+                    <button id="modalClose" class="rounded-lg p-1 hover:bg-white/20"><span class="material-symbols-outlined">close</span></button>
+                </div>
+                <div class="p-5">
+                    <div id="mResumen" class="grid grid-cols-3 sm:grid-cols-5 gap-2 text-center mb-4"></div>
+                    <div class="overflow-x-auto max-h-[55vh] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 table-fixed-head">
+                        <table class="w-full text-[11px]">
+                            <thead>
+                                <tr class="text-left text-slate-500 uppercase tracking-tight">
+                                    <th class="px-2 py-2 font-bold">Fecha</th><th class="px-2 py-2 font-bold">Sem.</th><th class="px-2 py-2 font-bold">Estado</th><th class="px-2 py-2 font-bold">Modalidad</th>
+                                    <th class="px-2 py-2 font-bold">Curso · Grupo</th><th class="px-2 py-2 font-bold">Sede · Turno</th><th class="px-2 py-2 font-bold">Horario</th>
+                                    <th class="px-2 py-2 font-bold">Coordinador / Auxiliar</th><th class="px-2 py-2 font-bold">Observación</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mTbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if (sessionData && sessionData.user) {
+            const u = sessionData.user;
+            document.getElementById('userNameDisplay').textContent = u.name || 'Admin';
+            document.getElementById('userEmailDisplay').textContent = u.email || '—';
+            document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
+            if (['Administrador', 'Super Admin', 'Oficina de Administración'].includes(u.role)) {
+                document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
+            }
+        }
+        function handleLogout() { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        document.querySelectorAll('.logout-trigger').forEach(b => b.addEventListener('click', handleLogout));
+
+        // Tema
+        const themeIcon = document.getElementById('themeIcon');
+        function applyTheme(d) { document.documentElement.classList.toggle('dark', d); themeIcon.textContent = d ? 'light_mode' : 'dark_mode'; localStorage.setItem('stats_theme', d ? 'dark' : 'light'); }
+        applyTheme(localStorage.getItem('stats_theme') === 'dark');
+        document.getElementById('themeToggle').addEventListener('click', () => applyTheme(!document.documentElement.classList.contains('dark')));
+
+        const authHeaders = { 'Authorization': 'Bearer ' + sessionData.token };
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = n => Number(n || 0).toLocaleString('es-PE');
+
+        async function getJSON(url) {
+            const r = await fetch(url, { headers: authHeaders });
+            if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; throw new Error('401'); }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        }
+
+        // Fechas por defecto: inicio de mes -> hoy.
+        function ymd(d) { return d.toISOString().slice(0, 10); }
+        const hoy = new Date();
+        document.getElementById('fDesde').value = ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+        document.getElementById('fHasta').value = ymd(hoy);
+
+        // Catálogos
+        async function cargarCatalogos() {
+            try {
+                const [s, t, a] = await Promise.all([
+                    getJSON('/api/stats/catalogos/sedes'), getJSON('/api/stats/catalogos/turnos'), getJSON('/api/stats/catalogos/areas')
+                ]);
+                const fill = (id, rows) => { document.getElementById(id).innerHTML = rows.map(r => `<option value="${r.id}">${esc(r.denominacion)}</option>`).join(''); };
+                fill('fSedes', s); fill('fTurnos', t); fill('fAreas', a);
+            } catch (e) { /* no crítico */ }
+        }
+        cargarCatalogos();
+
+        function selected(id) { return [...document.getElementById(id).selectedOptions].map(o => o.value); }
+        function queryString() {
+            const p = new URLSearchParams();
+            p.set('desde', document.getElementById('fDesde').value);
+            p.set('hasta', document.getElementById('fHasta').value);
+            const sd = selected('fSedes'), tu = selected('fTurnos'), ar = selected('fAreas');
+            if (sd.length) p.set('sedes', sd.join(','));
+            if (tu.length) p.set('turnos', tu.join(','));
+            if (ar.length) p.set('areas', ar.join(','));
+            return '?' + p.toString();
+        }
+
+        let filas = [], sortBy = 'tardanzas_total', sortDir = 'desc';
+
+        async function generar() {
+            const tbody = document.getElementById('tbody');
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-16 text-slate-400 text-xs">Consultando…</td></tr>`;
+            try {
+                const d = await getJSON('/api/stats/reportes-aux/tardanzas' + queryString());
+                filas = d.filas || [];
+                const si = document.getElementById('semanaInfo');
+                if (d.semana_label) {
+                    document.getElementById('semanaLabel').textContent = d.semana_label;
+                    document.getElementById('semanaRango').textContent = document.getElementById('fDesde').value + ' a ' + document.getElementById('fHasta').value;
+                    si.classList.remove('hidden');
+                } else { si.classList.add('hidden'); }
+                renderKpis(); renderTabla();
+                document.getElementById('btnExcel').classList.toggle('hidden', !filas.length);
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-12 text-red-500 text-xs">Error al generar el reporte.</td></tr>`;
+            }
+        }
+
+        function renderKpis() {
+            const tard = filas.reduce((a, r) => a + Number(r.tardanzas_total), 0);
+            const falt = filas.reduce((a, r) => a + Number(r.faltas), 0);
+            const hrs = filas.reduce((a, r) => a + Number(r.horas_descuento_total), 0);
+            document.getElementById('kDoc').textContent = fmt(filas.length);
+            document.getElementById('kTard').textContent = fmt(tard);
+            document.getElementById('kFalt').textContent = fmt(falt);
+            document.getElementById('kHrs').textContent = fmt(hrs);
+            document.getElementById('kpis').classList.toggle('hidden', !filas.length);
+        }
+
+        function renderTabla() {
+            const arr = [...filas].sort((a, b) => {
+                const va = a[sortBy], vb = b[sortBy];
+                const c = (typeof va === 'number' || !isNaN(va)) && (typeof vb === 'number' || !isNaN(vb)) && sortBy !== 'docente' && sortBy !== 'dni'
+                    ? Number(va) - Number(vb) : String(va).localeCompare(String(vb), 'es');
+                return sortDir === 'asc' ? c : -c;
+            });
+            const tbody = document.getElementById('tbody');
+            if (!arr.length) { tbody.innerHTML = `<tr><td colspan="8" class="text-center py-16 text-slate-400 text-xs">Sin tardanzas ni faltas en el rango.</td></tr>`; return; }
+            tbody.innerHTML = arr.map(f => `
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group" data-id="${f.docente_id}">
+                    <td class="px-4 py-2 font-mono">${esc(f.dni)}</td>
+                    <td class="px-4 py-2 font-semibold whitespace-nowrap">${esc(f.docente)}</td>
+                    <td class="px-4 py-2 text-right font-mono font-bold text-amber-600">${fmt(f.tardanzas_total)}</td>
+                    <td class="px-4 py-2 text-right font-mono">${fmt(f.tardanzas_presencial)}</td>
+                    <td class="px-4 py-2 text-right font-mono">${fmt(f.tardanzas_virtual)}</td>
+                    <td class="px-4 py-2 text-right font-mono ${Number(f.faltas) > 0 ? 'text-red-500 font-bold' : ''}">${fmt(f.faltas)}</td>
+                    <td class="px-4 py-2 text-right font-mono font-bold">${fmt(f.horas_descuento_total)}</td>
+                    <td class="px-4 py-2 text-right"><span class="material-symbols-outlined text-base text-slate-300 group-hover:text-primary">chevron_right</span></td>
+                </tr>`).join('');
+            tbody.querySelectorAll('tr[data-id]').forEach(tr => tr.addEventListener('click', () => abrirDetalle(Number(tr.dataset.id))));
+            document.querySelectorAll('th[data-sort] .sort-arrow').forEach(a => a.remove());
+            const th = document.querySelector(`th[data-sort="${sortBy}"]`);
+            if (th) { const s = document.createElement('span'); s.className = 'sort-arrow active'; s.textContent = sortDir === 'asc' ? '▲' : '▼'; th.appendChild(s); }
+        }
+
+        document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (sortBy === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc'; else { sortBy = col; sortDir = 'desc'; }
+            renderTabla();
+        }));
+
+        // Modal detalle
+        const modal = document.getElementById('modal');
+        function cerrarModal() { modal.classList.add('hidden'); }
+        document.getElementById('modalClose').addEventListener('click', cerrarModal);
+        document.getElementById('modalBackdrop').addEventListener('click', cerrarModal);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModal(); });
+
+        async function abrirDetalle(id) {
+            const f = filas.find(x => Number(x.docente_id) === id);
+            if (!f) return;
+            modal.classList.remove('hidden');
+            document.getElementById('mNombre').textContent = f.docente;
+            document.getElementById('mSub').textContent = `DNI ${f.dni} · ${document.getElementById('fDesde').value} a ${document.getElementById('fHasta').value}`;
+            document.getElementById('mResumen').innerHTML = [
+                ['Tardanzas', f.tardanzas_total, 'text-amber-600'], ['Presencial', f.tardanzas_presencial, ''], ['Virtual', f.tardanzas_virtual, ''],
+                ['Faltas', f.faltas, 'text-red-500'], ['Hrs desc.', f.horas_descuento_total, 'text-primary dark:text-white']
+            ].map(([l, v, c]) => `<div class="rounded-lg bg-slate-100 dark:bg-slate-800 p-2"><p class="text-lg font-black ${c}">${fmt(v)}</p><p class="text-[9px] uppercase font-bold text-slate-500">${l}</p></div>`).join('');
+            const mt = document.getElementById('mTbody');
+            mt.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400">Cargando…</td></tr>`;
+            try {
+                const p = new URLSearchParams({ docente_id: String(id), desde: document.getElementById('fDesde').value, hasta: document.getElementById('fHasta').value });
+                const d = await getJSON('/api/stats/reportes-aux/tardanzas/detalle?' + p.toString());
+                const rows = d.filas || [];
+                mt.innerHTML = rows.length ? rows.map(r => `
+                    <tr class="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-2 py-1.5 font-mono whitespace-nowrap">${esc(r.fecha)}</td>
+                        <td class="px-2 py-1.5 font-mono text-slate-400">S${esc(r.semana)}</td>
+                        <td class="px-2 py-1.5"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${r.estado === 'falta' ? 'bg-red-500/15 text-red-600' : 'bg-amber-500/15 text-amber-600'}">${esc(r.estado)}</span></td>
+                        <td class="px-2 py-1.5 capitalize">${esc(r.modalidad)}</td>
+                        <td class="px-2 py-1.5">${esc(r.curso)} · <span class="text-slate-400">${esc(r.grupo)}</span></td>
+                        <td class="px-2 py-1.5">${esc(r.sede)} · <span class="text-slate-400">${esc(r.turno)}</span></td>
+                        <td class="px-2 py-1.5 font-mono whitespace-nowrap">${esc(r.horario)}</td>
+                        <td class="px-2 py-1.5 max-w-[180px]"><p class="truncate" title="${esc(r.coordinador)}">${esc(r.coordinador) || '—'}</p><p class="truncate text-slate-400" title="${esc(r.auxiliar)}">${esc(r.auxiliar) || '—'}</p></td>
+                        <td class="px-2 py-1.5 max-w-[160px] truncate" title="${esc(r.observacion)}">${esc(r.observacion) || '—'}</td>
+                    </tr>`).join('') : `<tr><td colspan="9" class="text-center py-6 text-slate-400">Sin registros.</td></tr>`;
+            } catch (e) {
+                mt.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-red-500">Error al cargar el detalle.</td></tr>`;
+            }
+        }
+
+        // Rangos rápidos
+        document.querySelectorAll('.qr').forEach(b => b.addEventListener('click', async () => {
+            const t = b.dataset.r;
+            if (t === 'semana') { const l = new Date(hoy); l.setDate(l.getDate() - ((l.getDay() + 6) % 7)); document.getElementById('fDesde').value = ymd(l); document.getElementById('fHasta').value = ymd(hoy); }
+            else if (t === 'mes') { document.getElementById('fDesde').value = ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 1)); document.getElementById('fHasta').value = ymd(hoy); }
+            else { try { const r = await getJSON('/api/stats/reportes-aux/rango-fechas'); if (r.min_fecha) document.getElementById('fDesde').value = r.min_fecha; if (r.max_fecha) document.getElementById('fHasta').value = r.max_fecha; } catch (e) {} }
+            generar();
+        }));
+
+        // Excel (con token → blob)
+        async function exportar() {
+            try {
+                const r = await fetch('/api/stats/reportes-aux/tardanzas/excel' + queryString(), { headers: authHeaders });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const blob = await r.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `tardanzas_${document.getElementById('fDesde').value}_a_${document.getElementById('fHasta').value}.xlsx`;
+                document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+            } catch (e) { alert('No se pudo generar el Excel.'); }
+        }
+        document.getElementById('btnExcel').addEventListener('click', exportar);
+        document.getElementById('btnGenerar').addEventListener('click', generar);
+    </script>
+</body>
+</html>

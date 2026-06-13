@@ -15,6 +15,14 @@ const cards = [
     to: '/reportes-aux/cobertura-grupos',
     tint: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10',
     meta: 'Vista semanal / por fecha · Excel'
+  },
+  {
+    title: 'Tardanzas y faltas docentes',
+    description: 'Resumen por docente de tardanzas/faltas con descuento por modalidad, y detalle por fecha (sede, grupo, coordinador, auxiliar).',
+    icon: 'i-lucide-alarm-clock',
+    to: '/reportes-aux/tardanzas',
+    tint: 'text-amber-600 dark:text-amber-400 bg-amber-500/10',
+    meta: 'Detalle en modal · Excel'
   }
 ]
 </script>
@@ -26,7 +34,7 @@ const cards = [
       <p class="text-sm text-muted mt-0.5">Pago de horas docentes y control de asistencia por grupo.</p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-w-5xl">
       <NuxtLink
         v-for="c in cards"
         :key="c.to"

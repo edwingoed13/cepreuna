@@ -313,6 +313,9 @@ app.get('/stats/reportes-aux/horas-docentes', (req, res) => {
 app.get('/stats/reportes-aux/cobertura-grupos', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'cobertura-grupos', 'index.html'));
 });
+app.get('/stats/reportes-aux/tardanzas', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'tardanzas', 'index.html'));
+});
 
 // SQL base del reporte de pagos (cargado una vez al iniciar; sin ORDER BY ni `;` final
 // para poder envolverlo en un SELECT * FROM (...) y aplicar filtros dinámicos.)
@@ -4847,6 +4850,248 @@ app.get('/api/stats/reportes-aux/cobertura-grupos/excel', requireAdmin, async (r
     res.end(Buffer.from(buffer));
   } catch (e) {
     console.error('Error cobertura excel:', e);
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el Excel' });
+  }
+});
+
+// ============ REPORTE 3 — Tardanzas y faltas docentes ============
+// Resumen por docente (tardanzas/faltas + descuento por modalidad) y detalle
+// por fecha (con sede, curso, grupo, coordinador, auxiliar). modalidad de la
+// sede: '1' = virtual, '2' = presencial. Descuento: cada 3 tardanzas = 1 hora,
+// calculado por modalidad de forma independiente.
+
+// Construye filtros opcionales (sedes/turnos/areas) sobre la cadena de joins.
+// Semana del ciclo: inicio 23/03/2026 = semana 1, 16 semanas (lun-vie).
+const CICLO_SEMANA_INICIO = '2026-03-23';
+const CICLO_SEMANAS = 16;
+function semanaCiclo(fechaYmd) {
+  if (!fechaYmd) return null;
+  const inicio = new Date(CICLO_SEMANA_INICIO + 'T00:00:00');
+  const d = new Date(String(fechaYmd).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((d - inicio) / (7 * 86400000)) + 1;
+}
+function semanaRangoLabel(desde, hasta) {
+  const clamp = (n) => n == null ? null : Math.max(1, Math.min(CICLO_SEMANAS, n));
+  const a = clamp(semanaCiclo(desde)), b = clamp(semanaCiclo(hasta));
+  if (a == null || b == null) return null;
+  return a === b ? `Semana ${a}` : `Semanas ${a}–${b}`;
+}
+// Expresión SQL para la semana del ciclo de una fecha (clamp 1..16).
+const SQL_SEMANA = `GREATEST(1, LEAST(${CICLO_SEMANAS}, FLOOR(DATEDIFF(ad.fecha, '${CICLO_SEMANA_INICIO}') / 7) + 1))`;
+
+function tardanzasFiltros(req) {
+  const sedes = parseList(req.query.sedes);
+  const turnos = parseList(req.query.turnos);
+  const areas = parseList(req.query.areas);
+  const where = [];
+  const params = [];
+  const addIn = (arr, col) => { if (arr.length) { where.push(`${col} IN (${arr.map(() => '?').join(',')})`); params.push(...arr); } };
+  addIn(sedes, 's.id');
+  addIn(turnos, 'ga.turnos_id');
+  addIn(areas, 'ga.areas_id');
+  return { whereStr: where.length ? 'AND ' + where.join(' AND ') : '', params, filtros: { sedes, turnos, areas } };
+}
+
+async function fetchTardanzasResumen(req) {
+  const { desde, hasta } = req.query;
+  if (!desde || !hasta) { const e = new Error('Parámetros desde/hasta son requeridos'); e.statusCode = 400; throw e; }
+  const f = tardanzasFiltros(req);
+  const conn = await pool.getConnection();
+  try {
+    const [filas] = await conn.query(`
+      SELECT d.id AS docente_id, d.nro_documento AS dni,
+             CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+             COUNT(*) AS sesiones_totales,
+             SUM(ad.estado='1') AS presentes,
+             SUM(ad.estado='2') AS tardanzas_total,
+             SUM(ad.estado='3') AS faltas,
+             SUM(ad.estado='2' AND s.modalidad='2') AS tardanzas_presencial,
+             SUM(ad.estado='2' AND s.modalidad='1') AS tardanzas_virtual,
+             FLOOR(SUM(ad.estado='2' AND s.modalidad='2') / 3) AS hrs_desc_presencial,
+             MOD(  SUM(ad.estado='2' AND s.modalidad='2'), 3) AS tard_pend_presencial,
+             FLOOR(SUM(ad.estado='2' AND s.modalidad='1') / 3) AS hrs_desc_virtual,
+             MOD(  SUM(ad.estado='2' AND s.modalidad='1'), 3) AS tard_pend_virtual,
+             FLOOR(SUM(ad.estado='2' AND s.modalidad='2')/3) + FLOOR(SUM(ad.estado='2' AND s.modalidad='1')/3) AS horas_descuento_total,
+             ROUND(SUM(CASE WHEN s.modalidad='2' THEN ad.horas_pago ELSE 0 END), 2) AS horas_pago_presencial,
+             ROUND(SUM(CASE WHEN s.modalidad='1' THEN ad.horas_pago ELSE 0 END), 2) AS horas_pago_virtual
+      FROM asistencia_docentes ad
+      JOIN docentes d  ON d.id  = ad.docentes_id
+      JOIN carga_academicas ca ON ca.id = ad.carga_academicas_id
+      JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      JOIN aulas au ON au.id = ga.aulas_id
+      JOIN locales l  ON l.id  = au.locales_id
+      JOIN sedes s  ON s.id  = l.sedes_id
+      WHERE ad.fecha BETWEEN ? AND ? ${f.whereStr}
+      GROUP BY d.id, d.nro_documento, d.paterno, d.materno, d.nombres
+      HAVING tardanzas_total > 0
+      ORDER BY tardanzas_total DESC, docente
+    `, [desde, hasta, ...f.params]);
+    return {
+      filas, desde, hasta, filtros: f.filtros,
+      semana_desde: semanaCiclo(desde), semana_hasta: semanaCiclo(hasta),
+      semana_label: semanaRangoLabel(desde, hasta)
+    };
+  } finally {
+    conn.release();
+  }
+}
+
+app.get('/api/stats/reportes-aux/tardanzas', requireAdmin, cacheMiddleware(120), async (req, res) => {
+  try {
+    res.json(await fetchTardanzasResumen(req));
+  } catch (e) {
+    console.error('Error tardanzas resumen:', e);
+    res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el reporte' });
+  }
+});
+
+// Detalle por fecha de un docente (modal).
+app.get('/api/stats/reportes-aux/tardanzas/detalle', requireAdmin, cacheMiddleware(120), async (req, res) => {
+  const docenteId = Number(req.query.docente_id);
+  const { desde, hasta } = req.query;
+  if (!Number.isFinite(docenteId) || docenteId <= 0) return res.status(400).json({ error: 'docente_id inválido' });
+  if (!desde || !hasta) return res.status(400).json({ error: 'desde/hasta requeridos' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [filas] = await conn.query(`
+      SELECT DATE_FORMAT(ad.fecha,'%Y-%m-%d') AS fecha,
+             ${SQL_SEMANA} AS semana,
+             s.denominacion AS sede,
+             CASE s.modalidad WHEN '1' THEN 'virtual' WHEN '2' THEN 'presencial' END AS modalidad,
+             ar.denominacion AS area, t.denominacion AS turno,
+             g.denominacion AS grupo, c.denominacion AS curso,
+             CASE ad.estado WHEN '2' THEN 'tarde' WHEN '3' THEN 'falta' END AS estado,
+             CONCAT(TIME_FORMAT(ad.hora_inicio,'%H:%i'),' - ',TIME_FORMAT(ad.hora_fin,'%H:%i')) AS horario,
+             ad.horas_pago,
+             (SELECT GROUP_CONCAT(DISTINCT CONCAT_WS(' ', uc.paterno, uc.materno, uc.name) SEPARATOR ', ')
+                FROM coordinador_grupos cg JOIN users uc ON uc.id = cg.coordinador_id
+               WHERE cg.grupos_id = ga.id) AS coordinador,
+             (SELECT GROUP_CONCAT(DISTINCT CONCAT_WS(' ', ua.paterno, ua.materno, ua.name) SEPARATOR ', ')
+                FROM auxiliar_grupos agx JOIN auxiliares aux ON aux.id = agx.auxiliares_id
+                JOIN users ua ON ua.id = aux.users_id WHERE agx.grupo_aulas_id = ga.id) AS auxiliar,
+             ad.observacion
+      FROM asistencia_docentes ad
+      JOIN carga_academicas ca ON ca.id = ad.carga_academicas_id
+      JOIN cursos c  ON c.id  = ca.cursos_id
+      JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      JOIN grupos g  ON g.id  = ga.grupos_id
+      JOIN areas ar  ON ar.id = ga.areas_id
+      JOIN turnos t  ON t.id  = ga.turnos_id
+      JOIN aulas au  ON au.id = ga.aulas_id
+      JOIN locales l ON l.id  = au.locales_id
+      JOIN sedes s   ON s.id  = l.sedes_id
+      WHERE ad.docentes_id = ? AND ad.estado IN ('2','3') AND ad.fecha BETWEEN ? AND ?
+      ORDER BY ad.fecha, ad.hora_inicio
+    `, [docenteId, desde, hasta]);
+    conn.release();
+    res.json({ filas });
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error tardanzas detalle:', e);
+    res.status(500).json({ error: 'Error al obtener el detalle' });
+  }
+});
+
+// Excel del resumen de tardanzas.
+app.get('/api/stats/reportes-aux/tardanzas/excel', requireAdmin, async (req, res) => {
+  let conn;
+  try {
+    const { filas, desde, hasta, semana_label } = await fetchTardanzasResumen(req);
+    const semTxt = semana_label ? ` · ${semana_label}` : '';
+
+    // Detalle (todas las tardanzas/faltas del rango con sus filtros) para la 2da hoja.
+    const f = tardanzasFiltros(req);
+    conn = await pool.getConnection();
+    const [detalle] = await conn.query(`
+      SELECT CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente, d.nro_documento AS dni,
+             DATE_FORMAT(ad.fecha,'%d/%m/%Y') AS fecha,
+             ${SQL_SEMANA} AS semana,
+             CASE ad.estado WHEN '2' THEN 'tarde' WHEN '3' THEN 'falta' END AS estado,
+             CASE s.modalidad WHEN '1' THEN 'virtual' WHEN '2' THEN 'presencial' END AS modalidad,
+             s.denominacion AS sede, ar.denominacion AS area, t.denominacion AS turno,
+             g.denominacion AS grupo, c.denominacion AS curso,
+             CONCAT(TIME_FORMAT(ad.hora_inicio,'%H:%i'),' - ',TIME_FORMAT(ad.hora_fin,'%H:%i')) AS horario,
+             ad.horas_pago,
+             (SELECT GROUP_CONCAT(DISTINCT CONCAT_WS(' ', uc.paterno, uc.materno, uc.name) SEPARATOR ', ')
+                FROM coordinador_grupos cg JOIN users uc ON uc.id = cg.coordinador_id
+               WHERE cg.grupos_id = ga.id) AS coordinador,
+             (SELECT GROUP_CONCAT(DISTINCT CONCAT_WS(' ', ua.paterno, ua.materno, ua.name) SEPARATOR ', ')
+                FROM auxiliar_grupos agx JOIN auxiliares aux ON aux.id = agx.auxiliares_id
+                JOIN users ua ON ua.id = aux.users_id WHERE agx.grupo_aulas_id = ga.id) AS auxiliar,
+             ad.observacion
+      FROM asistencia_docentes ad
+      JOIN docentes d ON d.id = ad.docentes_id
+      JOIN carga_academicas ca ON ca.id = ad.carga_academicas_id
+      JOIN cursos c  ON c.id  = ca.cursos_id
+      JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
+      JOIN grupos g  ON g.id  = ga.grupos_id
+      JOIN areas ar  ON ar.id = ga.areas_id
+      JOIN turnos t  ON t.id  = ga.turnos_id
+      JOIN aulas au  ON au.id = ga.aulas_id
+      JOIN locales l ON l.id  = au.locales_id
+      JOIN sedes s   ON s.id  = l.sedes_id
+      WHERE ad.estado IN ('2','3') AND ad.fecha BETWEEN ? AND ? ${f.whereStr}
+      ORDER BY docente, ad.fecha, ad.hora_inicio
+    `, [desde, hasta, ...f.params]);
+    conn.release(); conn = null;
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+    const thin = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    const titulo = (ws, txt, lastCol) => {
+      ws.mergeCells(1, 1, 1, lastCol);
+      ws.getCell(1, 1).value = txt;
+      ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+      ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+      ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 22;
+    };
+    const headerRow = (ws, headers) => {
+      const hr = ws.getRow(3); hr.values = headers;
+      hr.eachCell(c => { c.font = { bold: true, size: 9 }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } }; c.alignment = { horizontal: 'center', wrapText: true }; c.border = thin; });
+    };
+
+    // ===== Hoja 1: Resumen =====
+    const ws = wb.addWorksheet('Resumen');
+    const headers = ['#', 'DNI', 'Docente', 'Sesiones', 'Presentes', 'Tardanzas', 'Faltas',
+      'Tard. presencial', 'Tard. virtual', 'Hrs desc. presencial', 'Hrs desc. virtual',
+      'Horas descuento', 'Horas pago presencial', 'Horas pago virtual'];
+    titulo(ws, `Tardanzas y faltas docentes (resumen) · ${desde} a ${hasta}${semTxt}`, headers.length);
+    headerRow(ws, headers);
+    filas.forEach((r, i) => {
+      const row = ws.getRow(4 + i);
+      row.values = [i + 1, r.dni, r.docente, Number(r.sesiones_totales), Number(r.presentes), Number(r.tardanzas_total), Number(r.faltas),
+        Number(r.tardanzas_presencial), Number(r.tardanzas_virtual), Number(r.hrs_desc_presencial), Number(r.hrs_desc_virtual),
+        Number(r.horas_descuento_total), Number(r.horas_pago_presencial), Number(r.horas_pago_virtual)];
+      row.eachCell(c => { c.font = { size: 9 }; c.border = thin; });
+    });
+    ws.columns = headers.map((h, i) => ({ width: i === 2 ? 30 : i === 1 ? 11 : 13 }));
+    ws.views = [{ state: 'frozen', ySplit: 3 }];
+
+    // ===== Hoja 2: Detalle =====
+    const wd = wb.addWorksheet('Detalle');
+    const dh = ['#', 'DNI', 'Docente', 'Fecha', 'Semana', 'Estado', 'Modalidad', 'Sede', 'Área', 'Turno', 'Grupo', 'Curso', 'Horario', 'Horas pago', 'Coordinador', 'Auxiliar', 'Observación'];
+    titulo(wd, `Detalle de tardanzas y faltas por fecha · ${desde} a ${hasta}${semTxt}`, dh.length);
+    headerRow(wd, dh);
+    detalle.forEach((r, i) => {
+      const row = wd.getRow(4 + i);
+      row.values = [i + 1, r.dni, r.docente, r.fecha, `Sem ${r.semana}`, r.estado, r.modalidad, r.sede, r.area, r.turno, r.grupo, r.curso, r.horario,
+        Number(r.horas_pago || 0), r.coordinador || '', r.auxiliar || '', r.observacion || ''];
+      row.eachCell(c => { c.font = { size: 9 }; c.border = thin; });
+    });
+    wd.columns = dh.map((h, i) => ({ width: [4, 11, 28, 11, 8, 8, 11, 16, 14, 10, 12, 22, 14, 11, 26, 26, 30][i] || 12 }));
+    wd.views = [{ state: 'frozen', ySplit: 3, xSplit: 3 }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="tardanzas-docentes_${desde}_a_${hasta}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    if (conn) conn.release();
+    console.error('Error tardanzas excel:', e);
     res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el Excel' });
   }
 });
