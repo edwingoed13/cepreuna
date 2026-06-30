@@ -9,6 +9,7 @@ const navItems = computed<NavigationMenuItem[][]>(() => {
   const todos: (NavigationMenuItem & { adminOnly?: boolean })[] = [
     { label: 'Resumen', icon: 'i-lucide-layout-dashboard', to: '/', adminOnly: true },
     { label: 'Reportes', icon: 'i-lucide-file-text', to: '/reportes', adminOnly: true },
+    { label: 'Habilitados', icon: 'i-lucide-user-check', to: '/habilitados' },
     { label: 'Alumnos', icon: 'i-lucide-users', to: '/alumnos' },
     { label: 'Calificación', icon: 'i-lucide-clipboard-check', to: '/alumnos-calificacion' },
     { label: 'Docentes', icon: 'i-lucide-award', to: '/docentes', adminOnly: true },

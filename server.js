@@ -316,6 +316,9 @@ app.get('/stats/reportes-aux/cobertura-grupos', (req, res) => {
 app.get('/stats/reportes-aux/tardanzas', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'tardanzas', 'index.html'));
 });
+app.get('/stats/habilitados', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'habilitados', 'index.html'));
+});
 
 // SQL base del reporte de pagos (cargado una vez al iniciar; sin ORDER BY ni `;` final
 // para poder envolverlo en un SELECT * FROM (...) y aplicar filtros dinámicos.)
@@ -5094,6 +5097,218 @@ app.get('/api/stats/reportes-aux/tardanzas/excel', requireAdmin, async (req, res
     console.error('Error tardanzas excel:', e);
     res.status(e.statusCode || 500).json({ error: e.statusCode ? e.message : 'Error al generar el Excel' });
   }
+});
+
+// ============ HABILITADOS (con restricción por rol/grupos) ============
+// Versión protegida de los reportes de matrículas/habilitados para el panel de
+// stats: admin ve todos; coordinador/auxiliar solo sus grupos (req.user.grupos).
+// Reusa la lógica de /api/matriculas/* (habilitado='1', habilitado_estado='1'=sincronizado).
+function habFiltroGrupos(req, alias = 'm') {
+  const g = req.user.grupos;
+  if (!Array.isArray(g)) return { where: '', params: [], bloqueado: false }; // admin
+  if (g.length === 0) return { where: '', params: [], bloqueado: true };       // sin grupos → nada
+  return { where: `AND ${alias}.grupo_aulas_id IN (${g.map(() => '?').join(',')})`, params: g, bloqueado: false };
+}
+
+app.get('/api/stats/habilitados/resumen', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
+  const f = habFiltroGrupos(req);
+  if (f.bloqueado) return res.json({ totales: { total_inscritos: 0, total_habilitados: 0, total_sincronizados: 0 }, sedes: [], areas: [] });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [[totales]] = await conn.query(`
+      SELECT COUNT(DISTINCT m.estudiantes_id) AS total_inscritos,
+             SUM(m.habilitado='1') AS total_habilitados,
+             SUM(m.habilitado='1' AND m.habilitado_estado='1') AS total_sincronizados
+      FROM matriculas m WHERE m.periodos_id=1 ${f.where}`, f.params);
+    const [sedes] = await conn.query(`
+      SELECT s.denominacion AS sede,
+             COUNT(DISTINCT m.estudiantes_id) AS total_inscritos,
+             SUM(m.habilitado='1') AS total_habilitados,
+             SUM(m.habilitado='1' AND m.habilitado_estado='1') AS total_sincronizados
+      FROM matriculas m
+      JOIN grupo_aulas ga ON ga.id=m.grupo_aulas_id
+      JOIN aulas au ON au.id=ga.aulas_id JOIN locales l ON l.id=au.locales_id JOIN sedes s ON s.id=l.sedes_id
+      WHERE m.periodos_id=1 ${f.where}
+      GROUP BY s.id, s.denominacion ORDER BY total_inscritos DESC`, f.params);
+    const [areas] = await conn.query(`
+      SELECT a.denominacion AS area,
+             COUNT(DISTINCT m.estudiantes_id) AS total_estudiantes,
+             SUM(m.habilitado='1' AND m.habilitado_estado='1') AS total_sincronizados,
+             ROUND(SUM(m.habilitado='1' AND m.habilitado_estado='1')*100.0/NULLIF(COUNT(DISTINCT m.estudiantes_id),0),2) AS porcentaje_sincronizados
+      FROM matriculas m
+      JOIN grupo_aulas ga ON ga.id=m.grupo_aulas_id JOIN areas a ON a.id=ga.areas_id
+      WHERE m.periodos_id=1 ${f.where}
+      GROUP BY a.id, a.denominacion ORDER BY total_estudiantes DESC`, f.params);
+    conn.release();
+    const num = (rows, keys) => rows.map(r => { const o = { ...r }; keys.forEach(k => o[k] = parseInt(o[k]) || 0); return o; });
+    res.json({
+      totales: { total_inscritos: parseInt(totales.total_inscritos) || 0, total_habilitados: parseInt(totales.total_habilitados) || 0, total_sincronizados: parseInt(totales.total_sincronizados) || 0 },
+      sedes: num(sedes, ['total_inscritos', 'total_habilitados', 'total_sincronizados']),
+      areas: areas.map(r => ({ area: r.area, total_estudiantes: parseInt(r.total_estudiantes) || 0, total_sincronizados: parseInt(r.total_sincronizados) || 0, porcentaje_sincronizados: parseFloat(r.porcentaje_sincronizados) || 0 }))
+    });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitados resumen:', e); res.status(500).json({ error: 'Error al obtener el resumen' }); }
+});
+
+app.get('/api/stats/habilitados/con-deuda', requireStatsAuth, async (req, res) => {
+  const f = habFiltroGrupos(req);
+  if (f.bloqueado) return res.json({ estudiantes: [], total: 0 });
+  const q = String(req.query.q || '').trim();
+  const extra = q ? 'AND e.nro_documento LIKE ?' : '';
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT e.nro_documento AS dni, CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS apellidos_nombres,
+             s.denominacion AS sede, a.denominacion AS area, t.denominacion AS turno, g.denominacion AS grupo,
+             SUM(te.monto - te.pagado) AS deuda_total
+      FROM estudiantes e
+      JOIN inscripciones i ON e.id=i.estudiantes_id AND i.periodos_id=1
+      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+      JOIN tarifa_estudiantes te ON e.id=te.estudiantes_id
+      JOIN sedes s ON i.sedes_id=s.id
+      JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id JOIN grupos g ON ga.grupos_id=g.id
+      JOIN areas a ON ga.areas_id=a.id JOIN turnos t ON ga.turnos_id=t.id
+      WHERE m.habilitado='1' ${f.where} ${extra}
+      GROUP BY e.id, e.nro_documento, e.paterno, e.materno, e.nombres, s.denominacion, a.denominacion, t.denominacion, g.denominacion
+      HAVING SUM(te.monto - te.pagado) > 0
+      ORDER BY deuda_total DESC, e.paterno, e.materno, e.nombres`, [...f.params, ...(q ? [`%${q}%`] : [])]);
+    conn.release();
+    res.json({ estudiantes: rows.map(r => ({ dni: r.dni, apellidos_nombres: r.apellidos_nombres, sede: r.sede, area: r.area, turno: r.turno, grupo: r.grupo, deuda_total: parseFloat(r.deuda_total) || 0 })), total: rows.length });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitados con-deuda:', e); res.status(500).json({ error: 'Error al obtener habilitados con deuda' }); }
+});
+
+app.get('/api/stats/habilitados/pendientes', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
+  const f = habFiltroGrupos(req);
+  if (f.bloqueado) return res.json({ data: [], total_general: 0 });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT s.denominacion AS sede, a.denominacion AS area, t.denominacion AS turno, g.denominacion AS grupo,
+             COUNT(*) AS total_no_habilitados_sin_deuda
+      FROM (
+        SELECT e.id, ga.aulas_id AS aulas_id, ga.areas_id AS area_id, ga.turnos_id AS turno_id, ga.grupos_id AS grupo_id
+        FROM estudiantes e
+        JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+        JOIN tarifa_estudiantes te ON e.id=te.estudiantes_id
+        JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id
+        WHERE m.habilitado='0' ${f.where}
+        GROUP BY e.id, ga.aulas_id, ga.areas_id, ga.turnos_id, ga.grupos_id
+        HAVING SUM(te.monto - te.pagado) <= 0
+      ) x
+      JOIN aulas au ON au.id=x.aulas_id JOIN locales l ON l.id=au.locales_id JOIN sedes s ON s.id=l.sedes_id
+      JOIN areas a ON a.id=x.area_id JOIN turnos t ON t.id=x.turno_id JOIN grupos g ON g.id=x.grupo_id
+      GROUP BY s.id, s.denominacion, a.id, a.denominacion, t.id, t.denominacion, g.id, g.denominacion
+      ORDER BY s.denominacion, a.denominacion, t.denominacion, g.denominacion`, f.params);
+    conn.release();
+    const data = rows.map(r => ({ sede: r.sede, area: r.area, turno: r.turno, grupo: r.grupo, total_no_habilitados_sin_deuda: parseInt(r.total_no_habilitados_sin_deuda) || 0 }));
+    res.json({ data, total_general: data.reduce((s, r) => s + r.total_no_habilitados_sin_deuda, 0) });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitados pendientes:', e); res.status(500).json({ error: 'Error al obtener pendientes' }); }
+});
+
+// Detalle "pagaron completo" de un grupo (listos para habilitar).
+app.get('/api/stats/habilitados/pendientes/detalle', requireStatsAuth, async (req, res) => {
+  const { sede, area, turno, grupo } = req.query;
+  if (!sede || !area || !turno || !grupo) return res.status(400).json({ error: 'Parámetros requeridos: sede, area, turno, grupo' });
+  const f = habFiltroGrupos(req);
+  if (f.bloqueado) return res.json({ estudiantes: [], total: 0 });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT e.nro_documento AS dni, CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS apellidos_nombres,
+             SUM(te.monto) AS total_tarifa, SUM(te.pagado) AS total_pagado, SUM(te.monto - te.pagado) AS deuda_total
+      FROM estudiantes e
+      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+      JOIN tarifa_estudiantes te ON e.id=te.estudiantes_id
+      JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id JOIN grupos g ON ga.grupos_id=g.id
+      JOIN areas a ON ga.areas_id=a.id JOIN turnos t ON ga.turnos_id=t.id
+      JOIN aulas au ON ga.aulas_id=au.id JOIN locales l ON au.locales_id=l.id JOIN sedes s ON l.sedes_id=s.id
+      WHERE m.habilitado='0' AND s.denominacion=? AND a.denominacion=? AND t.denominacion=? AND g.denominacion=? ${f.where}
+      GROUP BY e.id, e.nro_documento, e.paterno, e.materno, e.nombres
+      HAVING SUM(te.monto - te.pagado) <= 0
+      ORDER BY e.paterno, e.materno, e.nombres`, [sede, area, turno, grupo, ...f.params]);
+    conn.release();
+    res.json({ estudiantes: rows.map(r => ({ dni: r.dni, apellidos_nombres: r.apellidos_nombres, total_tarifa: parseFloat(r.total_tarifa) || 0, total_pagado: parseFloat(r.total_pagado) || 0, deuda_total: parseFloat(r.deuda_total) || 0 })), total: rows.length });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitados detalle:', e); res.status(500).json({ error: 'Error al obtener el detalle' }); }
+});
+
+// Buscar estudiante por DNI (con verificación de grupo para no-admin).
+app.get('/api/stats/habilitados/buscar/:dni', requireStatsAuth, async (req, res) => {
+  const dni = String(req.params.dni || '').trim();
+  if (!/^\d{6,12}$/.test(dni)) return res.status(400).json({ error: 'DNI inválido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT m.id AS matricula_id, m.grupo_aulas_id, e.nro_documento AS dni,
+             CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS apellidos_nombres,
+             m.habilitado, m.habilitado_estado,
+             s.denominacion AS sede, a.denominacion AS area, t.denominacion AS turno, g.denominacion AS grupo,
+             COALESCE((SELECT SUM(te.monto-te.pagado) FROM tarifa_estudiantes te WHERE te.estudiantes_id=e.id),0) AS deuda_total
+      FROM estudiantes e
+      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+      LEFT JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id LEFT JOIN grupos g ON ga.grupos_id=g.id
+      LEFT JOIN areas a ON ga.areas_id=a.id LEFT JOIN turnos t ON ga.turnos_id=t.id
+      LEFT JOIN aulas au ON ga.aulas_id=au.id LEFT JOIN locales l ON au.locales_id=l.id LEFT JOIN sedes s ON l.sedes_id=s.id
+      WHERE e.nro_documento=? LIMIT 1`, [dni]);
+    if (!rows.length) { conn.release(); return res.status(404).json({ error: 'No se encontró estudiante con ese DNI', dni }); }
+    const r = rows[0];
+    const permitidos = req.user.grupos;
+    if (Array.isArray(permitidos) && !permitidos.map(Number).includes(Number(r.grupo_aulas_id))) {
+      conn.release();
+      return res.status(403).json({ error: 'Sin acceso a este alumno (otro grupo)' });
+    }
+    // Historial auditado del campo `habilitado` (quién habilitó / deshabilitó y cuándo).
+    // Nota: solo existe cuando la (des)habilitación pasó por el modelo auditado de Laravel.
+    const [aud] = await conn.query(`
+      SELECT a.new_values, a.created_at, u.name, u.paterno, u.materno
+      FROM audits a LEFT JOIN users u ON u.id = a.user_id
+      WHERE a.auditable_type LIKE '%Matricula' AND a.auditable_id = ? AND a.event = 'updated'
+        AND a.new_values LIKE '%"habilitado":%'
+      ORDER BY a.id ASC`, [r.matricula_id]);
+    conn.release();
+    const historial = aud.map(row => {
+      let valor = null;
+      try { valor = JSON.parse(row.new_values)?.habilitado; } catch { /* ignore */ }
+      const por = [row.paterno, row.materno, row.name].filter(Boolean).join(' ').trim() || 'Usuario desconocido';
+      return { evento: valor === '1' ? 'habilitado' : 'deshabilitado', por, fecha: row.created_at };
+    });
+    const habilitacion = historial.length ? historial[historial.length - 1] : null; // último cambio
+    res.json({
+      matricula_id: r.matricula_id, dni: r.dni, apellidos_nombres: r.apellidos_nombres,
+      habilitado: r.habilitado === '1', sincronizado: r.habilitado === '1' && r.habilitado_estado === '1',
+      sede: r.sede, area: r.area, turno: r.turno, grupo: r.grupo, deuda_total: parseFloat(r.deuda_total) || 0,
+      habilitacion, historial
+    });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitados buscar:', e); res.status(500).json({ error: 'Error al buscar estudiante' }); }
+});
+
+// Constancia: genera el token (API externa) y devuelve la URL del PDF.
+app.get('/api/stats/habilitados/constancia/:matricula_id', requireStatsAuth, async (req, res) => {
+  const matriculaId = Number(req.params.matricula_id);
+  if (!Number.isFinite(matriculaId) || matriculaId <= 0) return res.status(400).json({ error: 'ID de matrícula inválido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [[m]] = await conn.query('SELECT grupo_aulas_id, habilitado, habilitado_estado FROM matriculas WHERE id=? AND periodos_id=1', [matriculaId]);
+    conn.release(); conn = null;
+    if (!m) return res.status(404).json({ error: 'Matrícula no encontrada' });
+    // Verificación de grupo para no-admin.
+    const permitidos = req.user.grupos;
+    if (Array.isArray(permitidos) && !permitidos.map(Number).includes(Number(m.grupo_aulas_id))) {
+      return res.status(403).json({ error: 'Sin acceso a esta constancia' });
+    }
+    // Solo se emite constancia si está habilitado Y sincronizado.
+    if (m.habilitado !== '1' || m.habilitado_estado !== '1') {
+      return res.status(409).json({ error: 'El estudiante debe estar habilitado y sincronizado para emitir la constancia' });
+    }
+    const r = await fetch(`https://sistemas.cepreuna.edu.pe/api/perfil/encrypt/${matriculaId}`);
+    if (!r.ok) throw new Error(`token ${r.status}`);
+    const token = (await r.text()).trim();
+    res.json({ token, pdf_url: `https://sistemas.cepreuna.edu.pe/dga/estudiantes/pdf-constancia/${token}`, matricula_id: matriculaId });
+  } catch (e) { if (conn) conn.release(); console.error('Error constancia:', e); res.status(502).json({ error: 'No se pudo generar la constancia' }); }
 });
 
 // ============ ENDPOINT DE AUTENTICACIÓN ============

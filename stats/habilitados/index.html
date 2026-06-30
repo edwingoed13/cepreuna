@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>CEPREUNA - Habilitados</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = { darkMode: "class", theme: { extend: { colors: {
+            "primary": "#003366", "primary-light": "#004080",
+            "background-light": "#f5f7f8", "background-dark": "#0f1923",
+        }, fontFamily: { "display": ["Inter", "sans-serif"] } } } }
+    </script>
+    <style>
+        .sidebar-item-active { background-color: rgba(0,51,102,0.1); color: #003366; border-right: 4px solid #003366; }
+        .dark .sidebar-item-active { background-color: rgba(255,255,255,0.05); color: #fff; border-right-color: #fff; }
+        .table-fixed-head thead th { position: sticky; top: 0; z-index: 5; background-color: #f1f5f9; }
+        .dark .table-fixed-head thead th { background-color: #1e293b; }
+        th[data-sort] { cursor: pointer; user-select: none; }
+        th[data-sort]:hover { background-color: #e2e8f0; }
+        .dark th[data-sort]:hover { background-color: #334155; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <script>
+        const sessionDataString = localStorage.getItem('stats_session');
+        const sessionData = sessionDataString ? JSON.parse(sessionDataString) : null;
+        function _tokenVencido(t) { try { const p = JSON.parse(atob(String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); return !p.exp || p.exp*1000 < Date.now(); } catch(e){ return true; } }
+        let _redir = false;
+        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_') || _tokenVencido(sessionData.token)) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+        // Habilitados es accesible para todos los roles autenticados:
+        // admin ve todos; coordinador/auxiliar solo sus grupos (filtrado en el backend).
+    </script>
+
+    <div class="flex h-screen overflow-hidden">
+        <aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex">
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white"><span class="material-symbols-outlined text-2xl">school</span></div>
+                <div><h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1><p class="text-slate-500 text-[10px] font-medium uppercase tracking-widest mt-1">Estadísticas</p></div>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-1">
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats"><span class="material-symbols-outlined">dashboard</span><span class="font-medium">Resumen</span></a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes"><span class="material-symbols-outlined">description</span><span class="font-medium">Reportes</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary dark:text-white font-semibold transition-colors" href="/stats/habilitados"><span class="material-symbols-outlined">how_to_reg</span><span class="font-medium">Habilitados</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos"><span class="material-symbols-outlined">group</span><span class="font-medium">Alumnos</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos-calificacion"><span class="material-symbols-outlined">grading</span><span class="font-medium">Alumnos-Calificación</span></a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/docentes-stats"><span class="material-symbols-outlined">insights</span><span class="font-medium">Docentes-Stats</span></a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes-aux"><span class="material-symbols-outlined">supervisor_account</span><span class="font-medium">Reportes auxiliares</span></a>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3 p-2">
+                    <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold" id="userInitial">A</div>
+                    <div class="flex-1 min-w-0"><p class="text-sm font-semibold truncate" id="userNameDisplay">Admin</p><p class="text-[10px] text-slate-500 truncate" id="userEmailDisplay">—</p></div>
+                    <button id="logoutBtn" class="text-slate-400 hover:text-red-500 transition-colors"><span class="material-symbols-outlined text-sm">logout</span></button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 lg:px-8 sticky top-0 z-10">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary dark:text-white">how_to_reg</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Habilitados · Matrículas</h2>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button id="reloadBtn" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Recargar"><span class="material-symbols-outlined text-xl">refresh</span></button>
+                    <button id="themeToggle" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Tema"><span class="material-symbols-outlined text-xl" id="themeIcon">dark_mode</span></button>
+                    <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600" title="Cerrar Sesión"><span class="material-symbols-outlined text-xl">logout</span></button>
+                </div>
+            </header>
+
+            <div class="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto w-full">
+                <p class="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800/60 rounded-lg px-4 py-2.5 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-base text-primary dark:text-white">info</span>
+                    <span><b>Habilitado</b> = matrícula con <code>habilitado='1'</code>. <b>Sincronizado</b> = además <code>habilitado_estado='1'</code> (registrado en el sistema académico).</span>
+                </p>
+
+                <!-- Buscador por DNI -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-base">search</span>Buscar estudiante por DNI</h3>
+                    <div class="flex flex-wrap gap-2">
+                        <input id="dniInput" type="text" inputmode="numeric" placeholder="DNI…" class="flex-1 min-w-[180px] px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"/>
+                        <button id="dniBuscar" class="px-4 py-2 rounded-lg bg-primary text-white text-sm font-bold flex items-center gap-1.5 hover:bg-primary-light"><span class="material-symbols-outlined text-base">person_search</span>Buscar</button>
+                    </div>
+                    <div id="dniResult" class="hidden mt-4"></div>
+                </div>
+
+                <!-- KPIs -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Matriculados</p><p class="text-3xl font-black text-slate-800 dark:text-white" id="kInsc">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5"><p class="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Habilitados</p><p class="text-3xl font-black text-emerald-600" id="kHab">—</p><p class="text-[11px] text-slate-400" id="kHabPct">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5"><p class="text-[10px] font-bold uppercase tracking-widest text-primary dark:text-white">Sincronizados</p><p class="text-3xl font-black text-primary dark:text-white" id="kSinc">—</p><p class="text-[11px] text-slate-400" id="kSincPct">—</p></div>
+                </div>
+
+                <!-- Por sede + Por área -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                        <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-primary dark:text-white">location_on</span>Por sede</h3></div>
+                        <div class="overflow-x-auto"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight border-b border-slate-100 dark:border-slate-800"><th class="px-4 py-2 font-bold">Sede</th><th class="px-4 py-2 font-bold text-right">Matric.</th><th class="px-4 py-2 font-bold text-right">Habil.</th><th class="px-4 py-2 font-bold text-right">Sincr.</th><th class="px-4 py-2 font-bold text-right">% Sinc.</th></tr></thead><tbody id="tbodySede"></tbody></table></div>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                        <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-primary dark:text-white">category</span>Por área</h3></div>
+                        <div class="overflow-x-auto"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight border-b border-slate-100 dark:border-slate-800"><th class="px-4 py-2 font-bold">Área</th><th class="px-4 py-2 font-bold text-right">Estud.</th><th class="px-4 py-2 font-bold text-right">Sincr.</th><th class="px-4 py-2 font-bold text-right">% Sinc.</th></tr></thead><tbody id="tbodyArea"></tbody></table></div>
+                    </div>
+                </div>
+
+                <!-- Habilitados con deuda -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-amber-600">account_balance_wallet</span>Habilitados con deuda <span class="text-slate-400 font-normal" id="cdCount"></span></h3>
+                        <button id="cdExcel" class="hidden px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white text-xs font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-base">download</span>CSV</button>
+                    </div>
+                    <div class="overflow-x-auto max-h-[50vh] overflow-y-auto table-fixed-head"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight"><th class="px-4 py-2 font-bold">DNI</th><th class="px-4 py-2 font-bold">Apellidos y Nombres</th><th class="px-4 py-2 font-bold">Sede</th><th class="px-4 py-2 font-bold">Área</th><th class="px-4 py-2 font-bold">Grupo</th><th class="px-4 py-2 font-bold text-right">Deuda</th></tr></thead><tbody id="tbodyDeuda"></tbody></table></div>
+                </div>
+
+                <!-- Pendientes sin deuda -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-sky-600">pending_actions</span>Pendientes sin deuda (listos para habilitar) <span class="text-slate-400 font-normal" id="pdCount"></span></h3></div>
+                    <div class="overflow-x-auto max-h-[50vh] overflow-y-auto table-fixed-head"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight"><th class="px-4 py-2 font-bold">Sede</th><th class="px-4 py-2 font-bold">Área</th><th class="px-4 py-2 font-bold">Turno</th><th class="px-4 py-2 font-bold">Grupo</th><th class="px-4 py-2 font-bold text-right">Sin habilitar</th></tr></thead><tbody id="tbodyPend"></tbody></table></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal: detalle "pagaron completo" de un grupo -->
+    <div id="modalPend" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" id="mpBackdrop"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-2xl">
+                <div class="sticky top-0 bg-primary text-white px-5 py-4 flex items-start justify-between rounded-t-2xl">
+                    <div><h3 class="font-bold text-base leading-tight" id="mpTitulo">—</h3><p class="text-[11px] opacity-80 mt-0.5" id="mpSub">Pagaron completo · listos para habilitar</p></div>
+                    <button id="mpClose" class="rounded-lg p-1 hover:bg-white/20"><span class="material-symbols-outlined">close</span></button>
+                </div>
+                <div class="p-5">
+                    <div class="flex justify-end mb-2"><button id="mpExcel" class="hidden px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white text-xs font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-base">download</span>CSV</button></div>
+                    <div class="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 table-fixed-head">
+                        <table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight"><th class="px-3 py-2 font-bold">#</th><th class="px-3 py-2 font-bold">DNI</th><th class="px-3 py-2 font-bold">Apellidos y Nombres</th><th class="px-3 py-2 font-bold text-right">Tarifa</th><th class="px-3 py-2 font-bold text-right">Pagado</th></tr></thead><tbody id="mpTbody"></tbody></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if (sessionData && sessionData.user) {
+            const u = sessionData.user;
+            document.getElementById('userNameDisplay').textContent = u.name || 'Admin';
+            document.getElementById('userEmailDisplay').textContent = u.email || '—';
+            document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
+            if (['Administrador', 'Super Admin', 'Oficina de Administración'].includes(u.role)) document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
+        }
+        function handleLogout() { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        document.querySelectorAll('.logout-trigger').forEach(b => b.addEventListener('click', handleLogout));
+        const themeIcon = document.getElementById('themeIcon');
+        function applyTheme(d) { document.documentElement.classList.toggle('dark', d); themeIcon.textContent = d ? 'light_mode' : 'dark_mode'; localStorage.setItem('stats_theme', d ? 'dark' : 'light'); }
+        applyTheme(localStorage.getItem('stats_theme') === 'dark');
+        document.getElementById('themeToggle').addEventListener('click', () => applyTheme(!document.documentElement.classList.contains('dark')));
+
+        const authHeaders = { 'Authorization': 'Bearer ' + sessionData.token };
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = n => Number(n || 0).toLocaleString('es-PE');
+        const money = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const pct = (a, b) => b > 0 ? Math.round(100 * a / b) + '%' : '—';
+        async function getJSON(url) { const r = await fetch(url, { headers: authHeaders }); if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; throw new Error('401'); } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
+
+        let conDeuda = [], pendData = [];
+
+        async function cargar() {
+            try {
+                const [res, deuda, pend] = await Promise.all([
+                    getJSON('/api/stats/habilitados/resumen'),
+                    getJSON('/api/stats/habilitados/con-deuda'),
+                    getJSON('/api/stats/habilitados/pendientes')
+                ]);
+                const tot = res.totales || {};
+                // KPIs
+                document.getElementById('kInsc').textContent = fmt(tot.total_inscritos);
+                document.getElementById('kHab').textContent = fmt(tot.total_habilitados);
+                document.getElementById('kHabPct').textContent = pct(tot.total_habilitados, tot.total_inscritos) + ' de matriculados';
+                document.getElementById('kSinc').textContent = fmt(tot.total_sincronizados);
+                document.getElementById('kSincPct').textContent = pct(tot.total_sincronizados, tot.total_habilitados) + ' de habilitados';
+                // Por sede
+                document.getElementById('tbodySede').innerHTML = (res.sedes || []).map(s => `
+                    <tr class="border-b border-slate-50 dark:border-slate-800/50">
+                        <td class="px-4 py-1.5 font-medium">${esc(s.sede)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${fmt(s.total_inscritos)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono text-emerald-600 font-bold">${fmt(s.total_habilitados)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${fmt(s.total_sincronizados)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono font-bold">${pct(s.total_sincronizados, s.total_inscritos)}</td>
+                    </tr>`).join('') || `<tr><td colspan="5" class="text-center py-6 text-slate-400">Sin datos.</td></tr>`;
+                // Por área
+                document.getElementById('tbodyArea').innerHTML = (res.areas || []).map(a => `
+                    <tr class="border-b border-slate-50 dark:border-slate-800/50">
+                        <td class="px-4 py-1.5 font-medium">${esc(a.area)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${fmt(a.total_estudiantes)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono text-emerald-600 font-bold">${fmt(a.total_sincronizados)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono font-bold">${a.porcentaje_sincronizados != null ? a.porcentaje_sincronizados + '%' : pct(a.total_sincronizados, a.total_estudiantes)}</td>
+                    </tr>`).join('') || `<tr><td colspan="4" class="text-center py-6 text-slate-400">Sin datos.</td></tr>`;
+                // Habilitados con deuda
+                conDeuda = deuda.estudiantes || [];
+                document.getElementById('cdCount').textContent = '(' + fmt(deuda.total || 0) + ')';
+                document.getElementById('cdExcel').classList.toggle('hidden', !conDeuda.length);
+                document.getElementById('tbodyDeuda').innerHTML = conDeuda.length ? conDeuda.map(e => `
+                    <tr class="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-4 py-1.5 font-mono">${esc(e.dni)}</td>
+                        <td class="px-4 py-1.5 font-medium whitespace-nowrap">${esc(e.apellidos_nombres)}</td>
+                        <td class="px-4 py-1.5">${esc(e.sede)}</td>
+                        <td class="px-4 py-1.5">${esc(e.area)}</td>
+                        <td class="px-4 py-1.5">${esc(e.grupo)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono font-bold text-amber-600">${money(e.deuda_total)}</td>
+                    </tr>`).join('') : `<tr><td colspan="6" class="text-center py-8 text-slate-400">No hay habilitados con deuda.</td></tr>`;
+                // Pendientes sin deuda (clic en fila → detalle "pagaron completo")
+                pendData = pend.data || [];
+                document.getElementById('pdCount').textContent = '(' + fmt(pend.total_general || 0) + ' alumnos)';
+                const tbP = document.getElementById('tbodyPend');
+                tbP.innerHTML = pendData.length ? pendData.map((p, i) => `
+                    <tr class="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group" data-idx="${i}">
+                        <td class="px-4 py-1.5">${esc(p.sede)}</td><td class="px-4 py-1.5">${esc(p.area)}</td>
+                        <td class="px-4 py-1.5">${esc(p.turno)}</td><td class="px-4 py-1.5 font-medium">${esc(p.grupo)} <span class="material-symbols-outlined text-sm text-slate-300 group-hover:text-primary align-middle">chevron_right</span></td>
+                        <td class="px-4 py-1.5 text-right font-mono font-bold text-sky-600">${fmt(p.total_no_habilitados_sin_deuda)}</td>
+                    </tr>`).join('') : `<tr><td colspan="5" class="text-center py-8 text-slate-400">No hay pendientes sin deuda.</td></tr>`;
+                tbP.querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', () => abrirDetallePend(pendData[Number(tr.dataset.idx)])));
+            } catch (e) { console.error(e); }
+        }
+        document.getElementById('reloadBtn').addEventListener('click', cargar);
+
+        // Export CSV de habilitados con deuda
+        document.getElementById('cdExcel').addEventListener('click', () => {
+            const head = ['DNI', 'Apellidos y Nombres', 'Sede', 'Área', 'Turno', 'Grupo', 'Deuda'];
+            const rows = conDeuda.map(e => [e.dni, e.apellidos_nombres, e.sede, e.area, e.turno, e.grupo, Number(e.deuda_total).toFixed(2)]);
+            const csv = [head, ...rows].map(r => r.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'habilitados-con-deuda.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+        });
+
+        // ===== Buscador por DNI + constancia =====
+        async function buscarDni() {
+            const dni = document.getElementById('dniInput').value.trim();
+            const cont = document.getElementById('dniResult');
+            if (!/^\d{6,12}$/.test(dni)) { cont.classList.remove('hidden'); cont.innerHTML = `<p class="text-xs text-amber-600">Ingresa un DNI válido.</p>`; return; }
+            cont.classList.remove('hidden');
+            cont.innerHTML = `<p class="text-xs text-slate-400">Buscando…</p>`;
+            try {
+                const r = await fetch('/api/stats/habilitados/buscar/' + encodeURIComponent(dni), { headers: authHeaders });
+                if (r.status === 404) { cont.innerHTML = `<p class="text-xs text-red-500">No se encontró estudiante con ese DNI.</p>`; return; }
+                if (r.status === 403) { cont.innerHTML = `<p class="text-xs text-red-500">Sin acceso a este alumno (otro grupo).</p>`; return; }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                const badge = (ok, txt) => `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${ok ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-400/15 text-slate-500'}">${ok ? '✓ ' : '✗ '}${txt}</span>`;
+                const fmtFecha = iso => { try { const dt = new Date(iso); return dt.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + dt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+                const h = d.habilitacion;
+                const histo = h
+                    ? `<p class="text-xs mt-1.5 flex items-center gap-1 ${h.evento === 'habilitado' ? 'text-emerald-600' : 'text-red-500'}"><span class="material-symbols-outlined text-sm">${h.evento === 'habilitado' ? 'check_circle' : 'cancel'}</span>${h.evento === 'habilitado' ? 'Habilitado' : 'Deshabilitado'} por <b>${esc(h.por)}</b> · ${fmtFecha(h.fecha)}</p>`
+                    : `<p class="text-xs mt-1.5 text-slate-400 flex items-center gap-1"><span class="material-symbols-outlined text-sm">schedule</span>Pendiente de habilitación</p>`;
+                const fila = e => `<li class="flex items-start gap-2"><span class="mt-1.5 size-2 shrink-0 rounded-full ${e.evento === 'habilitado' ? 'bg-emerald-500' : 'bg-red-500'}"></span><span class="text-xs"><b class="${e.evento === 'habilitado' ? 'text-emerald-600' : 'text-red-500'}">${e.evento === 'habilitado' ? 'Habilitado' : 'Deshabilitado'}</b> por ${esc(e.por)} · <span class="text-slate-400">${fmtFecha(e.fecha)}</span></span></li>`;
+                const timeline = (d.historial && d.historial.length > 1)
+                    ? `<div class="mt-3 rounded-xl border border-slate-200 dark:border-slate-700 p-4"><h4 class="text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">history</span>Historial de habilitación (${d.historial.length})</h4><ul class="space-y-2 border-l-2 border-slate-100 dark:border-slate-800 pl-3">${d.historial.map(fila).join('')}</ul></div>`
+                    : '';
+                const puede = d.habilitado && d.sincronizado;
+                const accion = puede
+                    ? `<button id="btnConstancia" data-mid="${d.matricula_id}" class="px-4 py-2 rounded-lg bg-primary text-white text-sm font-bold flex items-center gap-1.5 hover:bg-primary-light"><span class="material-symbols-outlined text-base">picture_as_pdf</span>Descargar constancia</button>`
+                    : `<div class="text-right"><span class="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-bold flex items-center gap-1.5 cursor-not-allowed"><span class="material-symbols-outlined text-base">lock</span>Constancia no disponible</span><p class="text-[10px] text-amber-600 mt-1">Debe estar habilitado y sincronizado.</p></div>`;
+                cont.innerHTML = `
+                    <div class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <p class="font-bold">${esc(d.apellidos_nombres)}</p>
+                            <p class="text-xs text-slate-500">DNI ${esc(d.dni)} · ${esc(d.sede)} · ${esc(d.area)} · ${esc(d.turno)} · ${esc(d.grupo)}</p>
+                            <div class="flex items-center gap-2 mt-2">
+                                ${badge(d.habilitado, 'Habilitado')} ${badge(d.sincronizado, 'Sincronizado')}
+                                <span class="text-xs ${d.deuda_total > 0 ? 'text-amber-600 font-bold' : 'text-emerald-600'}">${d.deuda_total > 0 ? 'Deuda ' + money(d.deuda_total) : 'Sin deuda'}</span>
+                            </div>
+                            ${histo}
+                        </div>
+                        ${accion}
+                    </div>${timeline}`;
+                if (puede) document.getElementById('btnConstancia').addEventListener('click', descargarConstancia);
+            } catch (e) { cont.innerHTML = `<p class="text-xs text-red-500">Error al buscar.</p>`; }
+        }
+        async function descargarConstancia(ev) {
+            const btn = ev.currentTarget; const mid = btn.dataset.mid;
+            const original = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="material-symbols-outlined text-base animate-spin">progress_activity</span>Generando…`;
+            try {
+                const r = await fetch('/api/stats/habilitados/constancia/' + mid, { headers: authHeaders });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                window.open(d.pdf_url, '_blank');
+            } catch (e) { alert('No se pudo generar la constancia.'); }
+            finally { btn.disabled = false; btn.innerHTML = original; }
+        }
+        document.getElementById('dniBuscar').addEventListener('click', buscarDni);
+        document.getElementById('dniInput').addEventListener('keydown', e => { if (e.key === 'Enter') buscarDni(); });
+
+        // ===== Modal: detalle "pagaron completo" de un grupo =====
+        let detalleActual = [], grupoActual = null;
+        const modalPend = document.getElementById('modalPend');
+        function cerrarModalPend() { modalPend.classList.add('hidden'); }
+        document.getElementById('mpClose').addEventListener('click', cerrarModalPend);
+        document.getElementById('mpBackdrop').addEventListener('click', cerrarModalPend);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModalPend(); });
+
+        async function abrirDetallePend(p) {
+            grupoActual = p;
+            modalPend.classList.remove('hidden');
+            document.getElementById('mpTitulo').textContent = `${p.sede} · ${p.area} · ${p.turno} · ${p.grupo}`;
+            const mt = document.getElementById('mpTbody');
+            mt.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">Cargando…</td></tr>`;
+            document.getElementById('mpExcel').classList.add('hidden');
+            try {
+                const qs = new URLSearchParams({ sede: p.sede, area: p.area, turno: p.turno, grupo: p.grupo });
+                const d = await getJSON('/api/stats/habilitados/pendientes/detalle?' + qs.toString());
+                detalleActual = d.estudiantes || [];
+                mt.innerHTML = detalleActual.length ? detalleActual.map((e, i) => `
+                    <tr class="border-t border-slate-100 dark:border-slate-800">
+                        <td class="px-3 py-1.5 text-slate-400 font-mono">${i + 1}</td>
+                        <td class="px-3 py-1.5 font-mono">${esc(e.dni)}</td>
+                        <td class="px-3 py-1.5 font-medium whitespace-nowrap">${esc(e.apellidos_nombres)}</td>
+                        <td class="px-3 py-1.5 text-right font-mono">${money(e.total_tarifa)}</td>
+                        <td class="px-3 py-1.5 text-right font-mono text-emerald-600 font-bold">${money(e.total_pagado)}</td>
+                    </tr>`).join('') : `<tr><td colspan="5" class="text-center py-6 text-slate-400">Sin registros.</td></tr>`;
+                document.getElementById('mpExcel').classList.toggle('hidden', !detalleActual.length);
+            } catch (e) { mt.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-red-500">Error al cargar el detalle.</td></tr>`; }
+        }
+        document.getElementById('mpExcel').addEventListener('click', () => {
+            const head = ['DNI', 'Apellidos y Nombres', 'Sede', 'Área', 'Turno', 'Grupo', 'Tarifa', 'Pagado'];
+            const rows = detalleActual.map(e => [e.dni, e.apellidos_nombres, grupoActual.sede, grupoActual.area, grupoActual.turno, grupoActual.grupo, Number(e.total_tarifa).toFixed(2), Number(e.total_pagado).toFixed(2)]);
+            const csv = [head, ...rows].map(r => r.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `pagaron-completo_${grupoActual.grupo}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+        });
+
+        cargar();
+    </script>
+</body>
+</html>
