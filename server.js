@@ -5265,7 +5265,7 @@ app.get('/api/stats/habilitados/buscar/:dni', requireStatsAuth, async (req, res)
     // Historial auditado del campo `habilitado` (quién habilitó / deshabilitó y cuándo).
     // Nota: solo existe cuando la (des)habilitación pasó por el modelo auditado de Laravel.
     const [aud] = await conn.query(`
-      SELECT a.new_values, a.created_at, u.name, u.paterno, u.materno
+      SELECT a.new_values, DATE_FORMAT(a.created_at, '%Y-%m-%dT%H:%i:%s-05:00') AS created_at, u.name, u.paterno, u.materno
       FROM audits a LEFT JOIN users u ON u.id = a.user_id
       WHERE a.auditable_type LIKE '%Matricula' AND a.auditable_id = ? AND a.event = 'updated'
         AND a.new_values LIKE '%"habilitado":%'

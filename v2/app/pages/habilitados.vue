@@ -49,7 +49,8 @@ const money = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { mi
 function fmtFecha(iso: string) {
   try {
     const dt = new Date(iso)
-    return dt.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + dt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+    const tz = { timeZone: 'America/Lima' } as const
+    return dt.toLocaleDateString('es-PE', { ...tz, day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + dt.toLocaleTimeString('es-PE', { ...tz, hour: '2-digit', minute: '2-digit' })
   } catch { return '' }
 }
 

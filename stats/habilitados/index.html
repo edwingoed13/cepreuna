@@ -250,7 +250,7 @@
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 const d = await r.json();
                 const badge = (ok, txt) => `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${ok ? 'bg-emerald-500/15 text-emerald-600' : 'bg-slate-400/15 text-slate-500'}">${ok ? '✓ ' : '✗ '}${txt}</span>`;
-                const fmtFecha = iso => { try { const dt = new Date(iso); return dt.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + dt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+                const fmtFecha = iso => { try { const dt = new Date(iso); const tz = { timeZone: 'America/Lima' }; return dt.toLocaleDateString('es-PE', { ...tz, day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + dt.toLocaleTimeString('es-PE', { ...tz, hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
                 const h = d.habilitacion;
                 const histo = h
                     ? `<p class="text-xs mt-1.5 flex items-center gap-1 ${h.evento === 'habilitado' ? 'text-emerald-600' : 'text-red-500'}"><span class="material-symbols-outlined text-sm">${h.evento === 'habilitado' ? 'check_circle' : 'cancel'}</span>${h.evento === 'habilitado' ? 'Habilitado' : 'Deshabilitado'} por <b>${esc(h.por)}</b> · ${fmtFecha(h.fecha)}</p>`
