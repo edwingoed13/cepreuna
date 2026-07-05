@@ -150,7 +150,7 @@
       }
     },
     {
-      "src": "/(dashboard|curso|videos|materiales|certificado)",
+      "src": "/(dashboard|curso|videos|materiales|certificado|simulacro)",
       "dest": "server.js",
       "headers": {
         "Cache-Control": "public, max-age=1800, s-maxage=1800, stale-while-revalidate=3600"

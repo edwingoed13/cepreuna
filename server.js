@@ -262,6 +262,11 @@ app.use(compression({
 // Debe ir ANTES de express.static para interceptar la descarga directa del JSON.
 app.use('/data', (req, res) => res.status(404).send('Not found'));
 
+// Bloquear la carpeta con el Excel de origen del simulacro: contiene los datos
+// crudos de TODOS los estudiantes (respuestas, códigos, etc.). La consulta pública
+// solo devuelve un registro por DNI vía /api/simulacro/resultado/:dni.
+app.use('/simulacro-resultados', (req, res) => res.status(404).send('Not found'));
+
 // Servir archivos estáticos (HTML, CSS, JS).
 // Los .html se sirven con `no-cache` para que el navegador siempre revalide
 // y no muestre versiones viejas tras un deploy/cambio.
@@ -5415,6 +5420,42 @@ app.get('/api/informe-docente/:dni', (req, res) => {
   res.json({ success: true, mensaje });
 });
 
+// Resultados del Simulacro de Examen de Admisión (C.U. 05 julio 2026).
+// El JSON vive en /data (no servido estáticamente): la consulta devuelve SOLO
+// el registro del DNI solicitado, nunca el listado completo. Así los datos de
+// los demás estudiantes no quedan expuestos en el navegador ni descargables.
+let resultadosSimulacro = {};
+try {
+  resultadosSimulacro = require('./data/simulacro-resultados-2026.json');
+  console.log(`📄 Resultados simulacro cargados: ${Object.keys(resultadosSimulacro).length}`);
+} catch (e) {
+  console.warn('⚠️  No se pudo cargar data/simulacro-resultados-2026.json:', e.message);
+}
+
+// Devuelve el resultado del simulacro para un DNI (o 404 si no existe).
+app.get('/api/simulacro/resultado/:dni', (req, res) => {
+  const dni = String(req.params.dni || '').trim();
+
+  if (!/^\d{8}$/.test(dni)) {
+    return res.status(400).json({ success: false, error: 'DNI inválido. Debe tener 8 dígitos.' });
+  }
+
+  const r = resultadosSimulacro[dni];
+  if (!r) {
+    return res.status(404).json({ success: false, error: 'No se encontró un resultado para este DNI.' });
+  }
+
+  res.json({
+    success: true,
+    data: {
+      nombre: r.n,
+      area: r.a,
+      puntaje: r.p,          // null si el estudiante no rindió el examen
+      rindio: r.p !== null,
+    }
+  });
+});
+
 // Endpoint para login de administradores (Dashboard Stats)
 app.post('/api/stats/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
@@ -5622,6 +5663,10 @@ app.get('/certificado', (req, res) => {
   res.sendFile(__dirname + '/certificado.html');
 });
 
+app.get('/simulacro', (req, res) => {
+  res.sendFile(__dirname + '/simulacro.html');
+});
+
 // Endpoint para servir la imagen del certificado
 app.get('/certificado-2026-curso.png', (req, res) => {
   const path = require('path');
@@ -5648,6 +5693,10 @@ app.get('/materiales.html', (req, res) => {
 
 app.get('/certificado.html', (req, res) => {
   res.redirect(301, '/certificado');
+});
+
+app.get('/simulacro.html', (req, res) => {
+  res.redirect(301, '/simulacro');
 });
 
 // Ruta para panel de estadísticas

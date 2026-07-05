@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resultados Simulacro — CEPREUNA 2026</title>
+  <meta name="description" content="Consulta de resultados del Simulacro de Examen de Admisión C.U. 05 de julio 2026 — CEPREUNA, Universidad Nacional del Altiplano.">
+  <meta name="theme-color" content="#0A2472">
+  <link rel="icon" type="image/png" href="/logo-cepreuna.png">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#0A2472',
+            secondary: '#0E6BA8',
+            accent: '#00D9FF',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+    body {
+      background: linear-gradient(135deg, #0A2472 0%, #0E6BA8 50%, #00D9FF 100%);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        radial-gradient(circle at 15% 20%, rgba(255,255,255,0.05) 0%, transparent 45%),
+        radial-gradient(circle at 85% 85%, rgba(255,255,255,0.05) 0%, transparent 45%);
+      pointer-events: none;
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.97);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      box-shadow: 0 25px 60px -15px rgba(10, 36, 114, 0.55);
+    }
+
+    .dni-input {
+      letter-spacing: 0.35em;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .dni-input:focus {
+      border-color: #0E6BA8;
+      box-shadow: 0 8px 22px rgba(14, 107, 168, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0A2472 0%, #0E6BA8 60%, #00D9FF 140%);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(14,107,168,0.45); }
+    .btn-primary:active:not(:disabled) { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .fade-in { animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+
+<body class="flex items-center justify-center p-4 py-8 relative">
+
+  <main class="w-full max-w-lg min-w-0 relative z-10">
+    <div class="glass-card rounded-3xl p-7 sm:p-9">
+
+      <!-- Encabezado institucional -->
+      <header class="text-center">
+        <img src="/logo-cepreuna.png" alt="CEPREUNA" class="h-20 sm:h-24 mx-auto mb-4 select-none" draggable="false">
+        <p class="text-[11px] sm:text-xs font-semibold tracking-wider text-primary/80 uppercase leading-tight">
+          Universidad Nacional del Altiplano
+        </p>
+        <p class="text-[10px] sm:text-xs font-medium tracking-wide text-slate-500 uppercase">
+          Centro de Estudios Preuniversitario
+        </p>
+      </header>
+
+      <div class="my-5 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent"></div>
+
+      <!-- Título del reporte -->
+      <div class="text-center mb-6">
+        <h1 class="text-3xl sm:text-4xl font-extrabold text-primary tracking-tight">RESULTADOS</h1>
+        <p class="mt-1 text-sm sm:text-base font-semibold text-secondary">Simulacro · Examen de Admisión</p>
+        <span class="inline-block mt-3 px-3 py-1 rounded-full bg-primary/5 text-primary text-xs font-semibold tracking-wide">
+          C.U. · 05 de julio de 2026
+        </span>
+      </div>
+
+      <!-- Formulario de consulta -->
+      <form id="form" class="space-y-3" autocomplete="off" novalidate>
+        <label for="dni" class="block text-sm font-semibold text-slate-700">Ingresa tu DNI</label>
+        <input
+          id="dni" name="dni" type="text" inputmode="numeric" pattern="\d*"
+          maxlength="8" placeholder="00000000" autocomplete="off" autofocus
+          class="dni-input w-full text-center text-2xl font-bold text-primary bg-white border-2 border-slate-200 rounded-2xl py-4 outline-none placeholder:text-slate-300 placeholder:tracking-widest"
+          aria-describedby="hint">
+        <p id="hint" class="text-xs text-slate-400 text-center">Solo números · 8 dígitos</p>
+
+        <button id="btn" type="submit"
+          class="btn-primary w-full flex items-center justify-center gap-2 text-white font-bold text-base py-4 rounded-2xl">
+          <span id="btnSpinner" class="spinner hidden"></span>
+          <span id="btnText">CONSULTAR</span>
+        </button>
+      </form>
+
+      <!-- Mensaje de error -->
+      <div id="error" class="hidden fade-in mt-4 rounded-2xl bg-red-50 border border-red-100 px-4 py-3 text-center text-sm font-medium text-red-600" role="alert" aria-live="polite"></div>
+
+      <!-- Resultado -->
+      <div id="result" class="hidden fade-in mt-6" aria-live="polite">
+        <div class="rounded-2xl border border-slate-100 bg-slate-50/70 overflow-hidden">
+
+          <!-- Nombre -->
+          <div class="px-5 pt-5 pb-4 text-center border-b border-slate-100">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Apellidos y Nombres</p>
+            <p id="rNombre" class="text-lg sm:text-xl font-bold text-primary leading-snug"></p>
+          </div>
+
+          <!-- Área -->
+          <div class="px-5 py-4 flex items-center justify-between border-b border-slate-100">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Área</span>
+            <span id="rArea" class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold">
+              <span id="rAreaDot" class="w-2 h-2 rounded-full"></span>
+              <span id="rAreaText"></span>
+            </span>
+          </div>
+
+          <!-- Puntaje -->
+          <div class="px-5 py-6 text-center bg-gradient-to-b from-white to-slate-50">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Puntaje</p>
+            <p id="rPuntaje" class="text-5xl sm:text-6xl font-black text-primary tracking-tight tabular-nums"></p>
+            <p id="rNota" class="hidden mt-2 text-sm font-medium text-amber-600"></p>
+          </div>
+        </div>
+
+        <button id="btnNuevo" type="button"
+          class="mt-4 w-full text-sm font-semibold text-secondary hover:text-primary transition-colors">
+          ← Consultar otro DNI
+        </button>
+      </div>
+
+    </div>
+
+    <p class="text-center text-white/70 text-xs mt-5">
+      © 2026 CEPREUNA · Universidad Nacional del Altiplano
+    </p>
+  </main>
+
+  <script>
+    const AREA_COLORS = {
+      'Sociales':     { bg: '#FFF1E8', text: '#C2410C', dot: '#F26522' },
+      'Ingenierías':  { bg: '#E7F1FB', text: '#0A2472', dot: '#1B9BD8' },
+      'Biomédicas':   { bg: '#E9F7EA', text: '#166534', dot: '#3AAA35' },
+    };
+
+    const form      = document.getElementById('form');
+    const dniInput  = document.getElementById('dni');
+    const btn       = document.getElementById('btn');
+    const btnText   = document.getElementById('btnText');
+    const btnSpin   = document.getElementById('btnSpinner');
+    const errorBox  = document.getElementById('error');
+    const resultBox = document.getElementById('result');
+    const rNombre   = document.getElementById('rNombre');
+    const rAreaWrap = document.getElementById('rArea');
+    const rAreaDot  = document.getElementById('rAreaDot');
+    const rAreaText = document.getElementById('rAreaText');
+    const rPuntaje  = document.getElementById('rPuntaje');
+    const rNota     = document.getElementById('rNota');
+    const btnNuevo  = document.getElementById('btnNuevo');
+
+    // Solo dígitos en el input
+    dniInput.addEventListener('input', () => {
+      dniInput.value = dniInput.value.replace(/\D/g, '').slice(0, 8);
+      hide(errorBox);
+    });
+
+    function hide(el)  { el.classList.add('hidden'); }
+    function show(el)  { el.classList.remove('hidden'); }
+
+    function setLoading(on) {
+      btn.disabled = on;
+      dniInput.disabled = on;
+      btnText.textContent = on ? 'Consultando…' : 'CONSULTAR';
+      on ? show(btnSpin) : hide(btnSpin);
+    }
+
+    function showError(msg) {
+      hide(resultBox);
+      errorBox.textContent = msg;
+      show(errorBox);
+    }
+
+    function fmtPuntaje(p) {
+      return Number(p).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function paintArea(area) {
+      const c = AREA_COLORS[area] || { bg: '#EEF2F7', text: '#64748B', dot: '#94A3B8' };
+      rAreaText.textContent = area || '—';
+      rAreaWrap.style.backgroundColor = c.bg;
+      rAreaWrap.style.color = c.text;
+      rAreaDot.style.backgroundColor = c.dot;
+    }
+
+    function setPuntajeStrong(strong) {
+      rPuntaje.classList.remove('text-primary', 'text-slate-300');
+      rPuntaje.classList.add(strong ? 'text-primary' : 'text-slate-300');
+    }
+
+    function setNota(text, tone) {
+      // tone: 'warn' (ámbar) | 'muted' (gris). Sin texto -> se oculta.
+      if (!text) { hide(rNota); return; }
+      rNota.textContent = text;
+      rNota.classList.remove('text-amber-600', 'text-slate-400');
+      rNota.classList.add(tone === 'warn' ? 'text-amber-600' : 'text-slate-400');
+      show(rNota);
+    }
+
+    function renderResult(d) {
+      hide(errorBox);
+      rNombre.textContent = d.nombre;
+      paintArea(d.area);
+
+      if (d.rindio) {
+        rPuntaje.textContent = fmtPuntaje(d.puntaje);
+        setPuntajeStrong(true);
+        setNota(null);
+      } else {
+        rPuntaje.textContent = '0.00';
+        setPuntajeStrong(false);
+        setNota('El estudiante no rindió el examen.', 'warn');
+      }
+      show(resultBox);
+    }
+
+    // DNI que no está en el padrón: se muestra la misma tarjeta con datos en
+    // blanco y Puntaje 0.00 (en lugar de un mensaje de error).
+    function renderNotFound() {
+      hide(errorBox);
+      rNombre.textContent = '—';
+      paintArea(null);
+      rPuntaje.textContent = '0.00';
+      setPuntajeStrong(false);
+      setNota('DNI no encontrado en el padrón del simulacro.', 'muted');
+      show(resultBox);
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const dni = dniInput.value.trim();
+
+      if (!/^\d{8}$/.test(dni)) {
+        showError('Ingresa un DNI válido de 8 dígitos.');
+        return;
+      }
+
+      setLoading(true);
+      hide(resultBox);
+      hide(errorBox);
+
+      try {
+        const res = await fetch(`/api/simulacro/resultado/${dni}`, {
+          headers: { 'Accept': 'application/json' }
+        });
+        const json = await res.json().catch(() => ({}));
+
+        if (res.status === 404) {
+          renderNotFound();
+        } else if (res.status === 429) {
+          showError('Demasiadas consultas. Espera un momento e intenta de nuevo.');
+        } else if (!res.ok || !json.success) {
+          showError(json.error || 'No se pudo completar la consulta. Intenta nuevamente.');
+        } else {
+          renderResult(json.data);
+        }
+      } catch (err) {
+        showError('Error de conexión. Revisa tu internet e intenta de nuevo.');
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    btnNuevo.addEventListener('click', () => {
+      hide(resultBox);
+      dniInput.value = '';
+      dniInput.focus();
+    });
+  </script>
+</body>
+</html>
