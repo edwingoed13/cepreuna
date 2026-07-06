@@ -73,6 +73,13 @@
       }
     },
     {
+      "src": "/stats/reportes-aux/habilitaciones",
+      "dest": "/stats/reportes-aux/habilitaciones/index.html",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
       "src": "/stats",
       "dest": "/stats/index.html",
       "headers": {

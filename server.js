@@ -5318,6 +5318,102 @@ app.get('/api/stats/habilitados/constancia/:matricula_id', requireStatsAuth, asy
   } catch (e) { if (conn) conn.release(); console.error('Error constancia:', e); res.status(502).json({ error: 'No se pudo generar la constancia' }); }
 });
 
+// ============ HABILITACIONES · AUXILIARES (gráficas reportes-aux) ============
+// Deuda por estudiante = principal impago + mora SOLO de cuotas sin pagar.
+const HAB_DEUDA_SUBQ = `(SELECT estudiantes_id, SUM(monto - pagado) + SUM(CASE WHEN pagado < monto THEN COALESCE(mora,0) ELSE 0 END) AS deuda FROM tarifa_estudiantes GROUP BY estudiantes_id)`;
+
+// Estado (habilitados/sincronizados) y deudores por auxiliar.
+app.get('/api/stats/reportes-aux/habilitaciones/auxiliares', requireAdmin, cacheMiddleware(120), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT u.id AS users_id, CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar, u.dni AS dni_auxiliar,
+             COUNT(DISTINCT m.estudiantes_id) AS asignados,
+             COUNT(DISTINCT CASE WHEN m.habilitado='1' THEN m.estudiantes_id END) AS habilitados,
+             COUNT(DISTINCT CASE WHEN m.habilitado_estado='1' THEN m.estudiantes_id END) AS sincronizados,
+             COUNT(DISTINCT CASE WHEN d.deuda > 0 THEN m.estudiantes_id END) AS deudores
+      FROM auxiliares a
+      JOIN users u ON u.id = a.users_id
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = a.id
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      LEFT JOIN ${HAB_DEUDA_SUBQ} d ON d.estudiantes_id = m.estudiantes_id
+      GROUP BY u.id, u.paterno, u.materno, u.name, u.dni
+      ORDER BY deudores DESC`);
+    conn.release();
+    const pct = (a, b) => b > 0 ? Math.round(1000 * a / b) / 10 : 0;
+    const auxiliares = rows.map(r => {
+      const asignados = parseInt(r.asignados) || 0;
+      const habilitados = parseInt(r.habilitados) || 0;
+      const sincronizados = parseInt(r.sincronizados) || 0;
+      const deudores = parseInt(r.deudores) || 0;
+      return {
+        users_id: r.users_id, auxiliar: r.auxiliar, dni_auxiliar: r.dni_auxiliar, asignados, habilitados, sincronizados, deudores,
+        al_dia: asignados - deudores,
+        pct_habilitados: pct(habilitados, asignados),
+        pct_sincronizados: pct(sincronizados, asignados),
+        pct_deudores: pct(deudores, asignados)
+      };
+    });
+    const tot = auxiliares.reduce((s, r) => ({
+      asignados: s.asignados + r.asignados, habilitados: s.habilitados + r.habilitados,
+      sincronizados: s.sincronizados + r.sincronizados, deudores: s.deudores + r.deudores
+    }), { asignados: 0, habilitados: 0, sincronizados: 0, deudores: 0 });
+    res.json({ auxiliares, totales: tot });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitaciones auxiliares:', e); res.status(500).json({ error: 'Error al obtener el reporte' }); }
+});
+
+// Habilitaciones/deshabilitaciones por día (audits, hora de Lima). Default 01-15 jul 2026.
+app.get('/api/stats/reportes-aux/habilitaciones/por-dia', requireAdmin, cacheMiddleware(120), async (req, res) => {
+  const rx = /^\d{4}-\d{2}-\d{2}$/;
+  const desde = rx.test(String(req.query.desde || '')) ? req.query.desde : '2026-07-01';
+  const hasta = rx.test(String(req.query.hasta || '')) ? req.query.hasta : '2026-07-15';
+  const aux = Number(req.query.aux); // users_id del auxiliar (opcional)
+  const params = [desde, hasta];
+  let filtroAux = '';
+  if (Number.isFinite(aux) && aux > 0) {
+    filtroAux = `AND auditable_id IN (
+      SELECT m.id FROM matriculas m
+      JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = m.grupo_aulas_id
+      JOIN auxiliares ax ON ax.id = ag.auxiliares_id
+      WHERE ax.users_id = ? AND m.periodos_id = 1)`;
+    params.push(aux);
+  }
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS dia,
+             SUM(new_values LIKE '%"habilitado":"1"%') AS habilitaciones,
+             SUM(new_values LIKE '%"habilitado":"0"%') AS deshabilitaciones
+      FROM audits
+      WHERE auditable_type LIKE '%Matricula' AND event = 'updated'
+        AND (new_values LIKE '%"habilitado":"1"%' OR new_values LIKE '%"habilitado":"0"%')
+        AND DATE(created_at) BETWEEN ? AND ? ${filtroAux}
+      GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d') ORDER BY dia`, params);
+    conn.release();
+    // Rellenar días faltantes del rango con 0 (clave local YYYY-MM-DD, sin líos de zona).
+    const fmt = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    const mapa = {};
+    rows.forEach(r => { mapa[r.dia] = { hab: parseInt(r.habilitaciones) || 0, des: parseInt(r.deshabilitaciones) || 0 }; });
+    const dias = [];
+    let acumulado = 0;
+    const d0 = new Date(desde + 'T00:00:00'), d1 = new Date(hasta + 'T00:00:00');
+    for (let d = new Date(d0); d <= d1; d.setDate(d.getDate() + 1)) {
+      const key = fmt(d);
+      const v = mapa[key] || { hab: 0, des: 0 };
+      acumulado += v.hab - v.des;
+      dias.push({ dia: key, habilitaciones: v.hab, deshabilitaciones: v.des, neto_acumulado: acumulado });
+    }
+    res.json({ dias, desde, hasta });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitaciones por-dia:', e); res.status(500).json({ error: 'Error al obtener el reporte' }); }
+});
+
+// Página del panel.
+app.get('/stats/reportes-aux/habilitaciones', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'habilitaciones', 'index.html'));
+});
+
 // ============ ENDPOINT DE AUTENTICACIÓN ============
 
 // Endpoint para autenticar participantes
