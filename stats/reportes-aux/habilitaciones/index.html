@@ -116,6 +116,12 @@
                     <div style="height:640px"><canvas id="chHab"></canvas></div>
                 </div>
 
+                <!-- Ranking de habilitadores -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-violet-600">leaderboard</span>Ranking · ¿Quién está habilitando? <span class="text-slate-400 font-normal" id="rkCount"></span></h3></div>
+                    <div class="overflow-x-auto max-h-[60vh] overflow-y-auto table-fixed-head"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight"><th class="px-4 py-2 font-bold">#</th><th class="px-4 py-2 font-bold">Usuario</th><th class="px-4 py-2 font-bold">Rol</th><th class="px-4 py-2 font-bold text-right">Habilitaciones</th><th class="px-4 py-2 font-bold text-right">Deshabilit.</th><th class="px-4 py-2 font-bold">Avance</th><th class="px-4 py-2 font-bold text-right">Última actividad</th></tr></thead><tbody id="tbodyRk"></tbody></table></div>
+                </div>
+
                 <!-- Tabla -->
                 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                     <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -295,7 +301,26 @@
             renderDeu(); renderHab(); renderTabla();
         }
 
-        async function cargarTodo() { try { await Promise.all([cargarAux(), cargarDia()]); } catch (e) { console.error(e); } }
+        // ===== Ranking de habilitadores =====
+        const fmtFechaLima = iso => { try { const dt = new Date(iso); const tz = { timeZone: 'America/Lima' }; return dt.toLocaleDateString('es-PE', { ...tz, day: '2-digit', month: '2-digit' }) + ' ' + dt.toLocaleTimeString('es-PE', { ...tz, hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+        async function cargarRanking() {
+            const d = await getJSON('/api/stats/reportes-aux/habilitaciones/ranking');
+            const rk = d.ranking || [];
+            document.getElementById('rkCount').textContent = '(' + rk.length + ' usuarios)';
+            const maxHab = Math.max(1, ...rk.map(r => r.habilitaciones));
+            document.getElementById('tbodyRk').innerHTML = rk.length ? rk.map((r, i) => `
+                <tr class="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <td class="px-4 py-1.5 font-mono ${i < 3 ? 'font-black text-violet-600' : 'text-slate-400'}">${i + 1}</td>
+                    <td class="px-4 py-1.5 font-medium whitespace-nowrap">${esc(r.usuario)}</td>
+                    <td class="px-4 py-1.5 text-slate-500">${esc(r.rol)}</td>
+                    <td class="px-4 py-1.5 text-right font-mono font-bold text-emerald-600">${fmt(r.habilitaciones)}</td>
+                    <td class="px-4 py-1.5 text-right font-mono ${r.deshabilitaciones > 0 ? 'text-red-500' : 'text-slate-400'}">${fmt(r.deshabilitaciones)}</td>
+                    <td class="px-4 py-1.5 w-40"><div class="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:${Math.round(100 * r.habilitaciones / maxHab)}%"></div></div></td>
+                    <td class="px-4 py-1.5 text-right text-slate-500 whitespace-nowrap">${fmtFechaLima(r.ultima)}</td>
+                </tr>`).join('') : `<tr><td colspan="7" class="text-center py-8 text-slate-400">Aún no hay actividad de habilitación.</td></tr>`;
+        }
+
+        async function cargarTodo() { try { await Promise.all([cargarAux(), cargarDia(), cargarRanking()]); } catch (e) { console.error(e); } }
         document.getElementById('btnDia').addEventListener('click', () => cargarDia().catch(console.error));
         document.getElementById('selAux').addEventListener('change', () => cargarDia().catch(console.error));
         document.getElementById('reloadBtn').addEventListener('click', cargarTodo);

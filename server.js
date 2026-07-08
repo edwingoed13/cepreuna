@@ -5293,6 +5293,37 @@ app.get('/api/stats/habilitados/buscar/:dni', requireStatsAuth, async (req, res)
 });
 
 // Constancia: genera el token (API externa) y devuelve la URL del PDF.
+// Ranking de quiénes están habilitando (auditoría; solo admin — panel reportes-aux).
+app.get('/api/stats/reportes-aux/habilitaciones/ranking', requireAdmin, cacheMiddleware(120), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT a.user_id,
+             COALESCE(CONCAT_WS(' ', u.paterno, u.materno, u.name), '(sistema)') AS usuario,
+             (SELECT GROUP_CONCAT(r.name SEPARATOR ', ') FROM model_has_roles mhr JOIN roles r ON r.id = mhr.role_id
+              WHERE mhr.model_id = u.id AND mhr.model_type LIKE '%User') AS rol,
+             SUM(a.new_values LIKE '%"habilitado":"1"%') AS habilitaciones,
+             SUM(a.new_values LIKE '%"habilitado":"0"%') AS deshabilitaciones,
+             DATE_FORMAT(MAX(a.created_at), '%Y-%m-%dT%H:%i:%s-05:00') AS ultima
+      FROM audits a
+      LEFT JOIN users u ON u.id = a.user_id
+      WHERE a.auditable_type LIKE '%Matricula' AND a.event = 'updated'
+        AND (a.new_values LIKE '%"habilitado":"1"%' OR a.new_values LIKE '%"habilitado":"0"%')
+      GROUP BY a.user_id, usuario
+      ORDER BY habilitaciones DESC, deshabilitaciones DESC`);
+    conn.release();
+    res.json({
+      ranking: rows.map(r => ({
+        usuario: r.usuario, rol: r.rol || '—',
+        habilitaciones: parseInt(r.habilitaciones) || 0,
+        deshabilitaciones: parseInt(r.deshabilitaciones) || 0,
+        ultima: r.ultima
+      }))
+    });
+  } catch (e) { if (conn) conn.release(); console.error('Error habilitados ranking:', e); res.status(500).json({ error: 'Error al obtener el ranking' }); }
+});
+
 app.get('/api/stats/habilitados/constancia/:matricula_id', requireStatsAuth, async (req, res) => {
   const matriculaId = Number(req.params.matricula_id);
   if (!Number.isFinite(matriculaId) || matriculaId <= 0) return res.status(400).json({ error: 'ID de matrícula inválido' });
@@ -5453,6 +5484,21 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         );
         inscrito = insc.length > 0;
         if (inscrito && insc[0].area != null) area = parseInt(insc[0].area);
+      } else {
+        // No es docente apto del periodo, pero puede estar inscrito al curso-taller
+        // (hay inscritos que no figuran en `docentes`): se les permite entrar para
+        // que puedan descargar su certificado del curso.
+        const [insc] = await connection.query(
+          `SELECT nombres, paterno, materno, nro_documento, celular, email, area
+           FROM inscripcion_curso_tallers WHERE nro_documento = ? LIMIT 1`,
+          [dni]
+        );
+        if (insc.length) {
+          const r = insc[0];
+          docente = { nombres: r.nombres, paterno: r.paterno, materno: r.materno, nro_documento: r.nro_documento, email: r.email, celular: r.celular };
+          inscrito = true;
+          if (r.area != null) area = parseInt(r.area);
+        }
       }
     } finally {
       connection.release();

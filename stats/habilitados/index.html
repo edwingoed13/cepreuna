@@ -21,6 +21,12 @@
         th[data-sort] { cursor: pointer; user-select: none; }
         th[data-sort]:hover { background-color: #e2e8f0; }
         .dark th[data-sort]:hover { background-color: #334155; }
+        .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.3; font-size: 9px; }
+        .sort-arrow.active { opacity: 1; color: #003366; }
+        .dark .sort-arrow.active { color: #fff; }
+        th[data-sort] { cursor: pointer; user-select: none; }
+        th[data-sort]:hover { background-color: #e2e8f0; }
+        .dark th[data-sort]:hover { background-color: #334155; }
     </style>
 </head>
 <body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
@@ -118,7 +124,7 @@
                 <!-- Pendientes sin deuda -->
                 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                     <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800"><h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-sky-600">pending_actions</span>Pendientes sin deuda (listos para habilitar) <span class="text-slate-400 font-normal" id="pdCount"></span></h3></div>
-                    <div class="overflow-x-auto max-h-[50vh] overflow-y-auto table-fixed-head"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight"><th class="px-4 py-2 font-bold">Sede</th><th class="px-4 py-2 font-bold">Área</th><th class="px-4 py-2 font-bold">Turno</th><th class="px-4 py-2 font-bold">Grupo</th><th class="px-4 py-2 font-bold text-right">Sin habilitar</th></tr></thead><tbody id="tbodyPend"></tbody></table></div>
+                    <div class="overflow-x-auto max-h-[50vh] overflow-y-auto table-fixed-head"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight" id="pendHead"><th class="px-4 py-2 font-bold" data-sort="sede">Sede<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="area">Área<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="turno">Turno<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="grupo">Grupo<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold text-right" data-sort="total_no_habilitados_sin_deuda">Sin habilitar<span class="sort-arrow">▲</span></th></tr></thead><tbody id="tbodyPend"></tbody></table></div>
                 </div>
             </div>
         </main>
@@ -215,17 +221,46 @@
                 // Pendientes sin deuda (clic en fila → detalle "pagaron completo")
                 pendData = pend.data || [];
                 document.getElementById('pdCount').textContent = '(' + fmt(pend.total_general || 0) + ' alumnos)';
-                const tbP = document.getElementById('tbodyPend');
-                tbP.innerHTML = pendData.length ? pendData.map((p, i) => `
+                renderPend();
+            } catch (e) { console.error(e); }
+        }
+        document.getElementById('reloadBtn').addEventListener('click', cargar);
+
+        // Orden de la tabla de pendientes (clic en encabezado alterna asc/desc).
+        let pendSort = { col: null, dir: 1 };
+        function renderPend() {
+            const arr = [...pendData];
+            if (pendSort.col) {
+                const col = pendSort.col;
+                arr.sort((a, b) => {
+                    const va = a[col], vb = b[col];
+                    const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'es');
+                    return cmp * pendSort.dir;
+                });
+            }
+            const tbP = document.getElementById('tbodyPend');
+            tbP.innerHTML = arr.length ? arr.map((p, i) => `
                     <tr class="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group" data-idx="${i}">
                         <td class="px-4 py-1.5">${esc(p.sede)}</td><td class="px-4 py-1.5">${esc(p.area)}</td>
                         <td class="px-4 py-1.5">${esc(p.turno)}</td><td class="px-4 py-1.5 font-medium">${esc(p.grupo)} <span class="material-symbols-outlined text-sm text-slate-300 group-hover:text-primary align-middle">chevron_right</span></td>
                         <td class="px-4 py-1.5 text-right font-mono font-bold text-sky-600">${fmt(p.total_no_habilitados_sin_deuda)}</td>
                     </tr>`).join('') : `<tr><td colspan="5" class="text-center py-8 text-slate-400">No hay pendientes sin deuda.</td></tr>`;
-                tbP.querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', () => abrirDetallePend(pendData[Number(tr.dataset.idx)])));
-            } catch (e) { console.error(e); }
+            tbP.querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', () => abrirDetallePend(arr[Number(tr.dataset.idx)])));
+            // flechas
+            document.querySelectorAll('#pendHead th[data-sort]').forEach(th => {
+                const fl = th.querySelector('.sort-arrow');
+                const activo = th.dataset.sort === pendSort.col;
+                fl.classList.toggle('active', activo);
+                fl.textContent = activo && pendSort.dir === -1 ? '▼' : '▲';
+            });
         }
-        document.getElementById('reloadBtn').addEventListener('click', cargar);
+        document.querySelectorAll('#pendHead th[data-sort]').forEach(th => th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (pendSort.col === col) pendSort.dir *= -1;
+            else pendSort = { col, dir: col === 'total_no_habilitados_sin_deuda' ? -1 : 1 }; // numérico: primero mayor a menor
+            renderPend();
+        }));
+
 
         // Export CSV de habilitados con deuda
         document.getElementById('cdExcel').addEventListener('click', () => {
