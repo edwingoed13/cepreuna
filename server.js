@@ -5115,6 +5115,26 @@ function habFiltroGrupos(req, alias = 'm') {
   return { where: `AND ${alias}.grupo_aulas_id IN (${g.map(() => '?').join(',')})`, params: g, bloqueado: false };
 }
 
+// Deuda real de un estudiante (validado contra inscripcion_pagos):
+//   cargos = monto + mora asignada + S/30 estimada por cuota vencida (cronograma_pagos)
+//            impaga y sin mora asignada (la mora se registra recién al pagar)
+//   abonos = todo lo recibido en inscripcion_pagos del periodo (incluye pagos de mora;
+//            tarifa_estudiantes.pagado solo refleja el principal)
+//   deuda  = GREATEST(cargos - abonos, 0)
+const HAB_CARGOS_SUBQ = `(
+  SELECT te.estudiantes_id,
+         SUM(te.monto + COALESCE(te.mora,0)
+             + CASE WHEN te.pagado < te.monto AND COALESCE(te.mora,0) = 0
+                     AND EXISTS (SELECT 1 FROM cronograma_pagos cp
+                                 WHERE cp.periodos_id = 1 AND cp.nro_cuota = te.nro_cuota AND cp.fin < CURDATE())
+                    THEN 30 ELSE 0 END) AS cargos,
+         MIN(te.monto) AS min_monto
+  FROM tarifa_estudiantes te GROUP BY te.estudiantes_id)`;
+const HAB_ABONOS_SUBQ = `(
+  SELECT i.estudiantes_id, SUM(ip.monto) AS abonos
+  FROM inscripcion_pagos ip JOIN inscripciones i ON i.id = ip.inscripciones_id
+  WHERE i.periodos_id = 1 GROUP BY i.estudiantes_id)`;
+
 app.get('/api/stats/habilitados/resumen', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
   const f = habFiltroGrupos(req);
   if (f.bloqueado) return res.json({ totales: { total_inscritos: 0, total_habilitados: 0, total_sincronizados: 0 }, sedes: [], areas: [] });
@@ -5166,17 +5186,18 @@ app.get('/api/stats/habilitados/con-deuda', requireStatsAuth, async (req, res) =
     const [rows] = await conn.query(`
       SELECT e.nro_documento AS dni, CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS apellidos_nombres,
              s.denominacion AS sede, a.denominacion AS area, t.denominacion AS turno, g.denominacion AS grupo,
-             (SUM(te.monto - te.pagado) + SUM(CASE WHEN te.pagado < te.monto THEN COALESCE(te.mora,0) ELSE 0 END)) AS deuda_total
+             GREATEST(MAX(COALESCE(cg.cargos,0)) - MAX(COALESCE(ab.abonos,0)), 0) AS deuda_total
       FROM estudiantes e
       JOIN inscripciones i ON e.id=i.estudiantes_id AND i.periodos_id=1
       JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
-      JOIN tarifa_estudiantes te ON e.id=te.estudiantes_id
+      JOIN ${HAB_CARGOS_SUBQ} cg ON cg.estudiantes_id = e.id
+      LEFT JOIN ${HAB_ABONOS_SUBQ} ab ON ab.estudiantes_id = e.id
       JOIN sedes s ON i.sedes_id=s.id
       JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id JOIN grupos g ON ga.grupos_id=g.id
       JOIN areas a ON ga.areas_id=a.id JOIN turnos t ON ga.turnos_id=t.id
       WHERE m.habilitado='1' ${f.where} ${extra}
       GROUP BY e.id, e.nro_documento, e.paterno, e.materno, e.nombres, s.denominacion, a.denominacion, t.denominacion, g.denominacion
-      HAVING (SUM(te.monto - te.pagado) + SUM(CASE WHEN te.pagado < te.monto THEN COALESCE(te.mora,0) ELSE 0 END)) > 0
+      HAVING deuda_total > 0.5
       ORDER BY deuda_total DESC, e.paterno, e.materno, e.nombres`, [...f.params, ...(q ? [`%${q}%`] : [])]);
     conn.release();
     res.json({ estudiantes: rows.map(r => ({ dni: r.dni, apellidos_nombres: r.apellidos_nombres, sede: r.sede, area: r.area, turno: r.turno, grupo: r.grupo, deuda_total: parseFloat(r.deuda_total) || 0 })), total: rows.length });
@@ -5193,15 +5214,16 @@ app.get('/api/stats/habilitados/pendientes', requireStatsAuth, cacheMiddleware(1
       SELECT s.denominacion AS sede, a.denominacion AS area, t.denominacion AS turno, g.denominacion AS grupo,
              COUNT(*) AS total_no_habilitados_sin_deuda
       FROM (
+        -- pagó completo: cargos (incl. mora) cubiertos por abonos Y tarifa completa (sin cuota en monto=0)
         SELECT e.id, ga.aulas_id AS aulas_id, ga.areas_id AS area_id, ga.turnos_id AS turno_id, ga.grupos_id AS grupo_id
         FROM estudiantes e
         JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
-        JOIN tarifa_estudiantes te ON e.id=te.estudiantes_id
+        JOIN ${HAB_CARGOS_SUBQ} cg ON cg.estudiantes_id = e.id
+        LEFT JOIN ${HAB_ABONOS_SUBQ} ab ON ab.estudiantes_id = e.id
         JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id
         WHERE m.habilitado='0' ${f.where}
-        GROUP BY e.id, ga.aulas_id, ga.areas_id, ga.turnos_id, ga.grupos_id
-        -- pagó completo: sin saldo Y con tarifa completa (ninguna cuota con monto=0 sin asignar)
-        HAVING (SUM(te.monto - te.pagado) + SUM(CASE WHEN te.pagado < te.monto THEN COALESCE(te.mora,0) ELSE 0 END)) <= 0 AND MIN(te.monto) > 0
+          AND cg.min_monto > 0
+          AND (cg.cargos - COALESCE(ab.abonos,0)) <= 0.5
       ) x
       JOIN aulas au ON au.id=x.aulas_id JOIN locales l ON l.id=au.locales_id JOIN sedes s ON s.id=l.sedes_id
       JOIN areas a ON a.id=x.area_id JOIN turnos t ON t.id=x.turno_id JOIN grupos g ON g.id=x.grupo_id
@@ -5224,17 +5246,19 @@ app.get('/api/stats/habilitados/pendientes/detalle', requireStatsAuth, async (re
     conn = await pool.getConnection();
     const [rows] = await conn.query(`
       SELECT e.nro_documento AS dni, CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS apellidos_nombres,
-             SUM(te.monto) AS total_tarifa, SUM(te.pagado) AS total_pagado, (SUM(te.monto - te.pagado) + SUM(CASE WHEN te.pagado < te.monto THEN COALESCE(te.mora,0) ELSE 0 END)) AS deuda_total
+             MAX(cg.cargos) AS total_tarifa, MAX(COALESCE(ab.abonos,0)) AS total_pagado,
+             GREATEST(MAX(cg.cargos) - MAX(COALESCE(ab.abonos,0)), 0) AS deuda_total
       FROM estudiantes e
       JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
-      JOIN tarifa_estudiantes te ON e.id=te.estudiantes_id
+      JOIN ${HAB_CARGOS_SUBQ} cg ON cg.estudiantes_id = e.id
+      LEFT JOIN ${HAB_ABONOS_SUBQ} ab ON ab.estudiantes_id = e.id
       JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id JOIN grupos g ON ga.grupos_id=g.id
       JOIN areas a ON ga.areas_id=a.id JOIN turnos t ON ga.turnos_id=t.id
       JOIN aulas au ON ga.aulas_id=au.id JOIN locales l ON au.locales_id=l.id JOIN sedes s ON l.sedes_id=s.id
       WHERE m.habilitado='0' AND s.denominacion=? AND a.denominacion=? AND t.denominacion=? AND g.denominacion=? ${f.where}
       GROUP BY e.id, e.nro_documento, e.paterno, e.materno, e.nombres
-      -- pagó completo: sin saldo Y con tarifa completa (ninguna cuota con monto=0 sin asignar)
-      HAVING (SUM(te.monto - te.pagado) + SUM(CASE WHEN te.pagado < te.monto THEN COALESCE(te.mora,0) ELSE 0 END)) <= 0 AND MIN(te.monto) > 0
+      -- pagó completo: cargos (incl. mora) cubiertos por abonos Y tarifa completa
+      HAVING MAX(cg.min_monto) > 0 AND (MAX(cg.cargos) - MAX(COALESCE(ab.abonos,0))) <= 0.5
       ORDER BY e.paterno, e.materno, e.nombres`, [sede, area, turno, grupo, ...f.params]);
     conn.release();
     res.json({ estudiantes: rows.map(r => ({ dni: r.dni, apellidos_nombres: r.apellidos_nombres, total_tarifa: parseFloat(r.total_tarifa) || 0, total_pagado: parseFloat(r.total_pagado) || 0, deuda_total: parseFloat(r.deuda_total) || 0 })), total: rows.length });
@@ -5253,7 +5277,8 @@ app.get('/api/stats/habilitados/buscar/:dni', requireStatsAuth, async (req, res)
              CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS apellidos_nombres,
              m.habilitado, m.habilitado_estado,
              s.denominacion AS sede, a.denominacion AS area, t.denominacion AS turno, g.denominacion AS grupo,
-             COALESCE((SELECT (SUM(te.monto - te.pagado) + SUM(CASE WHEN te.pagado < te.monto THEN COALESCE(te.mora,0) ELSE 0 END)) FROM tarifa_estudiantes te WHERE te.estudiantes_id=e.id),0) AS deuda_total
+             GREATEST(COALESCE((SELECT cg.cargos FROM ${HAB_CARGOS_SUBQ} cg WHERE cg.estudiantes_id = e.id), 0)
+                      - COALESCE((SELECT ab.abonos FROM ${HAB_ABONOS_SUBQ} ab WHERE ab.estudiantes_id = e.id), 0), 0) AS deuda_total
       FROM estudiantes e
       JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
       LEFT JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id LEFT JOIN grupos g ON ga.grupos_id=g.id
@@ -5351,7 +5376,9 @@ app.get('/api/stats/habilitados/constancia/:matricula_id', requireStatsAuth, asy
 
 // ============ HABILITACIONES · AUXILIARES (gráficas reportes-aux) ============
 // Deuda por estudiante = principal impago + mora SOLO de cuotas sin pagar.
-const HAB_DEUDA_SUBQ = `(SELECT estudiantes_id, SUM(monto - pagado) + SUM(CASE WHEN pagado < monto THEN COALESCE(mora,0) ELSE 0 END) AS deuda FROM tarifa_estudiantes GROUP BY estudiantes_id)`;
+// Deuda real (misma regla que /stats/habilitados): cargos con mora − abonos de inscripcion_pagos.
+const HAB_DEUDA_SUBQ = `(SELECT cg.estudiantes_id, GREATEST(cg.cargos - COALESCE(ab.abonos,0), 0) AS deuda
+  FROM ${HAB_CARGOS_SUBQ} cg LEFT JOIN ${HAB_ABONOS_SUBQ} ab ON ab.estudiantes_id = cg.estudiantes_id)`;
 
 // Estado (habilitados/sincronizados) y deudores por auxiliar.
 app.get('/api/stats/reportes-aux/habilitaciones/auxiliares', requireAdmin, cacheMiddleware(120), async (req, res) => {
@@ -5363,7 +5390,7 @@ app.get('/api/stats/reportes-aux/habilitaciones/auxiliares', requireAdmin, cache
              COUNT(DISTINCT m.estudiantes_id) AS asignados,
              COUNT(DISTINCT CASE WHEN m.habilitado='1' THEN m.estudiantes_id END) AS habilitados,
              COUNT(DISTINCT CASE WHEN m.habilitado_estado='1' THEN m.estudiantes_id END) AS sincronizados,
-             COUNT(DISTINCT CASE WHEN d.deuda > 0 THEN m.estudiantes_id END) AS deudores
+             COUNT(DISTINCT CASE WHEN d.deuda > 0.5 THEN m.estudiantes_id END) AS deudores
       FROM auxiliares a
       JOIN users u ON u.id = a.users_id
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = a.id
