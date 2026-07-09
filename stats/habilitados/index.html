@@ -118,7 +118,7 @@
                         <h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-amber-600">account_balance_wallet</span>Habilitados con deuda <span class="text-slate-400 font-normal" id="cdCount"></span></h3>
                         <button id="cdExcel" class="hidden px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white text-xs font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-base">download</span>CSV</button>
                     </div>
-                    <div class="overflow-x-auto max-h-[50vh] overflow-y-auto table-fixed-head"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight"><th class="px-4 py-2 font-bold">DNI</th><th class="px-4 py-2 font-bold">Apellidos y Nombres</th><th class="px-4 py-2 font-bold">Sede</th><th class="px-4 py-2 font-bold">Área</th><th class="px-4 py-2 font-bold">Grupo</th><th class="px-4 py-2 font-bold text-right">Deuda</th></tr></thead><tbody id="tbodyDeuda"></tbody></table></div>
+                    <div class="overflow-x-auto max-h-[50vh] overflow-y-auto table-fixed-head"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight" id="deudaHead"><th class="px-4 py-2 font-bold" data-sort="dni">DNI<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="apellidos_nombres">Apellidos y Nombres<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="sede">Sede<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="area">Área<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="grupo">Grupo<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold" data-sort="habilitado_por">Habilitado por<span class="sort-arrow">▲</span></th><th class="px-4 py-2 font-bold text-right" data-sort="deuda_total">Deuda<span class="sort-arrow">▲</span></th></tr></thead><tbody id="tbodyDeuda"></tbody></table></div>
                 </div>
 
                 <!-- Pendientes sin deuda -->
@@ -209,15 +209,7 @@
                 conDeuda = deuda.estudiantes || [];
                 document.getElementById('cdCount').textContent = '(' + fmt(deuda.total || 0) + ')';
                 document.getElementById('cdExcel').classList.toggle('hidden', !conDeuda.length);
-                document.getElementById('tbodyDeuda').innerHTML = conDeuda.length ? conDeuda.map(e => `
-                    <tr class="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td class="px-4 py-1.5 font-mono">${esc(e.dni)}</td>
-                        <td class="px-4 py-1.5 font-medium whitespace-nowrap">${esc(e.apellidos_nombres)}</td>
-                        <td class="px-4 py-1.5">${esc(e.sede)}</td>
-                        <td class="px-4 py-1.5">${esc(e.area)}</td>
-                        <td class="px-4 py-1.5">${esc(e.grupo)}</td>
-                        <td class="px-4 py-1.5 text-right font-mono font-bold text-amber-600">${money(e.deuda_total)}</td>
-                    </tr>`).join('') : `<tr><td colspan="6" class="text-center py-8 text-slate-400">No hay habilitados con deuda.</td></tr>`;
+                renderDeuda();
                 // Pendientes sin deuda (clic en fila → detalle "pagaron completo")
                 pendData = pend.data || [];
                 document.getElementById('pdCount').textContent = '(' + fmt(pend.total_general || 0) + ' alumnos)';
@@ -225,6 +217,42 @@
             } catch (e) { console.error(e); }
         }
         document.getElementById('reloadBtn').addEventListener('click', cargar);
+
+        // Orden de la tabla de habilitados con deuda (clic en encabezado alterna asc/desc).
+        let deudaSort = { col: null, dir: 1 }; // sin orden = como llega del backend (deuda desc)
+        function renderDeuda() {
+            const arr = [...conDeuda];
+            if (deudaSort.col) {
+                const col = deudaSort.col;
+                arr.sort((a, b) => {
+                    const va = a[col] == null ? '' : a[col], vb = b[col] == null ? '' : b[col];
+                    const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'es');
+                    return cmp * deudaSort.dir;
+                });
+            }
+            document.getElementById('tbodyDeuda').innerHTML = arr.length ? arr.map(e => `
+                    <tr class="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td class="px-4 py-1.5 font-mono">${esc(e.dni)}</td>
+                        <td class="px-4 py-1.5 font-medium whitespace-nowrap">${esc(e.apellidos_nombres)}</td>
+                        <td class="px-4 py-1.5">${esc(e.sede)}</td>
+                        <td class="px-4 py-1.5">${esc(e.area)}</td>
+                        <td class="px-4 py-1.5">${esc(e.grupo)}</td>
+                        <td class="px-4 py-1.5 whitespace-nowrap ${e.habilitado_por ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400'}">${e.habilitado_por ? esc(e.habilitado_por) : '(no registrado)'}</td>
+                        <td class="px-4 py-1.5 text-right font-mono font-bold text-amber-600">${money(e.deuda_total)}</td>
+                    </tr>`).join('') : `<tr><td colspan="7" class="text-center py-8 text-slate-400">No hay habilitados con deuda.</td></tr>`;
+            document.querySelectorAll('#deudaHead th[data-sort]').forEach(th => {
+                const fl = th.querySelector('.sort-arrow');
+                const activo = th.dataset.sort === deudaSort.col;
+                fl.classList.toggle('active', activo);
+                fl.textContent = activo && deudaSort.dir === -1 ? '▼' : '▲';
+            });
+        }
+        document.querySelectorAll('#deudaHead th[data-sort]').forEach(th => th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (deudaSort.col === col) deudaSort.dir *= -1;
+            else deudaSort = { col, dir: col === 'deuda_total' ? -1 : 1 }; // numérico: primero mayor a menor
+            renderDeuda();
+        }));
 
         // Orden de la tabla de pendientes (clic en encabezado alterna asc/desc).
         let pendSort = { col: null, dir: 1 };
@@ -264,8 +292,8 @@
 
         // Export CSV de habilitados con deuda
         document.getElementById('cdExcel').addEventListener('click', () => {
-            const head = ['DNI', 'Apellidos y Nombres', 'Sede', 'Área', 'Turno', 'Grupo', 'Deuda'];
-            const rows = conDeuda.map(e => [e.dni, e.apellidos_nombres, e.sede, e.area, e.turno, e.grupo, Number(e.deuda_total).toFixed(2)]);
+            const head = ['DNI', 'Apellidos y Nombres', 'Sede', 'Área', 'Turno', 'Grupo', 'Habilitado por', 'Deuda'];
+            const rows = conDeuda.map(e => [e.dni, e.apellidos_nombres, e.sede, e.area, e.turno, e.grupo, e.habilitado_por || '', Number(e.deuda_total).toFixed(2)]);
             const csv = [head, ...rows].map(r => r.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\n');
             const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'habilitados-con-deuda.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);

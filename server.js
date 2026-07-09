@@ -5186,7 +5186,12 @@ app.get('/api/stats/habilitados/con-deuda', requireStatsAuth, async (req, res) =
     const [rows] = await conn.query(`
       SELECT e.nro_documento AS dni, CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS apellidos_nombres,
              s.denominacion AS sede, a.denominacion AS area, t.denominacion AS turno, g.denominacion AS grupo,
-             GREATEST(MAX(COALESCE(cg.cargos,0)) - MAX(COALESCE(ab.abonos,0)), 0) AS deuda_total
+             GREATEST(MAX(COALESCE(cg.cargos,0)) - MAX(COALESCE(ab.abonos,0)), 0) AS deuda_total,
+             (SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name)
+              FROM audits au2 LEFT JOIN users u ON u.id = au2.user_id
+              WHERE au2.auditable_type = ? AND au2.auditable_id = m.id
+                AND au2.event = 'updated' AND au2.new_values LIKE '%"habilitado":"1"%'
+              ORDER BY au2.id DESC LIMIT 1) AS habilitado_por
       FROM estudiantes e
       JOIN inscripciones i ON e.id=i.estudiantes_id AND i.periodos_id=1
       JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
@@ -5196,11 +5201,11 @@ app.get('/api/stats/habilitados/con-deuda', requireStatsAuth, async (req, res) =
       JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id JOIN grupos g ON ga.grupos_id=g.id
       JOIN areas a ON ga.areas_id=a.id JOIN turnos t ON ga.turnos_id=t.id
       WHERE m.habilitado='1' ${f.where} ${extra}
-      GROUP BY e.id, e.nro_documento, e.paterno, e.materno, e.nombres, s.denominacion, a.denominacion, t.denominacion, g.denominacion
+      GROUP BY e.id, e.nro_documento, e.paterno, e.materno, e.nombres, m.id, s.denominacion, a.denominacion, t.denominacion, g.denominacion
       HAVING deuda_total > 0.5
-      ORDER BY deuda_total DESC, e.paterno, e.materno, e.nombres`, [...f.params, ...(q ? [`%${q}%`] : [])]);
+      ORDER BY deuda_total DESC, e.paterno, e.materno, e.nombres`, ['App\\Models\\Matricula', ...f.params, ...(q ? [`%${q}%`] : [])]);
     conn.release();
-    res.json({ estudiantes: rows.map(r => ({ dni: r.dni, apellidos_nombres: r.apellidos_nombres, sede: r.sede, area: r.area, turno: r.turno, grupo: r.grupo, deuda_total: parseFloat(r.deuda_total) || 0 })), total: rows.length });
+    res.json({ estudiantes: rows.map(r => ({ dni: r.dni, apellidos_nombres: r.apellidos_nombres, sede: r.sede, area: r.area, turno: r.turno, grupo: r.grupo, deuda_total: parseFloat(r.deuda_total) || 0, habilitado_por: r.habilitado_por || null })), total: rows.length });
   } catch (e) { if (conn) conn.release(); console.error('Error habilitados con-deuda:', e); res.status(500).json({ error: 'Error al obtener habilitados con deuda' }); }
 });
 
