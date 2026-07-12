@@ -220,34 +220,22 @@
 
     <!-- Contenido principal -->
     <div class="max-w-2xl mx-auto px-4 -mt-4 pb-6">
-        <!-- Banner: Presentación de Informes (oculto hasta confirmar comunicado) -->
-        <button id="informeBanner" type="button" class="hidden w-full text-left bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl shadow-lg p-5 mb-6 slide-in-up hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5">
-            <div class="flex items-center gap-4">
-                <div class="relative flex-shrink-0">
-                    <div class="w-12 h-12 bg-white/25 rounded-2xl flex items-center justify-center">
-                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
-                        </svg>
-                    </div>
-                    <span class="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500"></span>
-                    </span>
-                </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-white font-bold text-base leading-tight">📢 Presentación de Informes</p>
-                    <p class="text-white/90 text-sm mt-0.5">Tienes un comunicado de la Oficina de Administración. Toca para ver los detalles.</p>
-                </div>
-                <svg class="w-5 h-5 text-white/90 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                </svg>
-            </div>
-        </button>
+        <!-- Comunicados: se inyectan dinámicamente uno por cada notificación disponible -->
+        <div id="comunicados" class="space-y-3 mb-6"></div>
 
         <!-- Título sección dentro de un card -->
         <div class="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-200 slide-in-up">
-            <h3 class="text-xl font-bold text-gray-800 mb-1">Curso 2026-I</h3>
-            <p class="text-gray-500 text-sm">Accede a todo tu contenido</p>
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-secondary/25">
+                    <svg class="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800 leading-tight">Curso 2026-I</h3>
+                    <p class="text-gray-500 text-sm">Accede a todo tu contenido</p>
+                </div>
+            </div>
         </div>
 
         <!-- Grid de opciones -->
@@ -321,12 +309,15 @@
             <!-- Header -->
             <div class="flex items-center justify-between p-5 border-b border-gray-100">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                        <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div id="informeModalIcon" class="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                         </svg>
                     </div>
-                    <h3 class="text-lg font-bold text-gray-800">Presentación de Informes</h3>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800 leading-tight">Presentación de Informes</h3>
+                        <p id="informeRango" class="text-xs font-semibold text-amber-600"></p>
+                    </div>
                 </div>
                 <button id="closeInforme" class="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -427,20 +418,42 @@
             }
             userAreaEl.title = areaLargo; // Tooltip siempre con nombre completo
 
-            // Cargar comunicado de presentación de informes (si existe para este DNI)
-            cargarInformeDocente(estudiante.dni);
-
             // Ocultar acceso al certificado para docentes no inscritos al curso
             if (estudiante.inscrito === false) {
                 document.querySelectorAll('a[href="/certificado"]').forEach(el => el.style.display = 'none');
             }
         }
 
-        // ===== Comunicado de Presentación de Informes =====
-        const informeBanner = document.getElementById('informeBanner');
+        // ===== Comunicados de Presentación de Informes =====
+        // Cada fuente es una notificación (un rango de semanas). Su banner se
+        // muestra solo si la API devuelve un comunicado para el DNI del usuario.
+        const COMUNICADOS = [
+            {
+                endpoint: '/api/informe-docente/',
+                rango: 'Semanas 1 a la 8',
+                badge: '1 – 8',
+                grad: 'from-amber-500 to-orange-500',
+                modalIcon: 'bg-amber-100 text-amber-600',
+                modalRango: 'text-amber-600',
+            },
+            {
+                endpoint: '/api/informe-docente-9-16/',
+                rango: 'Semanas 9 a la 16',
+                badge: '9 – 16',
+                grad: 'from-indigo-500 to-violet-600',
+                modalIcon: 'bg-indigo-100 text-indigo-600',
+                modalRango: 'text-indigo-600',
+            },
+        ];
+
+        const comunicadosCont = document.getElementById('comunicados');
         const informeModal = document.getElementById('informeModal');
         const informeTexto = document.getElementById('informeTexto');
         const informeModelo = document.getElementById('informeModelo');
+        const informeRango = document.getElementById('informeRango');
+        const informeModalIcon = document.getElementById('informeModalIcon');
+
+        const BELL_SVG = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>';
 
         // Escapa HTML y convierte URLs en enlaces clicables.
         function renderMensaje(texto) {
@@ -452,46 +465,92 @@
             );
         }
 
-        async function cargarInformeDocente(dni) {
-            const dniLimpio = String(dni || '').replace(/\D/g, '');
-            if (!dniLimpio) return;
-            try {
-                const resp = await fetch(`/api/informe-docente/${dniLimpio}`);
-                if (!resp.ok) return; // 404 = sin comunicado para este docente
-                const result = await resp.json();
-                if (!result.success || !result.mensaje) return;
+        // Rellena y abre el modal con el comunicado seleccionado.
+        function abrirComunicado(cfg, mensaje) {
+            informeTexto.innerHTML = renderMensaje(mensaje);
+            informeRango.textContent = cfg.rango;
+            informeRango.className = 'text-xs font-semibold ' + cfg.modalRango;
+            informeModalIcon.className = 'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ' + cfg.modalIcon;
 
-                // Renderizar mensaje con enlaces clicables
-                informeTexto.innerHTML = renderMensaje(result.mensaje);
-
-                // Extraer link del modelo de informe para el botón de descarga
-                const modelo = result.mensaje.match(/https:\/\/cepreuna\.info\/informe-docente[\w-]*/);
-                if (modelo) {
-                    informeModelo.href = modelo[0];
-                    informeModelo.classList.remove('hidden');
-                }
-
-                informeBanner.classList.remove('hidden');
-            } catch (e) {
-                console.error('Error al cargar comunicado:', e);
+            // Extraer link del modelo de informe para el botón de descarga
+            const modelo = mensaje.match(/https:\/\/cepreuna\.info\/informe-docente[\w-]*/);
+            if (modelo) {
+                informeModelo.href = modelo[0];
+                informeModelo.classList.remove('hidden');
+            } else {
+                informeModelo.classList.add('hidden');
             }
-        }
 
-        const showInforme = () => {
             informeModal.style.display = 'flex';
             informeModal.classList.remove('hidden');
-        };
+        }
+
+        // Construye e inserta un banner clicable para un comunicado.
+        function crearBanner(cfg, mensaje) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `w-full text-left bg-gradient-to-r ${cfg.grad} rounded-2xl shadow-lg p-5 slide-in-up hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5`;
+            btn.innerHTML = `
+                <div class="flex items-center gap-4">
+                    <div class="relative flex-shrink-0">
+                        <div class="w-12 h-12 bg-white/25 rounded-2xl flex items-center justify-center">
+                            <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">${BELL_SVG}</svg>
+                        </div>
+                        <span class="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500"></span>
+                        </span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <p class="text-white font-bold text-base leading-tight">📢 Presentación de Informes</p>
+                            <span class="text-[11px] font-extrabold uppercase tracking-wide bg-white/25 text-white px-2 py-0.5 rounded-full whitespace-nowrap">Sem. ${cfg.badge}</span>
+                        </div>
+                        <p class="text-white/90 text-sm mt-0.5">Tienes un comunicado de la Oficina de Administración. Toca para ver los detalles.</p>
+                    </div>
+                    <svg class="w-5 h-5 text-white/90 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </div>`;
+            btn.addEventListener('click', () => abrirComunicado(cfg, mensaje));
+            comunicadosCont.appendChild(btn);
+        }
+
+        // Consulta todas las fuentes en paralelo y muestra los banners en orden.
+        async function cargarComunicados(dni) {
+            const dniLimpio = String(dni || '').replace(/\D/g, '');
+            if (!dniLimpio) return;
+            const mensajes = await Promise.all(COMUNICADOS.map(async (cfg) => {
+                try {
+                    const resp = await fetch(cfg.endpoint + dniLimpio);
+                    if (!resp.ok) return null; // 404 = sin comunicado para este DNI
+                    const result = await resp.json();
+                    return (result.success && result.mensaje) ? result.mensaje : null;
+                } catch (e) {
+                    console.error('Error al cargar comunicado:', e);
+                    return null;
+                }
+            }));
+            COMUNICADOS.forEach((cfg, i) => {
+                if (mensajes[i]) crearBanner(cfg, mensajes[i]);
+            });
+        }
+
         const hideInforme = () => {
             informeModal.style.display = 'none';
             informeModal.classList.add('hidden');
         };
 
-        informeBanner.addEventListener('click', showInforme);
         document.getElementById('closeInforme').addEventListener('click', hideInforme);
         document.getElementById('closeInformeBottom').addEventListener('click', hideInforme);
         informeModal.addEventListener('click', (e) => {
             if (e.target === informeModal) hideInforme();
         });
+
+        // Cargar comunicados de presentación de informes (si existen para este DNI).
+        // Se invoca aquí, al final, para que COMUNICADOS y comunicadosCont ya estén
+        // inicializados (evita el temporal dead zone al llamar desde el bloque superior).
+        if (estudiante) cargarComunicados(estudiante.dni);
 
         // Modal de logout
         const logoutModal = document.getElementById('logoutModal');

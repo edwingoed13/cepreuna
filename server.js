@@ -5594,6 +5594,32 @@ app.get('/api/informe-docente/:dni', (req, res) => {
   res.json({ success: true, mensaje });
 });
 
+// Segunda notificación: presentación de informes de las semanas 9 a 16.
+// Mismo mecanismo que la de 1-8; el JSON vive en /data (no servido estáticamente).
+let informesDocentes916 = {};
+try {
+  informesDocentes916 = require('./data/informes-docentes-9-16-2026.json');
+  console.log(`📄 Informes docentes 9-16 cargados: ${Object.keys(informesDocentes916).length}`);
+} catch (e) {
+  console.warn('⚠️  No se pudo cargar data/informes-docentes-9-16-2026.json:', e.message);
+}
+
+// Devuelve el comunicado de semanas 9-16 para un DNI (o 404 si no existe).
+app.get('/api/informe-docente-9-16/:dni', (req, res) => {
+  const dni = String(req.params.dni || '').trim();
+
+  if (!/^\d{7,8}$/.test(dni)) {
+    return res.status(400).json({ success: false, error: 'DNI inválido' });
+  }
+
+  const mensaje = informesDocentes916[dni];
+  if (!mensaje) {
+    return res.status(404).json({ success: false, error: 'Sin comunicado para este DNI' });
+  }
+
+  res.json({ success: true, mensaje });
+});
+
 // Resultados del Simulacro de Examen de Admisión (C.U. 05 julio 2026).
 // El JSON vive en /data (no servido estáticamente): la consulta devuelve SOLO
 // el registro del DNI solicitado, nunca el listado completo. Así los datos de

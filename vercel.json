@@ -143,6 +143,13 @@
       }
     },
     {
+      "src": "/api/informe-docente-9-16/(.*)",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "private, no-cache, no-store, must-revalidate"
+      }
+    },
+    {
       "src": "/api/(.*)",
       "dest": "server.js",
       "headers": {
