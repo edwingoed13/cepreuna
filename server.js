@@ -325,6 +325,10 @@ app.get('/stats/habilitados', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'habilitados', 'index.html'));
 });
 
+app.get('/stats/habilitados-stats', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'habilitados-stats', 'index.html'));
+});
+
 // SQL base del reporte de pagos (cargado una vez al iniciar; sin ORDER BY ni `;` final
 // para poder envolverlo en un SELECT * FROM (...) y aplicar filtros dinámicos.)
 const REPORTE_PAGOS_SQL_BASE = require('fs')
@@ -5135,7 +5139,7 @@ const HAB_ABONOS_SUBQ = `(
   FROM inscripcion_pagos ip JOIN inscripciones i ON i.id = ip.inscripciones_id
   WHERE i.periodos_id = 1 GROUP BY i.estudiantes_id)`;
 
-app.get('/api/stats/habilitados/resumen', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
+const habilitadosResumenHandler = async (req, res) => {
   const f = habFiltroGrupos(req);
   if (f.bloqueado) return res.json({ totales: { total_inscritos: 0, total_habilitados: 0, total_sincronizados: 0 }, sedes: [], areas: [] });
   let conn;
@@ -5173,7 +5177,10 @@ app.get('/api/stats/habilitados/resumen', requireStatsAuth, cacheMiddleware(120)
       areas: areas.map(r => ({ area: r.area, total_estudiantes: parseInt(r.total_estudiantes) || 0, total_sincronizados: parseInt(r.total_sincronizados) || 0, porcentaje_sincronizados: parseFloat(r.porcentaje_sincronizados) || 0 }))
     });
   } catch (e) { if (conn) conn.release(); console.error('Error habilitados resumen:', e); res.status(500).json({ error: 'Error al obtener el resumen' }); }
-});
+};
+app.get('/api/stats/habilitados/resumen', requireStatsAuth, cacheMiddleware(120), habilitadosResumenHandler);
+// Versión "en vivo" (sin caché) para el tablero /stats/habilitados-stats.
+app.get('/api/stats/habilitados/resumen-live', requireStatsAuth, habilitadosResumenHandler);
 
 app.get('/api/stats/habilitados/con-deuda', requireStatsAuth, async (req, res) => {
   const f = habFiltroGrupos(req);
