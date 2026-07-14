@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS auxiliar_calificaciones (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  coordinador_users_id BIGINT UNSIGNED NOT NULL,
+  auxiliar_users_id BIGINT UNSIGNED NOT NULL,
+  fecha DATE NOT NULL,
+  pregunta_1 TINYINT UNSIGNED NOT NULL,
+  pregunta_2 TINYINT UNSIGNED NOT NULL,
+  pregunta_3 TINYINT UNSIGNED NOT NULL,
+  pregunta_4 TINYINT UNSIGNED NOT NULL,
+  pregunta_5 TINYINT UNSIGNED NOT NULL,
+  pregunta_6 TINYINT UNSIGNED NOT NULL,
+  promedio DECIMAL(4,2) NOT NULL,
+  observacion VARCHAR(1000) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_auxiliar_calificacion_dia (coordinador_users_id, auxiliar_users_id, fecha),
+  KEY idx_auxiliar_calificaciones_auxiliar (auxiliar_users_id),
+  KEY idx_auxiliar_calificaciones_fecha (fecha)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

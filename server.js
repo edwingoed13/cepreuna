@@ -72,6 +72,17 @@ function requireAdmin(req, res, next) {
   });
 }
 
+// Solo los coordinadores de auxiliares pueden registrar esta evaluación.
+function requireCoordinadorAuxiliar(req, res, next) {
+  requireStatsAuth(req, res, (err) => {
+    if (err) return;
+    if (req.user?.role !== 'Coordinador Auxiliar') {
+      return res.status(403).json({ error: 'Acceso restringido a coordinadores de auxiliares', code: 'FORBIDDEN' });
+    }
+    next();
+  });
+}
+
 // Calcula los grupo_aulas_ids permitidos según rol del usuario.
 // Devuelve null si tiene acceso total (admin), [] si no tiene grupos asignados,
 // o un array de ids si está restringido.
@@ -309,6 +320,14 @@ app.get('/stats/alumnos-calificacion', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'alumnos-calificacion', 'index.html'));
 });
 
+app.get('/stats/calificacion-auxiliares', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'calificacion-auxiliares', 'index.html'));
+});
+
+app.get('/stats/resultados-calificacion-auxiliares', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'resultados-calificacion-auxiliares', 'index.html'));
+});
+
 app.get('/stats/reportes-aux', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'index.html'));
 });
@@ -354,6 +373,38 @@ const dbConfig = {
 
 // Pool de conexiones
 const pool = mysql.createPool(dbConfig);
+
+let auxiliarCalificacionesTablePromise;
+function ensureAuxiliarCalificacionesTable() {
+  if (!auxiliarCalificacionesTablePromise) {
+    auxiliarCalificacionesTablePromise = pool.query(`
+      CREATE TABLE IF NOT EXISTS auxiliar_calificaciones (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        coordinador_users_id BIGINT UNSIGNED NOT NULL,
+        auxiliar_users_id BIGINT UNSIGNED NOT NULL,
+        fecha DATE NOT NULL,
+        pregunta_1 TINYINT UNSIGNED NOT NULL,
+        pregunta_2 TINYINT UNSIGNED NOT NULL,
+        pregunta_3 TINYINT UNSIGNED NOT NULL,
+        pregunta_4 TINYINT UNSIGNED NOT NULL,
+        pregunta_5 TINYINT UNSIGNED NOT NULL,
+        pregunta_6 TINYINT UNSIGNED NOT NULL,
+        promedio DECIMAL(4,2) NOT NULL,
+        observacion VARCHAR(1000) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_auxiliar_calificacion_dia (coordinador_users_id, auxiliar_users_id, fecha),
+        KEY idx_auxiliar_calificaciones_auxiliar (auxiliar_users_id),
+        KEY idx_auxiliar_calificaciones_fecha (fecha)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch((error) => {
+      auxiliarCalificacionesTablePromise = null;
+      throw error;
+    });
+  }
+  return auxiliarCalificacionesTablePromise;
+}
 
 // Verificar conexión al iniciar
 pool.getConnection()
@@ -4356,6 +4407,188 @@ app.get('/api/stats/catalogos/auxiliares', requireAdmin, cacheMiddleware(600), a
       grupos: r.grupos_csv ? r.grupos_csv.split(',').map(Number) : []
     })));
   } catch (e) { if (conn) conn.release(); console.error('Error catálogo stats:', e); res.status(500).json({ error: 'Error al obtener el catálogo' }); }
+});
+
+// ============ CALIFICACIÓN DE AUXILIARES ============
+// El coordinador ve únicamente auxiliares que comparten al menos uno de sus grupos.
+app.get('/api/stats/calificacion-auxiliares', requireCoordinadorAuxiliar, async (req, res) => {
+  let conn;
+  try {
+    await ensureAuxiliarCalificacionesTable();
+    conn = await pool.getConnection();
+    const [auxiliares] = await conn.query(`
+      SELECT u.id,
+             CONCAT_WS(' ', u.paterno, u.materno, u.name) AS nombre,
+             GROUP_CONCAT(DISTINCT g.denominacion ORDER BY g.denominacion SEPARATOR ', ') AS grupos
+      FROM coordinador_grupos cg
+      JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = cg.grupos_id
+      JOIN auxiliares a ON a.id = ag.auxiliares_id
+      JOIN users u ON u.id = a.users_id AND u.estado = '1'
+      LEFT JOIN grupo_aulas ga ON ga.id = ag.grupo_aulas_id
+      LEFT JOIN grupos g ON g.id = ga.grupos_id
+      WHERE cg.coordinador_id = ?
+      GROUP BY u.id, u.paterno, u.materno, u.name
+      ORDER BY u.paterno, u.materno, u.name
+    `, [req.user.sub]);
+
+    const [historial] = await conn.query(`
+      SELECT ac.id, ac.auxiliar_users_id AS auxiliar_id,
+             CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar,
+             DATE_FORMAT(ac.fecha, '%Y-%m-%d') AS fecha,
+             ac.pregunta_1, ac.pregunta_2, ac.pregunta_3,
+             ac.pregunta_4, ac.pregunta_5, ac.pregunta_6,
+             ac.promedio, ac.observacion
+      FROM auxiliar_calificaciones ac
+      JOIN users u ON u.id = ac.auxiliar_users_id
+      WHERE ac.coordinador_users_id = ?
+      ORDER BY ac.fecha DESC, ac.updated_at DESC
+      LIMIT 50
+    `, [req.user.sub]);
+    conn.release();
+    res.json({ auxiliares, historial });
+  } catch (error) {
+    if (conn) conn.release();
+    console.error('Error al cargar calificación de auxiliares:', error);
+    res.status(500).json({ error: 'No se pudo cargar la calificación de auxiliares' });
+  }
+});
+
+app.post('/api/stats/calificacion-auxiliares', requireCoordinadorAuxiliar, async (req, res) => {
+  const auxiliarId = Number(req.body?.auxiliar_id);
+  const respuestas = Array.isArray(req.body?.respuestas) ? req.body.respuestas.map(Number) : [];
+  const observacion = String(req.body?.observacion || '').trim();
+  const fecha = String(req.body?.fecha || '').trim();
+
+  if (!Number.isInteger(auxiliarId) || auxiliarId <= 0) {
+    return res.status(400).json({ error: 'Selecciona un auxiliar válido' });
+  }
+  if (respuestas.length !== 6 || respuestas.some(v => !Number.isInteger(v) || v < 1 || v > 5)) {
+    return res.status(400).json({ error: 'Responde las seis preguntas en una escala de 1 a 5' });
+  }
+  if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    return res.status(400).json({ error: 'La fecha no es válida' });
+  }
+  if (observacion.length > 1000) {
+    return res.status(400).json({ error: 'La observación no puede superar los 1000 caracteres' });
+  }
+
+  let conn;
+  try {
+    await ensureAuxiliarCalificacionesTable();
+    conn = await pool.getConnection();
+    const [permitido] = await conn.query(`
+      SELECT 1
+      FROM coordinador_grupos cg
+      JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = cg.grupos_id
+      JOIN auxiliares a ON a.id = ag.auxiliares_id
+      WHERE cg.coordinador_id = ? AND a.users_id = ?
+      LIMIT 1
+    `, [req.user.sub, auxiliarId]);
+    if (permitido.length === 0) {
+      conn.release();
+      return res.status(403).json({ error: 'El auxiliar no está asignado a tus grupos' });
+    }
+
+    // La pregunta 6 es negativa: "Nunca" aporta 5 y "Siempre" aporta 1.
+    const promedio = (respuestas.slice(0, 5).reduce((s, v) => s + v, 0) + (6 - respuestas[5])) / 6;
+    const fechaSql = fecha || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    await conn.query(`
+      INSERT INTO auxiliar_calificaciones
+        (coordinador_users_id, auxiliar_users_id, fecha,
+         pregunta_1, pregunta_2, pregunta_3, pregunta_4, pregunta_5, pregunta_6,
+         promedio, observacion)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        pregunta_1 = VALUES(pregunta_1), pregunta_2 = VALUES(pregunta_2),
+        pregunta_3 = VALUES(pregunta_3), pregunta_4 = VALUES(pregunta_4),
+        pregunta_5 = VALUES(pregunta_5), pregunta_6 = VALUES(pregunta_6),
+        promedio = VALUES(promedio), observacion = VALUES(observacion)
+    `, [req.user.sub, auxiliarId, fechaSql, ...respuestas, promedio.toFixed(2), observacion || null]);
+    conn.release();
+    res.json({ success: true, promedio: Number(promedio.toFixed(2)), fecha: fechaSql });
+  } catch (error) {
+    if (conn) conn.release();
+    console.error('Error al guardar calificación de auxiliar:', error);
+    res.status(500).json({ error: 'No se pudo guardar la calificación' });
+  }
+});
+
+// Panel administrativo de resultados. La pregunta 6 se invierte en todos los
+// agregados para que 5 siempre signifique mejor desempeño.
+app.get('/api/stats/calificacion-auxiliares/resultados', requireAdmin, async (req, res) => {
+  let conn;
+  try {
+    await ensureAuxiliarCalificacionesTable();
+    conn = await pool.getConnection();
+    const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.desde || '')) ? String(req.query.desde) : null;
+    const hasta = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.hasta || '')) ? String(req.query.hasta) : null;
+    const condiciones = [];
+    const params = [];
+    if (desde) { condiciones.push('ac.fecha >= ?'); params.push(desde); }
+    if (hasta) { condiciones.push('ac.fecha <= ?'); params.push(hasta); }
+    const where = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
+
+    const [[resumen]] = await conn.query(`
+      SELECT COUNT(*) AS evaluaciones,
+             COUNT(DISTINCT ac.auxiliar_users_id) AS auxiliares,
+             COUNT(DISTINCT ac.coordinador_users_id) AS coordinadores,
+             ROUND(AVG(ac.promedio), 2) AS promedio,
+             DATE_FORMAT(MIN(ac.fecha), '%Y-%m-%d') AS fecha_min,
+             DATE_FORMAT(MAX(ac.fecha), '%Y-%m-%d') AS fecha_max
+      FROM auxiliar_calificaciones ac ${where}
+    `, params);
+
+    const [criterios] = await conn.query(`
+      SELECT ROUND(AVG(ac.pregunta_1), 2) AS pregunta_1,
+             ROUND(AVG(ac.pregunta_2), 2) AS pregunta_2,
+             ROUND(AVG(ac.pregunta_3), 2) AS pregunta_3,
+             ROUND(AVG(ac.pregunta_4), 2) AS pregunta_4,
+             ROUND(AVG(ac.pregunta_5), 2) AS pregunta_5,
+             ROUND(AVG(6 - ac.pregunta_6), 2) AS pregunta_6
+      FROM auxiliar_calificaciones ac ${where}
+    `, params);
+
+    const [auxiliares] = await conn.query(`
+      SELECT ac.auxiliar_users_id AS auxiliar_id,
+             CONCAT_WS(' ', ua.paterno, ua.materno, ua.name) AS auxiliar,
+             COUNT(*) AS evaluaciones,
+             COUNT(DISTINCT ac.coordinador_users_id) AS coordinadores,
+             ROUND(AVG(ac.promedio), 2) AS promedio,
+             ROUND(AVG(ac.pregunta_1), 2) AS pregunta_1,
+             ROUND(AVG(ac.pregunta_2), 2) AS pregunta_2,
+             ROUND(AVG(ac.pregunta_3), 2) AS pregunta_3,
+             ROUND(AVG(ac.pregunta_4), 2) AS pregunta_4,
+             ROUND(AVG(ac.pregunta_5), 2) AS pregunta_5,
+             ROUND(AVG(6 - ac.pregunta_6), 2) AS pregunta_6,
+             DATE_FORMAT(MAX(ac.fecha), '%Y-%m-%d') AS ultima_fecha
+      FROM auxiliar_calificaciones ac
+      JOIN users ua ON ua.id = ac.auxiliar_users_id
+      ${where}
+      GROUP BY ac.auxiliar_users_id, ua.paterno, ua.materno, ua.name
+      ORDER BY promedio DESC, auxiliar
+    `, params);
+
+    const [detalle] = await conn.query(`
+      SELECT ac.id, DATE_FORMAT(ac.fecha, '%Y-%m-%d') AS fecha,
+             CONCAT_WS(' ', uc.paterno, uc.materno, uc.name) AS coordinador,
+             CONCAT_WS(' ', ua.paterno, ua.materno, ua.name) AS auxiliar,
+             ac.pregunta_1, ac.pregunta_2, ac.pregunta_3,
+             ac.pregunta_4, ac.pregunta_5, ac.pregunta_6,
+             ac.promedio, ac.observacion
+      FROM auxiliar_calificaciones ac
+      JOIN users uc ON uc.id = ac.coordinador_users_id
+      JOIN users ua ON ua.id = ac.auxiliar_users_id
+      ${where}
+      ORDER BY ac.fecha DESC, ac.updated_at DESC
+      LIMIT 200
+    `, params);
+    conn.release();
+    res.json({ filtros: { desde, hasta }, resumen, criterios: criterios[0] || {}, auxiliares, detalle });
+  } catch (error) {
+    if (conn) conn.release();
+    console.error('Error al cargar resultados de auxiliares:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los resultados de auxiliares' });
+  }
 });
 
 // Construye el SQL + params del reporte de horas-docentes a partir de los

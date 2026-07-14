@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CEPREUNA - Calificación de auxiliares</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+  <script>
+    tailwind.config = { darkMode: 'class', theme: { extend: { colors: { primary: '#003366', 'background-light': '#f5f7f8', 'background-dark': '#0f1923' }, fontFamily: { display: ['Inter', 'sans-serif'] } } } };
+  </script>
+  <style>
+    .sidebar-item-active { background: rgba(0,51,102,.1); color:#003366; border-right:4px solid #003366; }
+    .dark .sidebar-item-active { background:rgba(255,255,255,.05); color:white; border-right-color:white; }
+    @media (max-width:1024px){ .sidebar{display:none} }
+    .likert input:checked + label { background:#003366; color:white; border-color:#003366; box-shadow:0 4px 12px rgba(0,51,102,.2); }
+    .dark .likert input:checked + label { background:#2563eb; border-color:#2563eb; }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+  <script>
+    let sessionData;
+    try { sessionData = JSON.parse(localStorage.getItem('stats_session') || 'null'); } catch (_) {}
+    function tokenVencido(t) { try { const p=JSON.parse(atob(String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); return !p.exp || p.exp*1000<Date.now(); } catch(_){ return true; } }
+    if (!sessionData?.token || tokenVencido(sessionData.token)) { localStorage.removeItem('stats_session'); location.href='/stats/login'; }
+    else if (sessionData.user?.role !== 'Coordinador Auxiliar') { location.href='/stats/alumnos'; }
+    if (localStorage.getItem('stats_theme') === 'dark') document.documentElement.classList.add('dark');
+  </script>
+
+  <div class="flex min-h-screen pb-24 lg:pb-0">
+    <aside class="sidebar w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col min-h-screen sticky top-0">
+      <div class="p-6 flex items-center gap-3">
+        <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white"><span class="material-symbols-outlined">school</span></div>
+        <div><h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1><p class="text-slate-500 text-[10px] uppercase tracking-widest mt-1">Estadísticas</p></div>
+      </div>
+      <nav class="flex-1 px-4 py-4 space-y-1">
+        <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" href="/stats/habilitados"><span class="material-symbols-outlined">how_to_reg</span><span class="font-medium">Habilitados</span></a>
+        <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" href="/stats/alumnos"><span class="material-symbols-outlined">group</span><span class="font-medium">Alumnos</span></a>
+        <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" href="/stats/alumnos-calificacion"><span class="material-symbols-outlined">grading</span><span class="font-medium">Alumnos-Calificación</span></a>
+        <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active" href="/stats/calificacion-auxiliares"><span class="material-symbols-outlined">fact_check</span><span class="font-medium">Calificación auxiliares</span></a>
+      </nav>
+      <div class="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center gap-3">
+        <div id="userInitial" class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold">C</div>
+        <div class="min-w-0 flex-1"><p id="userName" class="text-sm font-semibold truncate">Coordinador</p><p id="userEmail" class="text-[10px] text-slate-500 truncate"></p></div>
+        <button class="logout text-slate-400 hover:text-red-500" title="Cerrar sesión"><span class="material-symbols-outlined text-lg">logout</span></button>
+      </div>
+    </aside>
+
+    <main class="flex-1 min-w-0">
+      <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-5 lg:px-8 sticky top-0 z-20">
+        <div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary dark:text-white">fact_check</span><h2 class="font-bold">Calificación de auxiliares</h2></div>
+        <div class="flex gap-2">
+          <button id="themeToggle" class="w-9 h-9 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"><span id="themeIcon" class="material-symbols-outlined text-xl">dark_mode</span></button>
+          <button class="logout w-9 h-9 rounded-lg hover:bg-red-50 text-slate-500 hover:text-red-600"><span class="material-symbols-outlined text-xl">logout</span></button>
+        </div>
+      </header>
+
+      <div class="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
+        <section class="bg-gradient-to-br from-primary to-blue-700 rounded-2xl p-6 text-white shadow-lg">
+          <p class="text-blue-200 text-xs font-bold uppercase tracking-widest">Evaluación diaria</p>
+          <h1 class="text-2xl font-extrabold mt-1">Desempeño del auxiliar</h1>
+          <p class="text-blue-100 text-sm mt-2 max-w-2xl">Selecciona uno de tus auxiliares y responde los seis criterios. La evaluación del mismo auxiliar y fecha se actualiza si vuelves a guardarla.</p>
+        </section>
+
+        <form id="form" class="space-y-6">
+          <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+            <div class="grid sm:grid-cols-[1fr_190px] gap-4">
+              <label class="text-sm font-semibold">Auxiliar
+                <select id="auxiliar" required class="mt-2 w-full rounded-xl border-slate-300 dark:border-slate-700 dark:bg-slate-800"><option value="">Cargando auxiliares…</option></select>
+                <span id="grupos" class="block mt-2 text-xs font-normal text-slate-500"></span>
+              </label>
+              <label class="text-sm font-semibold">Fecha
+                <input id="fecha" type="date" required class="mt-2 w-full rounded-xl border-slate-300 dark:border-slate-700 dark:bg-slate-800"/>
+              </label>
+            </div>
+          </section>
+
+          <div id="preguntas" class="space-y-4"></div>
+
+          <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+            <label class="text-sm font-semibold">Observación <span class="font-normal text-slate-400">(opcional)</span>
+              <textarea id="observacion" maxlength="1000" rows="3" class="mt-2 w-full rounded-xl border-slate-300 dark:border-slate-700 dark:bg-slate-800" placeholder="Agrega un comentario concreto sobre el desempeño observado…"></textarea>
+            </label>
+          </section>
+
+          <div id="mensaje" class="hidden rounded-xl px-4 py-3 text-sm font-semibold"></div>
+          <button id="guardar" type="submit" class="w-full sm:w-auto sm:min-w-56 bg-primary hover:bg-blue-800 disabled:opacity-50 text-white font-bold rounded-xl px-6 py-3 flex items-center justify-center gap-2"><span class="material-symbols-outlined">save</span>Guardar evaluación</button>
+        </form>
+
+        <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+          <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800"><h3 class="font-bold">Evaluaciones recientes</h3><p class="text-xs text-slate-500 mt-1">Haz clic en una fila para revisar o actualizarla.</p></div>
+          <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase"><tr><th class="text-left px-5 py-3">Fecha</th><th class="text-left px-5 py-3">Auxiliar</th><th class="text-center px-5 py-3">Puntaje</th><th class="text-left px-5 py-3">Observación</th></tr></thead><tbody id="historial"></tbody></table></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <nav class="fixed bottom-0 inset-x-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-5 pb-5 pt-3 flex justify-around lg:hidden z-50">
+    <a href="/stats/habilitados" class="flex flex-col items-center text-slate-400"><span class="material-symbols-outlined">how_to_reg</span><span class="text-[9px] font-bold uppercase">Habilitados</span></a>
+    <a href="/stats/alumnos" class="flex flex-col items-center text-slate-400"><span class="material-symbols-outlined">group</span><span class="text-[9px] font-bold uppercase">Alumnos</span></a>
+    <a href="/stats/alumnos-calificacion" class="flex flex-col items-center text-slate-400"><span class="material-symbols-outlined">grading</span><span class="text-[9px] font-bold uppercase">Alumnos</span></a>
+    <a href="/stats/calificacion-auxiliares" class="flex flex-col items-center text-primary dark:text-white"><span class="material-symbols-outlined">fact_check</span><span class="text-[9px] font-bold uppercase">Auxiliares</span></a>
+  </nav>
+
+  <script>
+    const PREGUNTAS = [
+      '¿El auxiliar llega a la hora exacta para recibir a los docentes y estudiantes?',
+      '¿El auxiliar completa y cierra el registro de asistencia de todos los salones dentro del tiempo estipulado?',
+      '¿El auxiliar se asegura de que cada docente firme su asistencia (entrada y salida) en el formato designado, sin excepciones?',
+      '¿El auxiliar reporta inmediatamente (en menos de 5 minutos) al coordinador cuando un docente no llega a su salón?',
+      'Cuando un docente llega tarde, ¿el auxiliar registra la hora real de llegada y hace firmar al docente con esa hora exacta (sin "favores")?',
+      '¿Hay reclamos recurrentes de estudiantes que dicen "estaba en clase pero el auxiliar no marcó mi asistencia"?'
+    ];
+    const ESCALA = ['Nunca','Casi nunca','A veces','Casi siempre','Siempre'];
+    const auth = { Authorization: 'Bearer ' + sessionData.token };
+    let data = { auxiliares: [], historial: [] };
+    const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const form = document.getElementById('form');
+    const auxiliar = document.getElementById('auxiliar');
+    const fecha = document.getElementById('fecha');
+    const grupos = document.getElementById('grupos');
+    const observacion = document.getElementById('observacion');
+    const mensaje = document.getElementById('mensaje');
+    const guardar = document.getElementById('guardar');
+    const historial = document.getElementById('historial');
+    const userName = document.getElementById('userName');
+    const userEmail = document.getElementById('userEmail');
+    const userInitial = document.getElementById('userInitial');
+    const themeToggle = document.getElementById('themeToggle');
+    const themeIcon = document.getElementById('themeIcon');
+
+    document.getElementById('preguntas').innerHTML = PREGUNTAS.map((q,i)=>`<section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm"><div class="flex gap-3"><span class="shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary dark:text-blue-300 grid place-items-center text-sm font-bold">${i+1}</span><div class="flex-1"><p class="font-semibold leading-relaxed">${esc(q)}</p>${i===5?'<p class="text-xs text-amber-600 dark:text-amber-400 mt-1">Criterio inverso: menos reclamos obtiene mejor puntaje.</p>':''}<div class="likert grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4">${ESCALA.map((l,v)=>`<div><input class="sr-only" required type="radio" id="p${i+1}_${v+1}" name="p${i+1}" value="${v+1}"><label class="block h-full cursor-pointer text-center text-xs font-semibold border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2.5 hover:border-primary" for="p${i+1}_${v+1}">${l}</label></div>`).join('')}</div></div></div></section>`).join('');
+
+    const hoy = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Lima'}).format(new Date());
+    fecha.value = hoy; fecha.max = hoy;
+    userName.textContent = sessionData.user?.name || 'Coordinador';
+    userEmail.textContent = sessionData.user?.email || '';
+    userInitial.textContent = (sessionData.user?.name || 'C')[0].toUpperCase();
+
+    async function cargar() {
+      try {
+        const r = await fetch('/api/stats/calificacion-auxiliares',{headers:auth});
+        if(r.status===401){ cerrarSesion(); return; }
+        if(r.status===403){ location.href='/stats/alumnos'; return; }
+        data=await r.json(); if(!r.ok) throw new Error(data.error);
+        auxiliar.innerHTML='<option value="">Selecciona un auxiliar</option>'+data.auxiliares.map(a=>`<option value="${a.id}">${esc(a.nombre)}</option>`).join('');
+        if(!data.auxiliares.length) auxiliar.innerHTML='<option value="">No tienes auxiliares vinculados</option>';
+        pintarHistorial();
+      } catch(e) { mostrar(e.message || 'No se pudo cargar la información',false); }
+    }
+    function pintarHistorial(){
+      historial.innerHTML=data.historial.length?data.historial.map((h,i)=>`<tr data-i="${i}" class="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"><td class="px-5 py-3 whitespace-nowrap">${esc(h.fecha)}</td><td class="px-5 py-3 font-semibold">${esc(h.auxiliar)}</td><td class="px-5 py-3 text-center"><span class="inline-flex rounded-full bg-primary/10 text-primary dark:text-blue-300 font-bold px-2.5 py-1">${Number(h.promedio).toFixed(2)} / 5</span></td><td class="px-5 py-3 text-slate-500 max-w-xs truncate">${esc(h.observacion || '—')}</td></tr>`).join(''):'<tr><td colspan="4" class="px-5 py-8 text-center text-slate-400">Aún no registraste evaluaciones.</td></tr>';
+      historial.querySelectorAll('tr[data-i]').forEach(tr=>tr.onclick=()=>editar(data.historial[Number(tr.dataset.i)]));
+    }
+    function editar(h){
+      auxiliar.value=h.auxiliar_id; fecha.value=h.fecha; observacion.value=h.observacion||'';
+      for(let i=1;i<=6;i++){ const el=document.querySelector(`input[name="p${i}"][value="${h['pregunta_'+i]}"]`); if(el) el.checked=true; }
+      actualizarGrupos(); scrollTo({top:0,behavior:'smooth'});
+    }
+    function actualizarGrupos(){ const a=data.auxiliares.find(x=>String(x.id)===auxiliar.value); grupos.textContent=a?.grupos?'Grupos compartidos: '+a.grupos:''; }
+    auxiliar.addEventListener('change',actualizarGrupos);
+
+    form.addEventListener('submit',async e=>{
+      e.preventDefault(); guardar.disabled=true; mostrar('Guardando…',true);
+      const respuestas=PREGUNTAS.map((_,i)=>Number(new FormData(form).get('p'+(i+1))));
+      try{
+        const r=await fetch('/api/stats/calificacion-auxiliares',{method:'POST',headers:{...auth,'Content-Type':'application/json'},body:JSON.stringify({auxiliar_id:Number(auxiliar.value),fecha:fecha.value,respuestas,observacion:observacion.value})});
+        const d=await r.json(); if(r.status===401){cerrarSesion();return;} if(!r.ok)throw new Error(d.error);
+        mostrar(`Evaluación guardada. Puntaje: ${d.promedio.toFixed(2)} de 5.`,true); await cargar();
+      }catch(e){mostrar(e.message||'No se pudo guardar',false);}finally{guardar.disabled=false;}
+    });
+    function mostrar(texto,ok){ mensaje.textContent=texto; mensaje.className='rounded-xl px-4 py-3 text-sm font-semibold '+(ok?'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300':'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'); }
+    function cerrarSesion(){localStorage.removeItem('stats_session');location.href='/stats/login';}
+    document.querySelectorAll('.logout').forEach(b=>b.onclick=cerrarSesion);
+    function tema(d){document.documentElement.classList.toggle('dark',d);themeIcon.textContent=d?'light_mode':'dark_mode';localStorage.setItem('stats_theme',d?'dark':'light');}
+    tema(document.documentElement.classList.contains('dark')); themeToggle.onclick=()=>tema(!document.documentElement.classList.contains('dark'));
+    cargar();
+  </script>
+</body>
+</html>

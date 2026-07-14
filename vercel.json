@@ -80,6 +80,20 @@
       }
     },
     {
+      "src": "/stats/calificacion-auxiliares",
+      "dest": "/stats/calificacion-auxiliares/index.html",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
+      "src": "/stats/resultados-calificacion-auxiliares",
+      "dest": "/stats/resultados-calificacion-auxiliares/index.html",
+      "headers": {
+        "Cache-Control": "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+      }
+    },
+    {
       "src": "/stats/reportes-aux/habilitaciones",
       "dest": "/stats/reportes-aux/habilitaciones/index.html",
       "headers": {
@@ -165,6 +179,13 @@
     },
     {
       "src": "/api/stats/habilitados/resumen-live",
+      "dest": "server.js",
+      "headers": {
+        "Cache-Control": "private, no-cache, no-store, must-revalidate"
+      }
+    },
+    {
+      "src": "/api/stats/calificacion-auxiliares(.*)",
       "dest": "server.js",
       "headers": {
         "Cache-Control": "private, no-cache, no-store, must-revalidate"
