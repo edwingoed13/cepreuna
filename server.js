@@ -4633,11 +4633,14 @@ async function fetchCoberturaData(req) {
         DATE_FORMAT(ae.fecha, '%Y-%m-%d') AS fecha,
         GROUP_CONCAT(DISTINCT CONCAT_WS(' ', u.paterno, u.materno, u.name) ORDER BY u.paterno SEPARATOR ', ') AS tomada_por
       FROM asistencia_estudiantes ae
-      JOIN users u ON u.id = ae.users_id
+      -- "tomada_por" = quien CREÓ el registro (audits): las subidas tardías quedan
+      -- estampadas en users_id con el coordinador, no con quien tomó la lista.
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created'
+      JOIN users u ON u.id = au3.user_id
       WHERE ae.fecha BETWEEN ? AND ?
         AND ae.grupo_aulas_id IN (${ids.map(() => '?').join(',')})
       GROUP BY ae.grupo_aulas_id, ae.fecha
-    `, [desde, hasta, ...ids]);
+    `, ['App\\Models\\AsistenciaEstudiante', desde, hasta, ...ids]);
 
     return { grupos: gruposRows, asistencias: asistRows, desde, hasta, filtros };
   } finally {
@@ -5482,6 +5485,643 @@ app.get('/api/stats/reportes-aux/habilitaciones/por-dia', requireAdmin, cacheMid
 // Página del panel.
 app.get('/stats/reportes-aux/habilitaciones', (req, res) => {
   res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'habilitaciones', 'index.html'));
+});
+
+// ============ RENDIMIENTO · AUXILIARES (dashboard reportes-aux) ============
+// Métricas de rendimiento/eficiencia de auxiliares del ciclo académico:
+// 23/03/2026 → 10/07/2026 (16 semanas, lunes a viernes; sin sábados/domingos).
+// Fuente: DASHBOARD_AUXILIARES.md (consultas 1-7). Una fila por auxiliar.
+const REND_INICIO = '2026-03-23';
+const REND_FIN = '2026-07-10';
+
+app.get('/api/stats/reportes-aux/rendimiento-auxiliares', requireAdmin, cacheMiddleware(300), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    // 1. Cobertura de asistencia a estudiantes
+    const [cobertura] = await conn.query(`
+      SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar, u.dni, u.id AS users_id,
+             (SELECT COUNT(*) FROM auxiliares a2 JOIN auxiliar_grupos ag2 ON ag2.auxiliares_id = a2.id WHERE a2.users_id = u.id) AS grupos_asignados,
+             COUNT(*) AS listas_tomadas,
+             COUNT(DISTINCT ae.fecha) AS dias_con_asistencia,
+             COUNT(DISTINCT ae.grupo_aulas_id) AS grupos_cubiertos,
+             DATE_FORMAT(MIN(ae.fecha),'%Y-%m-%d') AS primer_dia,
+             DATE_FORMAT(MAX(ae.fecha),'%Y-%m-%d') AS ultimo_dia
+      FROM asistencia_estudiantes ae
+      -- Atribución por el CREADOR REAL (audits): las subidas tardías quedan estampadas
+      -- con el users_id del coordinador, no de quien realmente tomó la lista.
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created'
+      JOIN users u ON u.id = au3.user_id
+      JOIN auxiliares aux ON aux.users_id = u.id
+      WHERE ae.fecha BETWEEN ? AND ?
+      GROUP BY u.id, u.paterno, u.materno, u.name, u.dni
+      ORDER BY listas_tomadas DESC`, ['App\\Models\\AsistenciaEstudiante', REND_INICIO, REND_FIN]);
+    // 2. Puntualidad (hora de registro)
+    const [puntualidad] = await conn.query(`
+      SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar, u.dni, COUNT(*) AS listas,
+             TIME_FORMAT(SEC_TO_TIME(AVG(TIME_TO_SEC(TIME(ae.created_at)))), '%H:%i') AS hora_promedio,
+             SUM(HOUR(ae.created_at) < 12) AS en_manana,
+             SUM(HOUR(ae.created_at) BETWEEN 12 AND 17) AS en_tarde,
+             SUM(HOUR(ae.created_at) >= 18) AS en_noche
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created'
+      JOIN users u ON u.id = au3.user_id
+      JOIN auxiliares aux ON aux.users_id = u.id
+      WHERE ae.fecha BETWEEN ? AND ?
+      GROUP BY u.id, u.dni`, ['App\\Models\\AsistenciaEstudiante', REND_INICIO, REND_FIN]);
+    // 3. Volumen de actividad (audits)
+    const [actividad] = await conn.query(`
+      SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar, u.dni, COUNT(*) AS total_acciones,
+             SUM(a.event='created') AS registros,
+             SUM(a.event='updated') AS ediciones,
+             SUM(a.event='deleted') AS eliminaciones,
+             COUNT(DISTINCT DATE(a.created_at)) AS dias_activos
+      FROM audits a
+      JOIN users u ON u.id = a.user_id
+      JOIN auxiliares aux ON aux.users_id = u.id
+      WHERE a.created_at >= ?
+      GROUP BY u.id, u.dni`, [REND_INICIO]);
+    // 4. Asistencia de docentes registrada por el auxiliar.
+    // Atribución por el CREADOR REAL del registro (audits event='created'), no por
+    // asistencia_docentes.users_id: hay registros asignados a un auxiliar pero
+    // hechos por otro usuario, y esos no deben contarle.
+    const [asistDocentes] = await conn.query(`
+      SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar, u.dni, COUNT(*) AS asist_docentes_registradas,
+             COUNT(DISTINCT ad.fecha) AS dias,
+             COUNT(DISTINCT ad.docentes_id) AS docentes_distintos,
+             SUM(ad.estado='2') AS marco_tardanza,
+             SUM(ad.estado='3') AS marco_falta
+      FROM asistencia_docentes ad
+      JOIN audits au2 ON au2.auditable_type = ? AND au2.auditable_id = ad.id AND au2.event = 'created'
+      JOIN users u ON u.id = au2.user_id
+      JOIN auxiliares aux ON aux.users_id = u.id
+      WHERE ad.fecha BETWEEN ? AND ?
+      GROUP BY u.id, u.dni`, ['App\\Models\\AsistenciaDocente', REND_INICIO, REND_FIN]);
+    // 5. Gestión: habilitados/sincronizados de sus grupos
+    const [gestion] = await conn.query(`
+      SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar, u.dni,
+             COUNT(DISTINCT m.estudiantes_id) AS asignados,
+             COUNT(DISTINCT CASE WHEN m.habilitado='1' THEN m.estudiantes_id END) AS habilitados,
+             COUNT(DISTINCT CASE WHEN m.habilitado_estado='1' THEN m.estudiantes_id END) AS sincronizados,
+             ROUND(100*COUNT(DISTINCT CASE WHEN m.habilitado='1' THEN m.estudiantes_id END)/NULLIF(COUNT(DISTINCT m.estudiantes_id),0),1) AS pct_habilitados,
+             ROUND(100*COUNT(DISTINCT CASE WHEN m.habilitado_estado='1' THEN m.estudiantes_id END)/NULLIF(COUNT(DISTINCT m.estudiantes_id),0),1) AS pct_sincronizados
+      FROM auxiliares aux
+      JOIN users u ON u.id = aux.users_id
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      GROUP BY u.id, u.dni`);
+    // 6a. Modificaciones a estudiantes asignados (audits App\Models\Estudiante)
+    const [modificaciones] = await conn.query(`
+      SELECT CONCAT_WS(' ', ua.paterno, ua.materno, ua.name) AS auxiliar, ua.dni, aux.users_id,
+             COUNT(*) AS total_modificaciones,
+             COUNT(DISTINCT e.id) AS estudiantes_modificados,
+             COUNT(DISTINCT DATE(a.created_at)) AS dias_con_cambios,
+             DATE_FORMAT(MAX(a.created_at), '%Y-%m-%dT%H:%i:%s-05:00') AS ultimo_cambio
+      FROM auxiliares aux
+      JOIN users ua ON ua.id = aux.users_id
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id=1 AND m.estado='0'
+      JOIN estudiantes e ON e.id = m.estudiantes_id
+      -- Solo cambios hechos por usuarios administrativos logueados: user_id NULL = el
+      -- propio estudiante desde su app o procesos automáticos del sistema (no cuentan).
+      JOIN audits a ON a.auditable_type = ? AND a.auditable_id = e.id AND a.event = 'updated' AND a.user_id IS NOT NULL AND a.created_at >= ?
+      GROUP BY aux.id, aux.users_id, ua.dni
+      ORDER BY total_modificaciones DESC`, ['App\\Models\\Estudiante', REND_INICIO]);
+    // 7. Evolución semanal
+    const [semanal] = await conn.query(`
+      SELECT YEARWEEK(ae.fecha, 3) AS semana,
+             DATE_FORMAT(MIN(ae.fecha),'%Y-%m-%d') AS inicio_semana,
+             COUNT(DISTINCT au3.user_id) AS auxiliares_activos,
+             COUNT(*) AS listas_tomadas
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created'
+      WHERE ae.fecha BETWEEN ? AND ?
+      GROUP BY YEARWEEK(ae.fecha, 3)
+      ORDER BY semana`, ['App\\Models\\AsistenciaEstudiante', REND_INICIO, REND_FIN]);
+    conn.release();
+    const ints = (rows, skip = []) => rows.map(r => { const o = { ...r }; Object.keys(o).forEach(k => { if (!skip.includes(k) && o[k] != null && !isNaN(o[k]) && typeof o[k] !== 'number') o[k] = Number(o[k]); }); return o; });
+    // Días hábiles del ciclo (lun-vie, topado al fin de las 16 semanas) para el modo "% de esperadas".
+    let diasHab = 0;
+    {
+      const finC = new Date(REND_FIN + 'T23:59:59');
+      const hastaC = new Date() < finC ? new Date() : finC;
+      for (let dd = new Date(REND_INICIO + 'T00:00:00'); dd <= hastaC; dd.setDate(dd.getDate() + 1)) {
+        const dow = dd.getDay(); if (dow >= 1 && dow <= 5) diasHab++;
+      }
+    }
+    res.json({
+      inicio: REND_INICIO,
+      dias_habiles: diasHab,
+      cobertura: ints(cobertura, ['auxiliar', 'dni', 'primer_dia', 'ultimo_dia']),
+      puntualidad: ints(puntualidad, ['auxiliar', 'dni', 'hora_promedio']),
+      actividad: ints(actividad, ['auxiliar', 'dni']),
+      asistDocentes: ints(asistDocentes, ['auxiliar', 'dni']),
+      gestion: ints(gestion, ['auxiliar', 'dni']),
+      modificaciones: ints(modificaciones, ['auxiliar', 'dni', 'ultimo_cambio']),
+      semanal: ints(semanal, ['inicio_semana'])
+    });
+  } catch (e) { if (conn) conn.release(); console.error('Error rendimiento auxiliares:', e); res.status(500).json({ error: 'Error al obtener el reporte' }); }
+});
+
+// 6b. Detalle de modificaciones a estudiantes de un auxiliar (qué cambió y cuándo).
+// Devuelve los cambios parseados campo por campo, con etiqueta amigable y marcando
+// los campos técnicos del sistema (edit, idgsuite, foto…) para poder filtrarlos.
+const MOD_LABELS = {
+  nombres: 'Nombres', paterno: 'Ap. paterno', materno: 'Ap. materno',
+  fecha_nac: 'Fecha de nacimiento', nro_documento: 'DNI', celular: 'Celular',
+  email: 'Correo', colegios_id: 'Colegio', anio_egreso: 'Año de egreso',
+  ubigeos_nacimiento: 'Ubigeo de nacimiento', ubigeos_id: 'Ubigeo de residencia',
+  direccion: 'Dirección', sexo: 'Sexo', observacion: 'Observación',
+  estado: 'Estado del estudiante', tipo_documentos_id: 'Tipo de documento',
+  edit: 'Permiso de edición al estudiante (sistema)', idgsuite: 'Cuenta Google institucional (sistema)',
+  foto: 'Foto (sistema)', usuario: 'Usuario (sistema)', users_id: 'Usuario interno (sistema)'
+};
+const TARIFA_LABELS = {
+  monto: 'Monto de la cuota', pagado: 'Pagado (aplicado a la cuota)', mora: 'Mora',
+  nro_cuota: 'Nº de cuota', modalidad: 'Modalidad (código)', tipo_estudiante: 'Tipo de estudiante (código)',
+  periodos_id: 'Periodo (sistema)', estudiantes_id: 'Estudiante interno (sistema)'
+};
+const MOD_TECNICOS = new Set(['edit', 'idgsuite', 'foto', 'usuario', 'users_id', 'remember_token', 'email_verified_at', 'updated_at', 'created_at']);
+// Traducción de valores codificados para que "0 → 1" sea legible.
+const MOD_VALORES = {
+  estado: { 0: 'Inactivo (0)', 1: 'Activo (1)' },
+  sexo: { 1: 'Masculino (1)', 2: 'Femenino (2)' },
+  edit: { 0: 'Estudiante NO puede editar su ficha (0)', 1: 'Estudiante puede corregir sus datos en su app (1)' }
+};
+app.get('/api/stats/reportes-aux/rendimiento-auxiliares/modificaciones', requireAdmin, async (req, res) => {
+  const usersId = Number(req.query.users_id);
+  if (!Number.isFinite(usersId) || usersId <= 0) return res.status(400).json({ error: 'users_id inválido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [rows] = await conn.query(`
+      SELECT DISTINCT e.nro_documento AS dni_estudiante,
+             CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS estudiante,
+             DATE_FORMAT(a.created_at, '%Y-%m-%dT%H:%i:%s-05:00') AS fecha,
+             a.old_values AS antes, a.new_values AS despues,
+             (SELECT CONCAT_WS(' ', um.paterno, um.materno, um.name) FROM users um WHERE um.id = a.user_id) AS modificado_por
+      FROM auxiliares aux
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id=1 AND m.estado='0'
+      JOIN estudiantes e ON e.id = m.estudiantes_id
+      -- Solo cambios hechos por usuarios administrativos logueados: user_id NULL = el
+      -- propio estudiante desde su app o procesos automáticos del sistema (no cuentan).
+      JOIN audits a ON a.auditable_type = ? AND a.auditable_id = e.id AND a.event = 'updated' AND a.user_id IS NOT NULL AND a.created_at >= ?
+      WHERE aux.users_id = ?
+      ORDER BY fecha DESC
+      LIMIT 500`, ['App\\Models\\Estudiante', REND_INICIO, usersId]);
+    // Modificaciones al TARIFARIO de sus estudiantes (monto/pagado/mora por cuota),
+    // también solo por usuarios administrativos.
+    const [rowsTarifa] = await conn.query(`
+      SELECT DISTINCT e.nro_documento AS dni_estudiante,
+             CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS estudiante,
+             DATE_FORMAT(a.created_at, '%Y-%m-%dT%H:%i:%s-05:00') AS fecha,
+             a.old_values AS antes, a.new_values AS despues, te.nro_cuota,
+             (SELECT CONCAT_WS(' ', um.paterno, um.materno, um.name) FROM users um WHERE um.id = a.user_id) AS modificado_por
+      FROM auxiliares aux
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id=1 AND m.estado='0'
+      JOIN estudiantes e ON e.id = m.estudiantes_id
+      JOIN tarifa_estudiantes te ON te.estudiantes_id = e.id
+      JOIN audits a ON a.auditable_type = ? AND a.auditable_id = te.id AND a.event = 'updated' AND a.user_id IS NOT NULL AND a.created_at >= ?
+      WHERE aux.users_id = ?
+      ORDER BY fecha DESC
+      LIMIT 300`, ['App\\Models\\TarifaEstudiante', REND_INICIO, usersId]);
+    // Parsear los JSON de auditoría a cambios campo por campo.
+    // idgsuite (vinculación de cuenta Google) es aprovisionamiento, no corrección: se excluye.
+    // tarifa.monto también: cambia como consecuencia del cambio de modalidad (retarificación),
+    // no es una corrección hecha a mano — lo relevante es pagado/mora/modalidad.
+    const MOD_EXCLUIR = new Set(['idgsuite']);
+    const TARIFA_EXCLUIR = new Set(['monto']);
+    const parseFila = (r, labels, tecnicos, cuota) => {
+      let a = {}, d = {};
+      try { a = JSON.parse(r.antes) || {}; } catch (e) { /* ignore */ }
+      try { d = JSON.parse(r.despues) || {}; } catch (e) { /* ignore */ }
+      return {
+        dni_estudiante: r.dni_estudiante, estudiante: r.estudiante, fecha: r.fecha, modificado_por: r.modificado_por,
+        cuota: cuota != null ? Number(cuota) : null,
+        cambios: Object.keys(d).filter(k => !(cuota != null ? TARIFA_EXCLUIR : MOD_EXCLUIR).has(k)).map(k => {
+          let antes = a[k] ?? null, despues = d[k] ?? null;
+          if (MOD_VALORES[k] && antes != null && MOD_VALORES[k][antes] !== undefined) antes = MOD_VALORES[k][antes];
+          if (MOD_VALORES[k] && despues != null && MOD_VALORES[k][despues] !== undefined) despues = MOD_VALORES[k][despues];
+          const etiqueta = (cuota != null ? `Tarifario cuota ${cuota} · ` : '') + (labels[k] || k);
+          const etiqueta_grupo = (cuota != null ? 'Tarifario · ' : '') + (labels[k] || k);
+          return { campo: (cuota != null ? 'tarifa_' : '') + k, etiqueta, etiqueta_grupo, antes, despues, tecnico: tecnicos.has(k) };
+        })
+      };
+    };
+    const TARIFA_TECNICOS = new Set(['periodos_id', 'estudiantes_id', 'updated_at', 'created_at']);
+    const cambios = [
+      ...rows.map(r => parseFila(r, MOD_LABELS, MOD_TECNICOS, null)),
+      ...rowsTarifa.map(r => parseFila(r, TARIFA_LABELS, TARIFA_TECNICOS, r.nro_cuota))
+    ].filter(c => c.cambios.length > 0)
+     .sort((x, y) => String(y.fecha).localeCompare(String(x.fecha)));
+    // Resolver ids de colegio a nombre (para que "colegios_id: 812 → 1547" sea legible).
+    const colIds = new Set();
+    cambios.forEach(c => c.cambios.forEach(x => { if (x.campo === 'colegios_id') [x.antes, x.despues].forEach(v => { const nn = Number(v); if (Number.isFinite(nn) && nn > 0) colIds.add(nn); }); }));
+    if (colIds.size) {
+      const [cols] = await conn.query(`SELECT id, denominacion FROM colegios WHERE id IN (${[...colIds].map(() => '?').join(',')})`, [...colIds]);
+      const mapa = Object.fromEntries(cols.map(x => [String(x.id), x.denominacion]));
+      cambios.forEach(c => c.cambios.forEach(x => { if (x.campo === 'colegios_id') { x.antes = mapa[String(x.antes)] || x.antes; x.despues = mapa[String(x.despues)] || x.despues; } }));
+    }
+    // Resolver ubigeos (nacimiento/residencia) a "Distrito, Provincia (Departamento)".
+    const ubiIds = new Set();
+    cambios.forEach(c => c.cambios.forEach(x => { if (x.campo === 'ubigeos_nacimiento' || x.campo === 'ubigeos_id') [x.antes, x.despues].forEach(v => { const nn = Number(v); if (Number.isFinite(nn) && nn > 0) ubiIds.add(nn); }); }));
+    if (ubiIds.size) {
+      const [ubis] = await conn.query(`SELECT id, CONCAT(distrito, ', ', provincia, ' (', departamento, ')') AS nombre FROM ubigeos WHERE id IN (${[...ubiIds].map(() => '?').join(',')})`, [...ubiIds]);
+      const mapaU = Object.fromEntries(ubis.map(x => [String(x.id), x.nombre]));
+      cambios.forEach(c => c.cambios.forEach(x => { if (x.campo === 'ubigeos_nacimiento' || x.campo === 'ubigeos_id') { x.antes = mapaU[String(x.antes)] || x.antes; x.despues = mapaU[String(x.despues)] || x.despues; } }));
+    }
+    conn.release();
+    // Resumen por campo (para chips/filtro en el modal).
+    const resumen = {};
+    cambios.forEach(c => c.cambios.forEach(x => { const key = x.campo; resumen[key] = resumen[key] || { campo: x.campo, etiqueta: x.etiqueta_grupo || x.etiqueta, tecnico: x.tecnico, n: 0 }; resumen[key].n++; }));
+    res.json({ cambios, resumen: Object.values(resumen).sort((a, b) => b.n - a.n), total: cambios.length });
+  } catch (e) { if (conn) conn.release(); console.error('Error rendimiento modificaciones:', e); res.status(500).json({ error: 'Error al obtener el detalle' }); }
+});
+
+// Ficha individual de un auxiliar: contexto e interpretación (grupos, esperado
+// vs real, oportunidad de registro respecto al turno de sus grupos, gestión).
+app.get('/api/stats/reportes-aux/rendimiento-auxiliares/ficha', requireAdmin, async (req, res) => {
+  const usersId = Number(req.query.users_id);
+  if (!Number.isFinite(usersId) || usersId <= 0) return res.status(400).json({ error: 'users_id inválido' });
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const [[user]] = await conn.query(`SELECT CONCAT_WS(' ', paterno, materno, name) AS auxiliar, dni FROM users WHERE id = ?`, [usersId]);
+    if (!user) { conn.release(); return res.status(404).json({ error: 'Auxiliar no encontrado' }); }
+    // Grupos asignados (con turno y nº de estudiantes)
+    const [grupos] = await conn.query(`
+      SELECT ga.id AS grupo_aulas_id, g.denominacion AS grupo, a.denominacion AS area, tu.denominacion AS turno, s.denominacion AS sede,
+             COUNT(DISTINCT m.estudiantes_id) AS estudiantes
+      FROM auxiliares aux
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN grupo_aulas ga ON ga.id = ag.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id JOIN areas a ON a.id = ga.areas_id JOIN turnos tu ON tu.id = ga.turnos_id
+      JOIN aulas au ON au.id = ga.aulas_id JOIN locales l ON l.id = au.locales_id JOIN sedes s ON s.id = l.sedes_id
+      LEFT JOIN matriculas m ON m.grupo_aulas_id = ga.id AND m.periodos_id = 1 AND m.estado = '0'
+      WHERE aux.users_id = ?
+      GROUP BY ga.id, g.denominacion, a.denominacion, tu.denominacion, s.denominacion
+      ORDER BY tu.denominacion, g.denominacion`, [usersId]);
+    // Oportunidad de registro: mismo día de la clase y dentro de la franja del turno del grupo.
+    const [[timing]] = await conn.query(`
+      SELECT COUNT(*) AS listas,
+             COUNT(DISTINCT ae.fecha) AS dias_con_asistencia,
+             COUNT(DISTINCT ae.grupo_aulas_id) AS grupos_cubiertos,
+             SUM(DATE(ae.created_at) = ae.fecha) AS mismo_dia,
+             ROUND(AVG(GREATEST(DATEDIFF(DATE(ae.created_at), ae.fecha), 0)), 2) AS retraso_prom_dias,
+             MAX(GREATEST(DATEDIFF(DATE(ae.created_at), ae.fecha), 0)) AS retraso_max_dias,
+             SUM(DATE(ae.created_at) = ae.fecha AND (
+               (tu.denominacion LIKE 'Mañana%' AND TIME(ae.created_at) BETWEEN '07:00:00' AND '13:00:00') OR
+               (tu.denominacion LIKE 'Tarde%'  AND TIME(ae.created_at) BETWEEN '13:00:00' AND '19:00:00') OR
+               (tu.denominacion LIKE 'Noche%'  AND TIME(ae.created_at) BETWEEN '16:00:00' AND '22:00:00'))) AS en_franja
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created' AND au3.user_id = ?
+      JOIN grupo_aulas ga ON ga.id = ae.grupo_aulas_id
+      JOIN turnos tu ON tu.id = ga.turnos_id
+      WHERE ae.fecha BETWEEN ? AND ?`, ['App\\Models\\AsistenciaEstudiante', usersId, REND_INICIO, REND_FIN]);
+    // Desglose de listas de estudiantes: por grupo (solo lun-vie), tomadas en fin de
+    // semana (recuperaciones/simulacros) y las que tomaron OTROS usuarios en sus grupos.
+    // Todo por el CREADOR real (audits): las subidas tardías se estampan al coordinador.
+    const [listasGrupo] = await conn.query(`
+      SELECT g.denominacion AS grupo, COUNT(DISTINCT ae.fecha) AS dias
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created' AND au3.user_id = ?
+      JOIN grupo_aulas ga ON ga.id = ae.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id
+      WHERE ae.fecha BETWEEN ? AND ? AND DAYOFWEEK(ae.fecha) NOT IN (1,7)
+      GROUP BY ae.grupo_aulas_id, g.denominacion ORDER BY g.denominacion`, ['App\\Models\\AsistenciaEstudiante', usersId, REND_INICIO, REND_FIN]);
+    const [[listasExtra]] = await conn.query(`
+      SELECT COALESCE(SUM(DAYOFWEEK(ae.fecha) IN (1,7)), 0) AS finde
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created' AND au3.user_id = ?
+      WHERE ae.fecha BETWEEN ? AND ?`, ['App\\Models\\AsistenciaEstudiante', usersId, REND_INICIO, REND_FIN]);
+    const [listasAyudantes] = await conn.query(`
+      SELECT CONCAT_WS(' ', u2.paterno, u2.materno, u2.name) AS nombre, COUNT(*) AS listas
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created' AND au3.user_id <> ?
+      JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = ae.grupo_aulas_id
+      JOIN auxiliares aux ON aux.id = ag.auxiliares_id
+      JOIN users u2 ON u2.id = au3.user_id
+      WHERE aux.users_id = ? AND ae.fecha BETWEEN ? AND ?
+      GROUP BY au3.user_id, nombre ORDER BY listas DESC LIMIT 5`, ['App\\Models\\AsistenciaEstudiante', usersId, usersId, REND_INICIO, REND_FIN]);
+    // Gestión de sus estudiantes (deuda real: misma regla que /stats/habilitados)
+    const [[gestion]] = await conn.query(`
+      SELECT COUNT(DISTINCT m.estudiantes_id) AS asignados,
+             COUNT(DISTINCT CASE WHEN m.habilitado='1' THEN m.estudiantes_id END) AS habilitados,
+             COUNT(DISTINCT CASE WHEN m.habilitado_estado='1' THEN m.estudiantes_id END) AS sincronizados,
+             COUNT(DISTINCT CASE WHEN d.deuda > 0.5 THEN m.estudiantes_id END) AS deudores,
+             COUNT(DISTINCT CASE WHEN m.habilitado='0' AND COALESCE(d.deuda,0) <= 0.5 THEN m.estudiantes_id END) AS listos_por_habilitar
+      FROM auxiliares aux
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      LEFT JOIN ${HAB_DEUDA_SUBQ} d ON d.estudiantes_id = m.estudiantes_id
+      WHERE aux.users_id = ?`, [usersId]);
+    // Asistencia de DOCENTES registrada por el auxiliar (mismo enfoque interpretado):
+    // mismo día de la clase y dentro del horario de la sesión (inicio-30min → fin+90min).
+    // Solo cuentan los registros que ESTE usuario creó realmente (creador en audits).
+    const [[docentes]] = await conn.query(`
+      SELECT COUNT(*) AS registros,
+             COUNT(DISTINCT ad.fecha) AS dias,
+             COUNT(DISTINCT ad.docentes_id) AS docentes_distintos,
+             SUM(ad.estado='1') AS presentes, SUM(ad.estado='2') AS tardanzas, SUM(ad.estado='3') AS faltas,
+             SUM(DATE(ad.created_at) = ad.fecha) AS mismo_dia,
+             SUM(DATE(ad.created_at) = ad.fecha AND ad.created_at BETWEEN CONCAT(ad.fecha,' ',ad.hora_inicio) - INTERVAL 30 MINUTE
+                 AND CONCAT(ad.fecha,' ',COALESCE(ad.hora_fin, ad.hora_inicio)) + INTERVAL 90 MINUTE) AS en_horario,
+             SUM(au2.ip_address IN ('161.132.24.66','161.132.24.2')) AS desde_oficina,
+             SUM(HOUR(ad.created_at) >= 20) AS despues_8pm
+      FROM asistencia_docentes ad
+      JOIN audits au2 ON au2.auditable_type = ? AND au2.auditable_id = ad.id AND au2.event = 'created' AND au2.user_id = ?
+      WHERE ad.fecha BETWEEN ? AND ?`, ['App\\Models\\AsistenciaDocente', usersId, REND_INICIO, REND_FIN]);
+    // Bloques de asistencia docente de sus grupos, con el creador real de cada registro.
+    // Un mismo bloque puede tener 2 registros legítimos (titular con falta + reemplazante
+    // presente): las horas del bloque cuentan UNA vez. Duplicado real = 2+ registros
+    // dictados (estado 1/2) en el mismo bloque.
+    const [bloquesDoc] = await conn.query(`
+      SELECT ag.grupo_aulas_id, g.denominacion AS grupo, DATE_FORMAT(ad.fecha,'%Y-%m-%d') AS fecha,
+             TIME_FORMAT(ad.hora_inicio,'%H:%i') AS bloque, ad.cantidad_horas AS horas, ad.estado,
+             (au2.user_id = ?) AS es_propio
+      FROM auxiliares aux
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN grupo_aulas ga ON ga.id = ag.grupo_aulas_id
+      JOIN grupos g ON g.id = ga.grupos_id
+      JOIN carga_academicas ca ON ca.grupo_aulas_id = ag.grupo_aulas_id
+      JOIN asistencia_docentes ad ON ad.carga_academicas_id = ca.id AND ad.fecha BETWEEN ? AND ?
+      LEFT JOIN audits au2 ON au2.auditable_type = ? AND au2.auditable_id = ad.id AND au2.event = 'created'
+      WHERE aux.users_id = ?`, [usersId, REND_INICIO, REND_FIN, 'App\\Models\\AsistenciaDocente', usersId]);
+    // Horas de sus grupos por CREADOR real: los auxiliares no pueden subir asistencia
+    // docente después de las 23:59 del día de sesión, así que los registros tardíos
+    // los hace otro usuario con mayor acceso — hay que mostrar quién ayudó.
+    const [horasCreador] = await conn.query(`
+      SELECT a.user_id, COALESCE(CONCAT_WS(' ', u2.paterno, u2.materno, u2.name), '(sistema)') AS creador,
+             SUM(ad.cantidad_horas) AS horas,
+             SUM(DATE(a.created_at) > ad.fecha) AS despues_del_dia
+      FROM auxiliares aux
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN carga_academicas ca ON ca.grupo_aulas_id = ag.grupo_aulas_id
+      JOIN asistencia_docentes ad ON ad.carga_academicas_id = ca.id AND ad.fecha BETWEEN ? AND ?
+      JOIN audits a ON a.auditable_type = ? AND a.auditable_id = ad.id AND a.event = 'created'
+      LEFT JOIN users u2 ON u2.id = a.user_id
+      WHERE aux.users_id = ?
+      GROUP BY a.user_id, creador ORDER BY horas DESC`, [REND_INICIO, REND_FIN, 'App\\Models\\AsistenciaDocente', usersId]);
+    // Evolución semanal individual (listas de estudiantes y registros de docentes)
+    const [semanal] = await conn.query(`
+      SELECT DATE_FORMAT(MIN(ae.fecha),'%Y-%m-%d') AS inicio_semana, COUNT(*) AS listas
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created' AND au3.user_id = ?
+      WHERE ae.fecha BETWEEN ? AND ?
+      GROUP BY YEARWEEK(ae.fecha, 3) ORDER BY MIN(ae.fecha)`, ['App\\Models\\AsistenciaEstudiante', usersId, REND_INICIO, REND_FIN]);
+    const [semanalDoc] = await conn.query(`
+      SELECT DATE_FORMAT(MIN(ad.fecha),'%Y-%m-%d') AS inicio_semana, COUNT(*) AS registros
+      FROM asistencia_docentes ad
+      JOIN audits au2 ON au2.auditable_type = ? AND au2.auditable_id = ad.id AND au2.event = 'created' AND au2.user_id = ?
+      WHERE ad.fecha BETWEEN ? AND ?
+      GROUP BY YEARWEEK(ad.fecha, 3) ORDER BY MIN(ad.fecha)`, ['App\\Models\\AsistenciaDocente', usersId, REND_INICIO, REND_FIN]);
+    conn.release();
+    // Días hábiles (lun-vie) del ciclo: 23/03 hasta hoy, topado al 10/07 (fin de las 16 semanas).
+    let diasHabiles = 0;
+    const fechasHabiles = [];
+    const fmtYmd = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    const finCiclo = new Date(REND_FIN + 'T23:59:59');
+    const hasta = new Date() < finCiclo ? new Date() : finCiclo;
+    for (let d = new Date(REND_INICIO + 'T00:00:00'); d <= hasta; d.setDate(d.getDate() + 1)) {
+      const dow = d.getDay(); if (dow >= 1 && dow <= 5) { diasHabiles++; fechasHabiles.push(fmtYmd(d)); }
+    }
+    // Horas docentes por grupo: cada BLOQUE horario cuenta una vez (falta + reemplazo = un
+    // bloque cubierto). El universo son los grupos ASIGNADOS al auxiliar: un grupo sin
+    // ningún registro debe aparecer con todos sus días faltantes, no desaparecer.
+    const HORAS_DIA = 5;
+    const porGrupo = {};
+    grupos.forEach(g => { porGrupo[g.grupo_aulas_id] = { grupo: g.grupo, dias: {} }; });
+    const bloques = {};
+    bloquesDoc.forEach(r => {
+      if (!porGrupo[r.grupo_aulas_id]) porGrupo[r.grupo_aulas_id] = { grupo: r.grupo, dias: {} };
+      const k = `${r.grupo_aulas_id}|${r.fecha}|${r.bloque}`;
+      const b = bloques[k] = bloques[k] || { gid: r.grupo_aulas_id, grupo: r.grupo, fecha: r.fecha, bloque: r.bloque, horas: 0, dictados: 0, faltas: 0, propio: false };
+      b.horas = Math.max(b.horas, Number(r.horas) || 0);
+      if (r.estado === '3') b.faltas++; else b.dictados++;
+      if (Number(r.es_propio)) b.propio = true;
+    });
+    let horasCubiertas = 0, horasPropias = 0;
+    const reemplazos = [], duplicados = [];
+    Object.values(bloques).forEach(b => {
+      horasCubiertas += b.horas;
+      if (b.propio) horasPropias += b.horas;
+      const gr = porGrupo[b.gid];
+      if (gr) gr.dias[b.fecha] = (gr.dias[b.fecha] || 0) + b.horas;
+      if (b.dictados >= 2) duplicados.push({ grupo: b.grupo, fecha: b.fecha, bloque: b.bloque, horas: b.horas });
+      else if (b.faltas >= 1 && b.dictados >= 1) reemplazos.push({ grupo: b.grupo, fecha: b.fecha, bloque: b.bloque });
+    });
+    duplicados.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.grupo.localeCompare(b.grupo));
+    reemplazos.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.grupo.localeCompare(b.grupo));
+    const faltantes = [];
+    Object.values(porGrupo).forEach(gr => {
+      fechasHabiles.forEach(f2 => {
+        const h = gr.dias[f2] || 0;
+        if (h < HORAS_DIA) faltantes.push({ grupo: gr.grupo, fecha: f2, horas: h });
+      });
+    });
+    faltantes.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.grupo.localeCompare(b.grupo));
+    const nGruposHoras = Object.keys(porGrupo).length;
+    const horasDocentes = {
+      horas_dia: HORAS_DIA,
+      grupos: nGruposHoras,
+      esperadas: nGruposHoras * HORAS_DIA * diasHabiles,
+      registradas: Math.round(horasCubiertas * 100) / 100,
+      propias: Math.round(horasPropias * 100) / 100,
+      terceros: Math.round((horasCubiertas - horasPropias) * 100) / 100,
+      ayudantes: horasCreador.filter(x => Number(x.user_id) !== usersId).slice(0, 4).map(x => ({ nombre: x.creador, horas: Number(x.horas) || 0, despues_del_dia: Number(x.despues_del_dia) || 0 })),
+      dias_sin_registro: faltantes.filter(x => x.horas === 0).length,
+      dias_parciales: faltantes.filter(x => x.horas > 0).length,
+      faltantes: faltantes.slice(0, 120),
+      reemplazos: reemplazos.length,
+      duplicados: duplicados.length,
+      duplicados_lista: duplicados.slice(0, 30)
+    };
+    const n = v => Number(v) || 0;
+    res.json({
+      auxiliar: user.auxiliar, dni: user.dni, users_id: usersId,
+      inicio: REND_INICIO, dias_habiles: diasHabiles,
+      grupos: grupos.map(g => ({ ...g, estudiantes: n(g.estudiantes) })),
+      timing: { listas: n(timing.listas), dias_con_asistencia: n(timing.dias_con_asistencia), grupos_cubiertos: n(timing.grupos_cubiertos), mismo_dia: n(timing.mismo_dia), retraso_prom_dias: Number(timing.retraso_prom_dias) || 0, retraso_max_dias: n(timing.retraso_max_dias), en_franja: n(timing.en_franja) },
+      gestion: { asignados: n(gestion.asignados), habilitados: n(gestion.habilitados), sincronizados: n(gestion.sincronizados), deudores: n(gestion.deudores), listos_por_habilitar: n(gestion.listos_por_habilitar) },
+      listas: { por_grupo: listasGrupo.map(x => ({ grupo: x.grupo, dias: n(x.dias) })), finde: n(listasExtra.finde), otros: listasAyudantes.reduce((s, x) => s + n(x.listas), 0), ayudantes: listasAyudantes.map(x => ({ nombre: x.nombre, listas: n(x.listas) })) },
+      docentes: { registros: n(docentes.registros), dias: n(docentes.dias), docentes_distintos: n(docentes.docentes_distintos), presentes: n(docentes.presentes), tardanzas: n(docentes.tardanzas), faltas: n(docentes.faltas), mismo_dia: n(docentes.mismo_dia), en_horario: n(docentes.en_horario), desde_oficina: n(docentes.desde_oficina), despues_8pm: n(docentes.despues_8pm) },
+      horas_docentes: horasDocentes,
+      semanal: semanal.map(s => ({ inicio_semana: s.inicio_semana, listas: n(s.listas) })),
+      semanal_docentes: semanalDoc.map(s => ({ inicio_semana: s.inicio_semana, registros: n(s.registros) }))
+    });
+  } catch (e) { if (conn) conn.release(); console.error('Error rendimiento ficha:', e); res.status(500).json({ error: 'Error al obtener la ficha' }); }
+});
+
+// Excel de evaluación: una fila por auxiliar ACTIVO (users.estado='1' con grupos),
+// con sus métricas de desempeño PROPIO y un puntaje ponderado:
+//   30% cobertura de listas + 20% registro oportuno + 30% horas docentes + 20% habilitados.
+app.get('/api/stats/reportes-aux/rendimiento-auxiliares/excel', requireAdmin, async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    // Días hábiles del ciclo
+    let diasHab = 0;
+    const finC = new Date(REND_FIN + 'T23:59:59');
+    const hastaC = new Date() < finC ? new Date() : finC;
+    for (let dd = new Date(REND_INICIO + 'T00:00:00'); dd <= hastaC; dd.setDate(dd.getDate() + 1)) {
+      const dow = dd.getDay(); if (dow >= 1 && dow <= 5) diasHab++;
+    }
+    // Base: auxiliares activos con grupos
+    const [base] = await conn.query(`
+      SELECT u.id AS users_id, CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar, u.dni,
+             COUNT(DISTINCT ag.grupo_aulas_id) AS grupos
+      FROM auxiliares a
+      JOIN users u ON u.id = a.users_id AND u.estado = '1'
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = a.id
+      GROUP BY u.id, auxiliar, u.dni`);
+    // Listas propias + oportunidad (mismo día / franja laboral del turno).
+    // Atribución por el CREADOR real (audits), no por users_id (subidas tardías
+    // quedan estampadas al coordinador).
+    const [listas] = await conn.query(`
+      SELECT au3.user_id AS users_id, COUNT(*) AS listas,
+             SUM(DATE(ae.created_at) = ae.fecha) AS mismo_dia,
+             SUM(DATE(ae.created_at) = ae.fecha AND (
+               (tu.denominacion LIKE 'Mañana%' AND TIME(ae.created_at) BETWEEN '07:00:00' AND '13:00:00') OR
+               (tu.denominacion LIKE 'Tarde%'  AND TIME(ae.created_at) BETWEEN '13:00:00' AND '19:00:00') OR
+               (tu.denominacion LIKE 'Noche%'  AND TIME(ae.created_at) BETWEEN '16:00:00' AND '22:00:00'))) AS en_franja
+      FROM asistencia_estudiantes ae
+      JOIN audits au3 ON au3.auditable_type = ? AND au3.auditable_id = ae.id AND au3.event = 'created'
+      JOIN grupo_aulas ga ON ga.id = ae.grupo_aulas_id
+      JOIN turnos tu ON tu.id = ga.turnos_id
+      WHERE ae.fecha BETWEEN ? AND ?
+      GROUP BY au3.user_id`, ['App\\Models\\AsistenciaEstudiante', REND_INICIO, REND_FIN]);
+    // Horas docentes PROPIAS por bloque (creador real = el auxiliar)
+    const [horas] = await conn.query(`
+      SELECT users_id, SUM(horas) AS horas_propias FROM (
+        SELECT aux.users_id, ag.grupo_aulas_id, ad.fecha, ad.hora_inicio,
+               MAX(ad.cantidad_horas) AS horas, MAX(au2.user_id = aux.users_id) AS propio
+        FROM auxiliares aux
+        JOIN users u ON u.id = aux.users_id AND u.estado = '1'
+        JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+        JOIN carga_academicas ca ON ca.grupo_aulas_id = ag.grupo_aulas_id
+        JOIN asistencia_docentes ad ON ad.carga_academicas_id = ca.id AND ad.fecha BETWEEN ? AND ?
+        JOIN audits au2 ON au2.auditable_type = ? AND au2.auditable_id = ad.id AND au2.event = 'created'
+        GROUP BY aux.users_id, ag.grupo_aulas_id, ad.fecha, ad.hora_inicio
+      ) b WHERE propio = 1 GROUP BY users_id`, [REND_INICIO, REND_FIN, 'App\\Models\\AsistenciaDocente']);
+    // Gestión de habilitados
+    const [gest] = await conn.query(`
+      SELECT u.id AS users_id, COUNT(DISTINCT m.estudiantes_id) AS asignados,
+             COUNT(DISTINCT CASE WHEN m.habilitado='1' THEN m.estudiantes_id END) AS habilitados
+      FROM auxiliares aux
+      JOIN users u ON u.id = aux.users_id AND u.estado = '1'
+      JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      GROUP BY u.id`);
+    // Coordinadores activos → auxiliares activos de sus grupos (para el promedio por coordinador)
+    const [coordPares] = await conn.query(`
+      SELECT cg.coordinador_id, CONCAT_WS(' ', uc.paterno, uc.materno, uc.name) AS coordinador,
+             aux.users_id AS aux_users_id
+      FROM coordinador_grupos cg
+      JOIN users uc ON uc.id = cg.coordinador_id AND uc.estado = '1'
+      JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = cg.grupos_id
+      JOIN auxiliares aux ON aux.id = ag.auxiliares_id
+      JOIN users ua ON ua.id = aux.users_id AND ua.estado = '1'
+      GROUP BY cg.coordinador_id, coordinador, aux.users_id`);
+    const [coordGrupos] = await conn.query(`
+      SELECT cg.coordinador_id, COUNT(DISTINCT cg.grupos_id) AS grupos
+      FROM coordinador_grupos cg
+      JOIN users uc ON uc.id = cg.coordinador_id AND uc.estado = '1'
+      GROUP BY cg.coordinador_id`);
+    conn.release();
+    const por = arr => Object.fromEntries(arr.map(x => [x.users_id, x]));
+    const mLis = por(listas), mHor = por(horas), mGes = por(gest);
+    const pctCap = (a, b) => b > 0 ? Math.min(100, Math.round(1000 * a / b) / 10) : 0;
+    const filas = base.map(b => {
+      const li = mLis[b.users_id] || {}, ho = mHor[b.users_id] || {}, ge = mGes[b.users_id] || {};
+      const nLis = Number(li.listas) || 0;
+      const espListas = b.grupos * diasHab;
+      const cobertura = pctCap(nLis, espListas);
+      const mismoDia = nLis > 0 ? Math.round(100 * (Number(li.mismo_dia) || 0) / nLis) : 0;
+      const franja = nLis > 0 ? Math.round(100 * (Number(li.en_franja) || 0) / nLis) : 0;
+      const oportuno = Math.round(0.5 * mismoDia + 0.5 * franja);
+      const hProp = Number(ho.horas_propias) || 0;
+      const espHoras = b.grupos * 5 * diasHab;
+      const pctHoras = pctCap(hProp, espHoras);
+      const asignados = Number(ge.asignados) || 0;
+      const habilitados = Number(ge.habilitados) || 0;
+      const pctHab = asignados > 0 ? Math.round(1000 * habilitados / asignados) / 10 : 0;
+      const puntaje = Math.round((0.30 * cobertura + 0.20 * oportuno + 0.30 * pctHoras + 0.20 * pctHab) * 10) / 10;
+      const nota = Math.round(puntaje / 5 * 10) / 10;
+      const calif = puntaje >= 90 ? 'Excelente' : puntaje >= 75 ? 'Bueno' : puntaje >= 60 ? 'Regular' : 'Deficiente';
+      return { ...b, nLis, espListas, cobertura, mismoDia, franja, oportuno, hProp, espHoras, pctHoras, asignados, habilitados, pctHab, puntaje, nota, calif };
+    }).sort((a, b) => b.puntaje - a.puntaje);
+    // Contexto de carga: estudiantes por grupo y carga relativa vs el promedio del equipo
+    // (100 = carga promedio). Los % ya normalizan por los grupos/días de cada auxiliar,
+    // pero la carga se muestra para ponderar la evaluación con criterio.
+    const avgEst = filas.length ? filas.reduce((s, r) => s + r.asignados, 0) / filas.length : 0;
+    filas.forEach(r => {
+      r.estGrupo = r.grupos > 0 ? Math.round(r.asignados / r.grupos) : 0;
+      r.cargaRel = avgEst > 0 ? Math.round(100 * r.asignados / avgEst) : 0;
+    });
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Evaluación');
+    ws.addRow([`EVALUACIÓN DE AUXILIARES · CICLO ${REND_INICIO} a ${REND_FIN} (${diasHab} días hábiles) · solo auxiliares activos`]).font = { bold: true, size: 12 };
+    ws.addRow(['Puntaje = 30% cobertura de listas propias + 20% registro oportuno (mismo día/franja del turno) + 30% horas docentes propias + 20% estudiantes habilitados. Nota = puntaje/5 (escala 0-20).']).font = { size: 9, italic: true };
+    ws.addRow(['Los % ya normalizan por la carga de cada auxiliar (sus grupos × días). "Carga rel. %" = estudiantes vs el promedio del equipo (100 = promedio): úsala para ponderar con criterio a quien tuvo más/menos carga.']).font = { size: 9, italic: true };
+    ws.addRow([]);
+    const head = ws.addRow(['#', 'Auxiliar', 'DNI', 'Grupos', 'Estudiantes', 'Est./grupo', 'Carga rel. %', 'Listas propias', 'Listas esperadas', '% Cobertura', '% Mismo día', '% En su turno', '% Oportuno', 'Horas doc. propias', 'Horas esperadas', '% Horas', 'Habilitados', '% Habilitados', 'PUNTAJE (0-100)', 'NOTA (0-20)', 'CALIFICACIÓN']);
+    head.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } }; c.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } }; c.alignment = { horizontal: 'center', wrapText: true }; });
+    const colorCalif = { Excelente: 'FFC6EFCE', Bueno: 'FFDDEBC8', Regular: 'FFFFEB9C', Deficiente: 'FFFFC7CE' };
+    filas.forEach((r, i) => {
+      const row = ws.addRow([i + 1, r.auxiliar, r.dni, r.grupos, r.asignados, r.estGrupo, r.cargaRel, r.nLis, r.espListas, r.cobertura, r.mismoDia, r.franja, r.oportuno, r.hProp, r.espHoras, r.pctHoras, r.habilitados, r.pctHab, r.puntaje, r.nota, r.calif]);
+      row.eachCell(c => { c.font = { size: 9 }; });
+      row.getCell(19).font = { size: 9, bold: true };
+      row.getCell(21).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorCalif[r.calif] || 'FFFFFFFF' } };
+      row.getCell(21).font = { size: 9, bold: true };
+    });
+    // Fila de promedios del equipo
+    const avg = k => filas.length ? Math.round(filas.reduce((s, r) => s + r[k], 0) / filas.length * 10) / 10 : 0;
+    const promRow = ws.addRow(['', 'PROMEDIO DEL EQUIPO', '', avg('grupos'), Math.round(avg('asignados')), '', 100, Math.round(avg('nLis')), '', avg('cobertura'), avg('mismoDia'), avg('franja'), avg('oportuno'), '', '', avg('pctHoras'), '', avg('pctHab'), avg('puntaje'), avg('nota'), '']);
+    promRow.eachCell(c => { c.font = { size: 9, bold: true }; c.border = { top: { style: 'double' } }; });
+    ws.columns = [{ width: 4 }, { width: 34 }, { width: 10 }, { width: 7 }, { width: 10 }, { width: 9 }, { width: 9 }, { width: 11 }, { width: 12 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 12 }, { width: 12 }, { width: 8 }, { width: 10 }, { width: 11 }, { width: 13 }, { width: 10 }, { width: 12 }];
+    ws.views = [{ state: 'frozen', ySplit: 5 }];
+
+    // ===== Hoja 2: promedio por coordinador (según los auxiliares de sus grupos) =====
+    const wc = wb.addWorksheet('Coordinadores');
+    wc.addRow(['PROMEDIO POR COORDINADOR · según los auxiliares activos de sus grupos asignados']).font = { bold: true, size: 12 };
+    wc.addRow(['Promedio simple del puntaje de sus auxiliares (ver hoja Evaluación). Mismos umbrales de calificación.']).font = { size: 9, italic: true };
+    wc.addRow([]);
+    const hc = wc.addRow(['#', 'Coordinador', 'Grupos supervisados', 'Auxiliares evaluados', 'Prom. puntaje', 'Prom. nota', 'CALIFICACIÓN', 'Mejor auxiliar', 'Puntaje', 'Menor auxiliar', 'Puntaje']);
+    hc.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } }; c.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } }; c.alignment = { horizontal: 'center', wrapText: true }; });
+    const porUid = Object.fromEntries(filas.map(f => [f.users_id, f]));
+    const gruposCoord = Object.fromEntries(coordGrupos.map(x => [x.coordinador_id, Number(x.grupos) || 0]));
+    const coordMap = {};
+    coordPares.forEach(p2 => { const cm = coordMap[p2.coordinador_id] = coordMap[p2.coordinador_id] || { coordinador: p2.coordinador, auxIds: new Set() }; cm.auxIds.add(p2.aux_users_id); });
+    const coordFilas = Object.entries(coordMap).map(([cid, cm]) => {
+      const evals = [...cm.auxIds].map(id => porUid[id]).filter(Boolean);
+      if (!evals.length) return null;
+      const prom = Math.round(evals.reduce((s, e2) => s + e2.puntaje, 0) / evals.length * 10) / 10;
+      const mejor = evals.reduce((a, b2) => a.puntaje >= b2.puntaje ? a : b2);
+      const menor = evals.reduce((a, b2) => a.puntaje <= b2.puntaje ? a : b2);
+      return { coordinador: cm.coordinador, grupos: gruposCoord[cid] || 0, nAux: evals.length, prom, nota: Math.round(prom / 5 * 10) / 10, calif: prom >= 90 ? 'Excelente' : prom >= 75 ? 'Bueno' : prom >= 60 ? 'Regular' : 'Deficiente', mejor, menor };
+    }).filter(Boolean).sort((a, b) => b.prom - a.prom);
+    coordFilas.forEach((r, i) => {
+      const row = wc.addRow([i + 1, r.coordinador, r.grupos, r.nAux, r.prom, r.nota, r.calif, r.mejor.auxiliar, r.mejor.puntaje, r.menor.auxiliar, r.menor.puntaje]);
+      row.eachCell(c => { c.font = { size: 9 }; });
+      row.getCell(5).font = { size: 9, bold: true };
+      row.getCell(7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorCalif[r.calif] || 'FFFFFFFF' } };
+      row.getCell(7).font = { size: 9, bold: true };
+    });
+    wc.columns = [{ width: 4 }, { width: 34 }, { width: 12 }, { width: 12 }, { width: 11 }, { width: 9 }, { width: 12 }, { width: 32 }, { width: 8 }, { width: 32 }, { width: 8 }];
+    wc.views = [{ state: 'frozen', ySplit: 4 }];
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="evaluacion-auxiliares.xlsx"');
+    res.send(Buffer.from(buf));
+  } catch (e) { if (conn) conn.release(); console.error('Error excel evaluación:', e); res.status(500).json({ error: 'Error al generar el Excel' }); }
+});
+
+app.get('/stats/reportes-aux/rendimiento', (req, res) => {
+  res.sendFile(require('path').join(__dirname, 'stats', 'reportes-aux', 'rendimiento', 'index.html'));
 });
 
 // ============ ENDPOINT DE AUTENTICACIÓN ============

@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>CEPREUNA - Rendimiento Auxiliares</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: { extend: { colors: {
+                "primary": "#003366", "primary-light": "#004080",
+                "background-light": "#f5f7f8", "background-dark": "#0f1923",
+            }, fontFamily: { "display": ["Inter", "sans-serif"] } } },
+        }
+    </script>
+    <style>
+        .sidebar-item-active { background-color: rgba(0, 51, 102, 0.1); color: #003366; border-right: 4px solid #003366; }
+        .dark .sidebar-item-active { background-color: rgba(255, 255, 255, 0.05); color: #fff; border-right-color: #fff; }
+        @media (max-width: 1024px) { .sidebar { display: none; } }
+        .table-fixed-head thead th { position: sticky; top: 0; z-index: 5; background-color: #f1f5f9; }
+        .dark .table-fixed-head thead th { background-color: #1e293b; }
+        /* Imprimir/PDF: solo la ficha individual (reporte del auxiliar) */
+        @media print {
+            body * { visibility: hidden; }
+            #fichaCard, #fichaCard * { visibility: visible; }
+            #fichaCard { position: absolute; left: 0; top: 0; width: 100%; border: none !important; box-shadow: none !important; }
+            #fichaPrint, #selAux { display: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+    <script>
+        const sessionDataString = localStorage.getItem('stats_session');
+        const sessionData = sessionDataString ? JSON.parse(sessionDataString) : null;
+        function _tokenVencido(t) { try { const p = JSON.parse(atob(String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return !p.exp || p.exp * 1000 < Date.now(); } catch (e) { return true; } }
+        let _redir = false;
+        if (!sessionData || !sessionData.token || String(sessionData.token).startsWith('valid_session_token_') || _tokenVencido(sessionData.token)) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; _redir = true; }
+        const _role = sessionData?.user?.role;
+        if (!_redir && !['Administrador', 'Super Admin', 'Oficina de Administración'].includes(_role)) { window.location.href = '/stats/alumnos'; }
+    </script>
+
+    <div class="flex h-screen overflow-hidden">
+        <aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col hidden lg:flex">
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white"><span class="material-symbols-outlined text-2xl">school</span></div>
+                <div><h1 class="text-primary dark:text-white font-bold text-lg leading-none">CEPREUNA</h1><p class="text-slate-500 text-[10px] font-medium uppercase tracking-widest mt-1">Estadísticas</p></div>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-1">
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats"><span class="material-symbols-outlined">dashboard</span><span class="font-medium">Resumen</span></a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/reportes"><span class="material-symbols-outlined">description</span><span class="font-medium">Reportes</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/habilitados"><span class="material-symbols-outlined">how_to_reg</span><span class="font-medium">Habilitados</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos"><span class="material-symbols-outlined">group</span><span class="font-medium">Alumnos</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/alumnos-calificacion"><span class="material-symbols-outlined">grading</span><span class="font-medium">Alumnos-Calificación</span></a>
+                <a data-role="admin" style="display:none" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="/stats/docentes-stats"><span class="material-symbols-outlined">insights</span><span class="font-medium">Docentes-Stats</span></a>
+                <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg sidebar-item-active transition-colors" href="/stats/reportes-aux"><span class="material-symbols-outlined">supervisor_account</span><span class="font-medium">Reportes auxiliares</span></a>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-3 p-2">
+                    <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold" id="userInitial">A</div>
+                    <div class="flex-1 min-w-0"><p class="text-sm font-semibold truncate" id="userNameDisplay">Admin</p><p class="text-[10px] text-slate-500 truncate" id="userEmailDisplay">—</p></div>
+                    <button id="logoutBtn" class="text-slate-400 hover:text-red-500 transition-colors"><span class="material-symbols-outlined text-sm">logout</span></button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 lg:px-8 sticky top-0 z-10">
+                <div class="flex items-center gap-2">
+                    <a href="/stats/reportes-aux" class="text-slate-400 hover:text-primary"><span class="material-symbols-outlined">arrow_back</span></a>
+                    <span class="material-symbols-outlined text-violet-600">speed</span>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Rendimiento · Auxiliares</h2>
+                    <span class="text-xs text-slate-400 hidden md:inline" id="rangoTxt">23/03 – 10/07/2026 · 16 semanas · lun-vie</span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button id="excelBtn" class="px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white text-xs font-bold flex items-center gap-1.5" title="Evaluación de auxiliares activos con puntaje y calificación"><span class="material-symbols-outlined text-base">download</span>Excel evaluación</button>
+                    <button id="reloadBtn" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors" title="Recargar"><span class="material-symbols-outlined text-xl">refresh</span></button>
+                    <button id="themeToggle" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"><span class="material-symbols-outlined text-xl" id="themeIcon">dark_mode</span></button>
+                    <button class="logout-trigger w-9 h-9 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-600 transition-colors" title="Cerrar Sesión"><span class="material-symbols-outlined text-xl">logout</span></button>
+                </div>
+            </header>
+
+            <div class="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto w-full">
+                <!-- KPIs -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Listas tomadas</p><p class="text-3xl font-black mt-1" id="kListas">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Auxiliares activos</p><p class="text-3xl font-black mt-1 text-violet-600" id="kAux">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Acciones en el sistema</p><p class="text-3xl font-black mt-1 text-sky-600" id="kAcc">—</p></div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Modif. a estudiantes</p><p class="text-3xl font-black mt-1 text-amber-600" id="kMod">—</p></div>
+                </div>
+
+                <!-- Ficha individual con interpretación -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border-2 border-violet-200 dark:border-violet-900/50 shadow-sm p-5 lg:p-6" id="fichaCard">
+                    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <h3 class="text-sm font-bold flex items-center gap-2"><span class="material-symbols-outlined text-base text-violet-600">person_search</span>Ficha individual · rendimiento explicado</h3>
+                        <div class="flex items-center gap-2">
+                            <select id="selAux" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm max-w-[280px]">
+                                <option value="">— Selecciona un auxiliar —</option>
+                            </select>
+                            <button id="fichaPrint" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5" title="Imprimir o guardar como PDF el reporte del auxiliar"><span class="material-symbols-outlined text-base">print</span>Reporte PDF</button>
+                        </div>
+                    </div>
+                    <div id="fichaBody"><p class="text-xs text-slate-400">Selecciona un auxiliar (o haz clic en su barra en cualquier gráfica de Cobertura) para ver sus números en contexto: qué se esperaba de él, cómo registra y cómo va su gestión.</p></div>
+                </div>
+
+                <!-- Evolución semanal -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                    <h3 class="text-sm font-bold flex items-center gap-2 mb-4"><span class="material-symbols-outlined text-base text-emerald-600">timeline</span>Evolución semanal · listas de asistencia tomadas</h3>
+                    <div style="height:280px"><canvas id="chSem"></canvas></div>
+                </div>
+
+                <!-- Cobertura + Puntualidad -->
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                            <h3 class="text-sm font-bold flex items-center gap-2"><span class="material-symbols-outlined text-base text-emerald-600">fact_check</span>Cobertura · listas tomadas</h3>
+                            <div class="flex gap-1">
+                                <button data-modo="pct" class="btnCob px-3 py-1.5 rounded-lg text-xs font-bold bg-primary text-white">% de esperadas</button>
+                                <button data-modo="cantidad" class="btnCob px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">Cantidad</button>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-400 mb-4">% = listas tomadas ÷ esperadas (grupos asignados × días hábiles). Así un auxiliar con 2 grupos y otro con 8 son comparables. Clic en la barra → ficha.</p>
+                        <div style="height:640px"><canvas id="chCob"></canvas></div>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                        <h3 class="text-sm font-bold flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-base text-sky-600">schedule</span>Puntualidad · franja en que registra</h3>
+                        <p class="text-xs text-slate-400 mb-4">Distribución de sus registros: mañana (&lt;12h), tarde (12-17h), noche (18h+). Tooltip: hora promedio.</p>
+                        <div style="height:640px"><canvas id="chPunt"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- Actividad + Asist. docentes -->
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                        <h3 class="text-sm font-bold flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-base text-sky-600">history</span>Actividad total en el sistema</h3>
+                        <p class="text-xs text-slate-400 mb-4">Acciones auditadas: registros, ediciones y eliminaciones. Muchas ediciones pueden indicar correcciones frecuentes.</p>
+                        <div style="height:640px"><canvas id="chAct"></canvas></div>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                        <h3 class="text-sm font-bold flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-base text-amber-600">co_present</span>Asistencia de docentes registrada</h3>
+                        <p class="text-xs text-slate-400 mb-4">Registros de asistencia docente hechos por cada auxiliar (tooltip: tardanzas/faltas marcadas).</p>
+                        <div style="height:640px"><canvas id="chDoc"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- Gestión + Modificaciones -->
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                        <h3 class="text-sm font-bold flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-base text-emerald-600">how_to_reg</span>Gestión · % habilitados y sincronizados</h3>
+                        <p class="text-xs text-slate-400 mb-4">De los estudiantes asignados a sus grupos (tooltip: cantidades).</p>
+                        <div style="height:640px"><canvas id="chGest"></canvas></div>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 lg:p-6">
+                        <h3 class="text-sm font-bold flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-base text-amber-600">edit_note</span>Modificaciones a estudiantes asignados</h3>
+                        <p class="text-xs text-slate-400 mb-4"><b>Clic en una barra</b> para ver el detalle: qué campo cambió, antes → después, fecha.</p>
+                        <div style="height:640px"><canvas id="chMod"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- Tabla resumen -->
+                <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <h3 class="font-bold text-sm flex items-center gap-2"><span class="material-symbols-outlined text-base text-slate-500">table_rows</span>Resumen por auxiliar</h3>
+                        <button id="csvBtn" class="px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white text-xs font-bold flex items-center gap-1.5"><span class="material-symbols-outlined text-base">download</span>CSV</button>
+                    </div>
+                    <div class="overflow-x-auto max-h-[65vh] overflow-y-auto table-fixed-head">
+                        <table class="w-full text-xs">
+                            <thead><tr class="text-left text-slate-500 uppercase tracking-tight">
+                                <th class="px-4 py-2 font-bold">Auxiliar</th>
+                                <th class="px-4 py-2 font-bold text-right">Listas</th>
+                                <th class="px-4 py-2 font-bold text-right">Días</th>
+                                <th class="px-4 py-2 font-bold text-right">Grupos</th>
+                                <th class="px-4 py-2 font-bold text-right">Hora prom.</th>
+                                <th class="px-4 py-2 font-bold text-right">Acciones</th>
+                                <th class="px-4 py-2 font-bold text-right">Asist. doc.</th>
+                                <th class="px-4 py-2 font-bold text-right">% Habil.</th>
+                                <th class="px-4 py-2 font-bold text-right">Modif.</th>
+                            </tr></thead>
+                            <tbody id="tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal: detalle de modificaciones -->
+    <div id="modalMod" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" id="mmBackdrop"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-2xl">
+                <div class="sticky top-0 bg-primary text-white px-5 py-4 flex items-start justify-between rounded-t-2xl z-10">
+                    <div><h3 class="font-bold text-base leading-tight" id="mmTitulo">—</h3><p class="text-[11px] opacity-80 mt-0.5" id="mmSub">Modificaciones a estudiantes asignados · qué cambió</p></div>
+                    <button id="mmClose" class="rounded-lg p-1 hover:bg-white/20"><span class="material-symbols-outlined">close</span></button>
+                </div>
+                <div class="p-5">
+                    <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-1">Cambios por fecha <span class="font-normal normal-case" id="mmTopFechas"></span></p>
+                    <div style="height:130px" class="mb-4"><canvas id="mmChart"></canvas></div>
+                    <div class="flex flex-wrap items-center gap-1.5 mb-3" id="mmResumen"></div>
+                    <label class="flex items-center gap-2 text-xs text-slate-500 mb-3 cursor-pointer"><input type="checkbox" id="mmTecnicos" class="rounded"/> Mostrar cambios técnicos del sistema (flags de edición, GSuite, foto…)</label>
+                    <div class="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 table-fixed-head">
+                        <table class="w-full text-xs"><thead><tr class="text-left text-slate-500 uppercase tracking-tight"><th class="px-3 py-2 font-bold">Fecha</th><th class="px-3 py-2 font-bold">Estudiante</th><th class="px-3 py-2 font-bold">Cambios (antes → después)</th><th class="px-3 py-2 font-bold">Modificado por</th></tr></thead><tbody id="mmTbody"></tbody></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if (sessionData && sessionData.user) {
+            const u = sessionData.user;
+            document.getElementById('userNameDisplay').textContent = u.name || 'Admin';
+            document.getElementById('userEmailDisplay').textContent = u.email || '—';
+            document.getElementById('userInitial').textContent = (u.name || 'A').charAt(0).toUpperCase();
+            if (['Administrador', 'Super Admin', 'Oficina de Administración'].includes(u.role)) {
+                document.querySelectorAll('[data-role="admin"]').forEach(el => el.style.display = '');
+            }
+        }
+        function handleLogout() { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; }
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        document.querySelectorAll('.logout-trigger').forEach(b => b.addEventListener('click', handleLogout));
+
+        const charts = {};
+        const themeIcon = document.getElementById('themeIcon');
+        function applyTheme(d) { document.documentElement.classList.toggle('dark', d); themeIcon.textContent = d ? 'light_mode' : 'dark_mode'; localStorage.setItem('stats_theme', d ? 'dark' : 'light'); temaCharts(); }
+        applyTheme(localStorage.getItem('stats_theme') === 'dark');
+        document.getElementById('themeToggle').addEventListener('click', () => applyTheme(!document.documentElement.classList.contains('dark')));
+
+        const authHeaders = { 'Authorization': 'Bearer ' + sessionData.token };
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const fmt = n => Number(n || 0).toLocaleString('es-PE');
+        async function getJSON(url) { const r = await fetch(url, { headers: authHeaders }); if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; throw new Error('401'); } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
+
+        function colores() { const dark = document.documentElement.classList.contains('dark'); return { grid: dark ? 'rgba(148,163,184,0.15)' : 'rgba(100,116,139,0.15)', text: dark ? '#cbd5e1' : '#475569' }; }
+        function temaCharts() {
+            const c = colores();
+            Object.values(charts).forEach(ch => { if (!ch) return;
+                (ch.options.scales && Object.values(ch.options.scales) || []).forEach(sc => { if (sc.grid) sc.grid.color = c.grid; if (sc.ticks) sc.ticks.color = c.text; });
+                if (ch.options.plugins?.legend?.labels) ch.options.plugins.legend.labels.color = c.text;
+                ch.update('none');
+            });
+        }
+        function barraH(id, labels, datasets, opts = {}) {
+            const c = colores();
+            if (charts[id]) charts[id].destroy();
+            charts[id] = new Chart(document.getElementById(id), {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: datasets.length > 1 ? { labels: { color: c.text, boxWidth: 12 } } : { display: false }, tooltip: { callbacks: opts.tooltip || {} } },
+                    scales: {
+                        x: { beginAtZero: true, stacked: !!opts.stacked, max: opts.max, grid: { color: c.grid }, ticks: { color: c.text } },
+                        y: { stacked: !!opts.stacked, grid: { display: false }, ticks: { color: c.text, font: { size: 10 } } }
+                    },
+                    onClick: opts.onClick
+                }
+            });
+        }
+
+        let D = null; // datos del endpoint
+
+        async function cargar() {
+            try {
+                D = await getJSON('/api/stats/reportes-aux/rendimiento-auxiliares');
+                const c = colores();
+                const porDni = arr => Object.fromEntries((arr || []).map(r => [r.dni, r]));
+                const mPunt = porDni(D.puntualidad), mAct = porDni(D.actividad), mDoc = porDni(D.asistDocentes), mGest = porDni(D.gestion), mMod = porDni(D.modificaciones);
+
+                // KPIs
+                document.getElementById('kListas').textContent = fmt(D.cobertura.reduce((s, r) => s + r.listas_tomadas, 0));
+                document.getElementById('kAux').textContent = fmt(D.cobertura.length);
+                document.getElementById('kAcc').textContent = fmt(D.actividad.reduce((s, r) => s + r.total_acciones, 0));
+                document.getElementById('kMod').textContent = fmt(D.modificaciones.reduce((s, r) => s + r.total_modificaciones, 0));
+
+                // Semanal (línea)
+                if (charts.chSem) charts.chSem.destroy();
+                charts.chSem = new Chart(document.getElementById('chSem'), {
+                    type: 'line',
+                    data: { labels: D.semanal.map(s => s.inicio_semana.slice(5)), datasets: [{ label: 'Listas tomadas', data: D.semanal.map(s => s.listas_tomadas), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.12)', fill: true, tension: 0.3, pointRadius: 3 }] },
+                    options: { responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: ctx => `${D.semanal[ctx.dataIndex].auxiliares_activos} auxiliares activos` } } },
+                        scales: { x: { grid: { color: c.grid }, ticks: { color: c.text } }, y: { beginAtZero: true, grid: { color: c.grid }, ticks: { color: c.text } } } }
+                });
+
+                // Select de ficha individual
+                const sel = document.getElementById('selAux');
+                const prevSel = sel.value;
+                sel.innerHTML = '<option value="">— Selecciona un auxiliar —</option>' + [...D.cobertura].sort((a, b) => a.auxiliar.localeCompare(b.auxiliar, 'es')).map(r => `<option value="${r.users_id}">${esc(r.auxiliar)}</option>`).join('');
+                sel.value = prevSel;
+
+                // 1. Cobertura (clic en barra → ficha individual)
+                const cob = D.cobertura;
+                renderCob();
+
+                // 2. Puntualidad (apilada, mismo orden que cobertura)
+                const punt = cob.map(r => mPunt[r.dni]).filter(Boolean);
+                barraH('chPunt', punt.map(r => r.auxiliar), [
+                    { label: 'Mañana', data: punt.map(r => r.en_manana), backgroundColor: '#38bdf8' },
+                    { label: 'Tarde', data: punt.map(r => r.en_tarde), backgroundColor: '#f59e0b' },
+                    { label: 'Noche', data: punt.map(r => r.en_noche), backgroundColor: '#6366f1' }
+                ], { stacked: true, tooltip: { afterTitle: items => `Hora promedio: ${punt[items[0].dataIndex].hora_promedio}` } });
+
+                // 3. Actividad (apilada)
+                const act = [...D.actividad].sort((a, b) => b.total_acciones - a.total_acciones);
+                barraH('chAct', act.map(r => r.auxiliar), [
+                    { label: 'Registros', data: act.map(r => r.registros), backgroundColor: '#10b981' },
+                    { label: 'Ediciones', data: act.map(r => r.ediciones), backgroundColor: '#f59e0b' },
+                    { label: 'Eliminaciones', data: act.map(r => r.eliminaciones), backgroundColor: '#ef4444' }
+                ], { stacked: true, tooltip: { afterTitle: items => `${act[items[0].dataIndex].dias_activos} días activos` } });
+
+                // 4. Asistencia docentes
+                const doc = [...D.asistDocentes].sort((a, b) => b.asist_docentes_registradas - a.asist_docentes_registradas);
+                barraH('chDoc', doc.map(r => r.auxiliar), [{ label: 'Registros', data: doc.map(r => r.asist_docentes_registradas), backgroundColor: '#f59e0b' }],
+                    { tooltip: { afterLabel: ctx => { const r = doc[ctx.dataIndex]; return `${r.docentes_distintos} docentes · marcó ${r.marco_tardanza} tardanzas, ${r.marco_falta} faltas`; } } });
+
+                // 5. Gestión %
+                const ges = [...D.gestion].sort((a, b) => b.pct_habilitados - a.pct_habilitados);
+                barraH('chGest', ges.map(r => r.auxiliar), [
+                    { label: '% Habilitados', data: ges.map(r => r.pct_habilitados), backgroundColor: '#10b981' },
+                    { label: '% Sincronizados', data: ges.map(r => r.pct_sincronizados), backgroundColor: '#0ea5e9' }
+                ], { max: 100, tooltip: { afterLabel: ctx => { const r = ges[ctx.dataIndex]; return `${r.habilitados}/${r.asignados} habil. · ${r.sincronizados} sincr.`; } } });
+
+                // 6a. Modificaciones (clic → detalle)
+                const mod = D.modificaciones;
+                barraH('chMod', mod.map(r => r.auxiliar), [{ label: 'Modificaciones', data: mod.map(r => r.total_modificaciones), backgroundColor: '#f59e0b' }],
+                    { tooltip: { afterLabel: ctx => { const r = mod[ctx.dataIndex]; return `${r.estudiantes_modificados} estudiantes · ${r.dias_con_cambios} días`; } },
+                      onClick: (ev, els) => { if (els.length) abrirModal(mod[els[0].index]); } });
+
+                // Tabla resumen (base cobertura, merge por dni)
+                document.getElementById('tbody').innerHTML = cob.map(r => {
+                    const p = mPunt[r.dni] || {}, a = mAct[r.dni] || {}, dd = mDoc[r.dni] || {}, g = mGest[r.dni] || {}, mo = mMod[r.dni] || {};
+                    return `<tr class="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${mo.users_id ? 'cursor-pointer' : ''}" ${mo.users_id ? `data-uid="${mo.users_id}" data-nom="${esc(r.auxiliar)}"` : ''}>
+                        <td class="px-4 py-1.5 font-medium whitespace-nowrap">${esc(r.auxiliar)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono font-bold text-emerald-600">${fmt(r.listas_tomadas)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${fmt(r.dias_con_asistencia)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${fmt(r.grupos_cubiertos)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${p.hora_promedio || '—'}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${fmt(a.total_acciones || 0)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono">${fmt(dd.asist_docentes_registradas || 0)}</td>
+                        <td class="px-4 py-1.5 text-right font-mono font-bold">${g.pct_habilitados != null ? g.pct_habilitados + '%' : '—'}</td>
+                        <td class="px-4 py-1.5 text-right font-mono ${mo.total_modificaciones ? 'text-amber-600 font-bold' : 'text-slate-400'}">${fmt(mo.total_modificaciones || 0)}</td>
+                    </tr>`;
+                }).join('');
+                document.querySelectorAll('#tbody tr[data-uid]').forEach(tr => tr.addEventListener('click', () => abrirModal({ users_id: Number(tr.dataset.uid), auxiliar: tr.dataset.nom })));
+            } catch (e) { console.error(e); }
+        }
+        document.getElementById('reloadBtn').addEventListener('click', cargar);
+        document.getElementById('selAux').addEventListener('change', e => { if (e.target.value) cargarFicha(Number(e.target.value)); });
+        document.getElementById('fichaPrint').addEventListener('click', () => window.print());
+
+        // Excel de evaluación (auxiliares activos, puntaje ponderado + calificación)
+        document.getElementById('excelBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('excelBtn');
+            const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span>Generando…';
+            try {
+                const r = await fetch('/api/stats/reportes-aux/rendimiento-auxiliares/excel', { headers: authHeaders });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const blob = await r.blob();
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'evaluacion-auxiliares.xlsx';
+                document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+            } catch (e) { alert('No se pudo generar el Excel.'); }
+            finally { btn.disabled = false; btn.innerHTML = orig; }
+        });
+
+        // Gráfica de cobertura con dos modos: % de esperadas (comparable) o cantidad bruta.
+        let cobModo = 'pct';
+        function renderCob() {
+            if (!D) return;
+            const dias = D.dias_habiles || 80;
+            const arr = D.cobertura
+                .map(r => { const gr = r.grupos_asignados || r.grupos_cubiertos || 1; const esp = gr * dias; return { ...r, gr, esperadas: esp, pct: esp > 0 ? Math.round(100 * r.listas_tomadas / esp) : 0 }; })
+                .sort((a, b) => cobModo === 'pct' ? b.pct - a.pct : b.listas_tomadas - a.listas_tomadas);
+            barraH('chCob', arr.map(r => r.auxiliar), [{ label: cobModo === 'pct' ? '% de listas esperadas' : 'Listas', data: arr.map(r => cobModo === 'pct' ? Math.min(r.pct, 100) : r.listas_tomadas), backgroundColor: '#10b981' }],
+                { max: cobModo === 'pct' ? 100 : undefined,
+                  tooltip: { afterLabel: ctx => { const r = arr[ctx.dataIndex]; return `${fmt(r.listas_tomadas)} de ~${fmt(r.esperadas)} esperadas (${r.gr} grupos × ${dias} días) · ${r.dias_con_asistencia} días activos · clic para su ficha`; } },
+                  onClick: (ev, els) => { if (els.length) { const r = arr[els[0].index]; const s2 = document.getElementById('selAux'); s2.value = r.users_id; cargarFicha(r.users_id); document.getElementById('fichaCard').scrollIntoView({ behavior: 'smooth' }); } } });
+        }
+        document.querySelectorAll('.btnCob').forEach(b => b.addEventListener('click', () => {
+            cobModo = b.dataset.modo;
+            document.querySelectorAll('.btnCob').forEach(x => { x.classList.remove('bg-primary', 'text-white'); x.classList.add('border', 'border-slate-200', 'dark:border-slate-700'); });
+            b.classList.add('bg-primary', 'text-white'); b.classList.remove('border', 'border-slate-200', 'dark:border-slate-700');
+            renderCob();
+        }));
+
+        // ===== Ficha individual con interpretación =====
+        function semaforo(p) {
+            if (p >= 90) return { cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30', label: 'Excelente' };
+            if (p >= 70) return { cls: 'bg-lime-500/10 text-lime-600 border-lime-500/30', label: 'Bueno' };
+            if (p >= 50) return { cls: 'bg-amber-500/10 text-amber-600 border-amber-500/30', label: 'Regular' };
+            return { cls: 'bg-red-500/10 text-red-500 border-red-500/30', label: 'Bajo' };
+        }
+        async function cargarFicha(uid) {
+            const body = document.getElementById('fichaBody');
+            body.innerHTML = '<p class="text-xs text-slate-400">Cargando ficha…</p>';
+            try {
+                const f = await getJSON('/api/stats/reportes-aux/rendimiento-auxiliares/ficha?users_id=' + uid);
+                const t = f.timing, g = f.gestion;
+                const nGrupos = f.grupos.length;
+                const totalEst = f.grupos.reduce((s, x) => s + x.estudiantes, 0);
+                const esperadas = nGrupos * f.dias_habiles;
+                const cobPct = esperadas > 0 ? Math.round(100 * t.listas / esperadas) : 0;
+                const mismoDiaPct = t.listas > 0 ? Math.round(100 * t.mismo_dia / t.listas) : 0;
+                const franjaPct = t.listas > 0 ? Math.round(100 * t.en_franja / t.listas) : 0;
+                const habPct = g.asignados > 0 ? Math.round(100 * g.habilitados / g.asignados) : 0;
+                // turnos y sedes predominantes
+                const cuenta = (arr, k) => { const m = {}; arr.forEach(x => m[x[k]] = (m[x[k]] || 0) + 1); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+                const turnos = cuenta(f.grupos, 'turno'), sedes = cuenta(f.grupos, 'sede');
+                const turnosTxt = turnos.map(([t2, n2]) => n2 === nGrupos ? `todos de turno <b>${esc(t2)}</b>` : `${n2} de turno <b>${esc(t2)}</b>`).join(', ');
+                const sedesTxt = sedes.map(([s2]) => esc(s2)).join(', ');
+                const dc = f.docentes || {};
+                const hd = f.horas_docentes || { esperadas: 0, registradas: 0, grupos: 0, horas_dia: 5, dias_sin_registro: 0, dias_parciales: 0, faltantes: [] };
+                const docHorarioPct = dc.registros > 0 ? Math.round(100 * dc.en_horario / dc.registros) : 0;
+                // Semáforo docente por desempeño PROPIO: horas que el auxiliar subió
+                // él mismo vs esperadas (grupos × 5 h/día × días hábiles). Las ayudas
+                // de otros usuarios se muestran aparte, no le suman al semáforo.
+                const horasPct = hd.esperadas > 0 ? Math.round(100 * (hd.propias || 0) / hd.esperadas) : 0;
+                const coberturaGrupoPct = hd.esperadas > 0 ? Math.round(100 * hd.registradas / hd.esperadas) : 0;
+                // Las horas cuentan por bloque (falta + reemplazo = un bloque cubierto).
+                // Solo un duplicado REAL (dos dictados en el mismo bloque) baja a "Revisar".
+                const tieneDup = (hd.duplicados || 0) > 0;
+                const sCob = semaforo(cobPct), sReg = semaforo(mismoDiaPct), sHab = semaforo(habPct);
+                const sDoc = tieneDup ? { cls: 'bg-amber-500/10 text-amber-600 border-amber-500/30', label: 'Revisar' } : semaforo(horasPct);
+                // frase de puntualidad interpretada
+                let fraseReg;
+                if (mismoDiaPct >= 85 && franjaPct >= 75) fraseReg = 'registra la asistencia <b>en el momento de la clase</b>, dentro del horario de sus grupos.';
+                else if (mismoDiaPct >= 85) fraseReg = `registra el mismo día, pero <b>fuera del horario de sus grupos</b> (p. ej. grupos de ${esc(turnos[0][0])} subidos en otra franja) — probablemente sube las listas más tarde.`;
+                else fraseReg = `<b>suele subir las listas después</b> (retraso promedio ${t.retraso_prom_dias} días, máximo ${t.retraso_max_dias}), no en el momento de la clase.`;
+                body.innerHTML = `
+                    <div class="flex flex-wrap items-center gap-2 mb-1">
+                        <p class="font-black text-base">${esc(f.auxiliar)}</p>
+                        <span class="text-xs text-slate-400 font-mono">DNI ${esc(f.dni)}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 mb-4">
+                        ${f.grupos.map(x => `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">${esc(x.grupo)} · ${esc(x.turno)} · ${esc(x.sede)} (${x.estudiantes})</span>`).join('')}
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
+                        <div class="rounded-xl border p-4 ${sCob.cls}">
+                            <p class="text-[10px] font-black uppercase tracking-widest">Cobertura de listas</p>
+                            <p class="text-3xl font-black mt-1">${cobPct}% <span class="text-xs font-bold">${sCob.label}</span></p>
+                            <p class="text-xs mt-1 opacity-80">${fmt(t.listas)} de ~${fmt(esperadas)} esperadas (${nGrupos} grupos × ${f.dias_habiles} días hábiles)</p>
+                        </div>
+                        <div class="rounded-xl border p-4 ${sReg.cls}">
+                            <p class="text-[10px] font-black uppercase tracking-widest">Registro oportuno</p>
+                            <p class="text-3xl font-black mt-1">${mismoDiaPct}% <span class="text-xs font-bold">${sReg.label}</span></p>
+                            <p class="text-xs mt-1 opacity-80">listas subidas el mismo día de la clase · ${franjaPct}% dentro del horario del turno</p>
+                        </div>
+                        <div class="rounded-xl border p-4 ${sDoc.cls}">
+                            <p class="text-[10px] font-black uppercase tracking-widest">Horas docentes · subidas por él/ella</p>
+                            <p class="text-3xl font-black mt-1">${Math.min(horasPct, 100)}%${tieneDup ? ' ⚠' : ''} <span class="text-xs font-bold">${sDoc.label}</span></p>
+                            <p class="text-xs mt-1 opacity-80">cubrió ${fmt(hd.propias || 0)} de ${fmt(hd.esperadas)} h esperadas (${hd.grupos} grupos × ${hd.horas_dia} h × ${f.dias_habiles} días)${(hd.terceros || 0) > 0 ? ` · otros cubrieron ${fmt(hd.terceros)} h` : ''}${(hd.reemplazos || 0) > 0 ? ` · ${hd.reemplazos} reemplazo(s) registrados` : ''}${tieneDup ? ` · ${hd.duplicados} bloque(s) duplicados` : ''} · ${hd.dias_sin_registro + hd.dias_parciales} día(s) con faltante</p>
+                        </div>
+                        <div class="rounded-xl border p-4 ${sHab.cls}">
+                            <p class="text-[10px] font-black uppercase tracking-widest">Gestión · habilitados</p>
+                            <p class="text-3xl font-black mt-1">${habPct}% <span class="text-xs font-bold">${sHab.label}</span></p>
+                            <p class="text-xs mt-1 opacity-80">${fmt(g.habilitados)}/${fmt(g.asignados)} habilitados · ${fmt(g.listos_por_habilitar)} listos · ${fmt(g.deudores)} con deuda</p>
+                        </div>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 text-sm leading-relaxed space-y-2">
+                        <p><span class="material-symbols-outlined text-sm align-middle text-violet-600">lightbulb</span> <b>Interpretación:</b>
+                        ${esc(f.auxiliar.split(' ').slice(0, 2).join(' '))} tiene <b>${nGrupos} grupos</b> (${turnosTxt}) en ${sedesTxt}, con <b>${fmt(totalEst)} estudiantes</b>.
+                        El ciclo (23/03 – 10/07, 16 semanas de lunes a viernes) tiene <b>${f.dias_habiles} días hábiles</b>, así que se esperarían ~<b>${fmt(esperadas)}</b> listas (una por grupo por día); tomó <b>${fmt(t.listas)}</b> en ${t.dias_con_asistencia} días${(f.listas?.finde || 0) > 0 ? ` (incluye <b>${f.listas.finde}</b> en fin de semana — recuperación/simulacro, por eso puede superar los ${f.dias_habiles} días)` : ''} → cobertura del <b>${cobPct}%</b> (${sCob.label.toLowerCase()}).
+                        Por grupo: ${(f.listas?.por_grupo || []).map(g2 => { const ok = g2.dias >= f.dias_habiles * 0.95; const mal = g2.dias < f.dias_habiles * 0.8; return `<span class="inline-block px-1.5 py-0.5 rounded text-xs font-bold ${mal ? 'bg-red-500/10 text-red-500' : ok ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}">${esc(g2.grupo)} ${g2.dias}/${f.dias_habiles}</span>`; }).join(' ')}.
+                        ${(f.listas?.otros || 0) > 0 ? `Además, <b>otros usuarios tomaron ${fmt(f.listas.otros)} listas</b> de sus grupos (respaldo en días que no registró él/ella): ${(f.listas.ayudantes || []).map(a3 => `${esc(a3.nombre)} (${fmt(a3.listas)})`).join(', ')}.` : ''}</p>
+                        <p>El <b>${mismoDiaPct}%</b> de sus listas las registró el mismo día de la clase y el <b>${franjaPct}%</b> dentro del horario del turno de sus grupos: ${fraseReg}</p>
+                        <p>En <b>asistencia docente</b>, el/la auxiliar subió <b>${fmt(hd.propias || 0)}</b> de <b>${fmt(hd.esperadas)}</b> horas esperadas (<b>${horasPct}%</b>; ${hd.grupos} grupos × ${hd.horas_dia} h/día × ${f.dias_habiles} días hábiles).
+                        ${(hd.terceros || 0) > 0 ? `Además, <b>otros usuarios registraron ${fmt(hd.terceros)} h</b> de sus grupos: ${hd.ayudantes.map(a2 => `${esc(a2.nombre)} (${fmt(a2.horas)} h${a2.despues_del_dia > 0 ? `, <span class="text-amber-600 dark:text-amber-400">${a2.despues_del_dia} subidas después del día de la sesión</span>` : ''})`).join(', ')} — los registros posteriores a las 23:59 del día de clase requieren un usuario con mayor acceso. Con esas ayudas, la cobertura total del grupo llega al <b>${coberturaGrupoPct}%</b>.` : 'Todo fue registrado con su propia cuenta.'}
+                        ${hd.faltantes.length === 0
+                            ? '<b>Cobertura completa</b>: no hay días sin registrar.'
+                            : `Con faltante: <b>${hd.dias_sin_registro}</b> día(s) sin registro y <b>${hd.dias_parciales}</b> parcial(es): ${hd.faltantes.slice(0, 12).map(x => `<span class="inline-block px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 text-xs font-bold">${esc(x.grupo)} ${x.fecha.slice(5).replace('-', '/')}${x.horas > 0 ? ` (${x.horas}h de ${hd.horas_dia})` : ''}</span>`).join(' ')}${hd.faltantes.length > 12 ? ` <span class="text-slate-400">+${hd.faltantes.length - 12} más</span>` : ''}`}
+                        ${(hd.reemplazos || 0) > 0 ? `Registró correctamente <b>${hd.reemplazos}</b> reemplazo(s): bloques donde el titular faltó y además registró al docente reemplazante — buen control.` : ''}
+                        ${(hd.duplicados_lista || []).length ? `<span class="text-amber-600 dark:text-amber-400">⚠ <b>${hd.duplicados}</b> bloque(s) con DOS dictados registrados (duplicado real, conviene revisar):</span> ${hd.duplicados_lista.slice(0, 10).map(x => `<span class="inline-block px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-bold">${esc(x.grupo)} ${x.fecha.slice(5).replace('-', '/')} ${esc(x.bloque)}</span>`).join(' ')}${hd.duplicados_lista.length > 10 ? ` <span class="text-slate-400">+${hd.duplicados_lista.length - 10} más</span>` : ''}` : ''}
+                        ${(dc.tardanzas + dc.faltas) > 0 ? `Marcó <b>${fmt(dc.tardanzas)}</b> tardanzas y <b>${fmt(dc.faltas)}</b> faltas a docentes — control activo.` : (dc.registros > 100 ? 'No marcó ninguna tardanza ni falta a docentes — posible registro poco estricto.' : '')}
+                        <span class="text-slate-400">(${docHorarioPct}% de los registros se hizo dentro del horario de la sesión.)</span></p>
+                        <p>En gestión, de sus <b>${fmt(g.asignados)}</b> estudiantes: <b>${fmt(g.habilitados)}</b> habilitados (${habPct}%), <b>${fmt(g.listos_por_habilitar)}</b> ya pagaron y están listos para habilitar, y <b>${fmt(g.deudores)}</b> aún tienen deuda.</p>
+                    </div>
+                    <div style="height:200px" class="mt-4"><canvas id="chFichaSem"></canvas></div>`;
+                // mini gráfica semanal individual (estudiantes + docentes)
+                const c = colores();
+                const mapDoc = Object.fromEntries((f.semanal_docentes || []).map(s => [s.inicio_semana, s.registros]));
+                const labels = [...new Set([...f.semanal.map(s => s.inicio_semana), ...(f.semanal_docentes || []).map(s => s.inicio_semana)])].sort();
+                const mapEst = Object.fromEntries(f.semanal.map(s => [s.inicio_semana, s.listas]));
+                if (charts.chFichaSem) charts.chFichaSem.destroy();
+                charts.chFichaSem = new Chart(document.getElementById('chFichaSem'), {
+                    type: 'bar',
+                    data: { labels: labels.map(l => l.slice(5)), datasets: [
+                        { label: 'Listas de estudiantes', data: labels.map(l => mapEst[l] || 0), backgroundColor: '#8b5cf6' },
+                        { label: 'Registros de docentes', data: labels.map(l => mapDoc[l] || 0), backgroundColor: '#f59e0b' }
+                    ] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: c.text, boxWidth: 12 } }, title: { display: true, text: 'Su actividad por semana', color: c.text, font: { size: 11 } } },
+                        scales: { x: { grid: { display: false }, ticks: { color: c.text, font: { size: 9 } } }, y: { beginAtZero: true, grid: { color: c.grid }, ticks: { color: c.text } } } }
+                });
+            } catch (e) { console.error(e); body.innerHTML = '<p class="text-xs text-red-500">Error al cargar la ficha.</p>'; }
+        }
+
+        // ===== Modal detalle de modificaciones (6b) =====
+        const modalMod = document.getElementById('modalMod');
+        function cerrarModal() { modalMod.classList.add('hidden'); }
+        document.getElementById('mmClose').addEventListener('click', cerrarModal);
+        document.getElementById('mmBackdrop').addEventListener('click', cerrarModal);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarModal(); });
+        const fmtFechaLima = iso => { try { const dt = new Date(iso); const tz = { timeZone: 'America/Lima' }; return dt.toLocaleDateString('es-PE', { ...tz, day: '2-digit', month: '2-digit' }) + ' ' + dt.toLocaleTimeString('es-PE', { ...tz, hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+        // Estado del modal: datos parseados por el backend + filtro por campo + ver técnicos.
+        let mmData = null, mmFiltro = '', mmVerTecnicos = false;
+        document.getElementById('mmTecnicos').addEventListener('change', e => { mmVerTecnicos = e.target.checked; renderModalMod(); });
+        function visiblesDe(c) {
+            return c.cambios.filter(x => mmFiltro ? x.campo === mmFiltro : (mmVerTecnicos || !x.tecnico));
+        }
+        function renderModalMod() {
+            if (!mmData) return;
+            const cambios = mmData.cambios || [];
+            // Chips de resumen por campo (clic = filtrar; los técnicos en gris punteado)
+            const chips = (mmData.resumen || []).map(rr => `
+                <button data-campo="${esc(rr.campo)}" class="mmChip px-2 py-1 rounded-full text-[11px] font-bold border transition-colors ${mmFiltro === rr.campo ? 'bg-primary text-white border-primary' : rr.tecnico ? 'border-dashed border-slate-300 dark:border-slate-600 text-slate-400' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary'}">${esc(rr.etiqueta)} × ${rr.n}</button>`).join('');
+            document.getElementById('mmResumen').innerHTML = `<button data-campo="" class="mmChip px-2 py-1 rounded-full text-[11px] font-bold border ${!mmFiltro ? 'bg-primary text-white border-primary' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}">Todos</button>` + chips;
+            document.querySelectorAll('.mmChip').forEach(b => b.addEventListener('click', () => {
+                mmFiltro = (mmFiltro === b.dataset.campo) ? '' : b.dataset.campo;
+                const info = (mmData.resumen || []).find(x => x.campo === mmFiltro);
+                if (info && info.tecnico) { mmVerTecnicos = true; document.getElementById('mmTecnicos').checked = true; }
+                renderModalMod();
+            }));
+            // Filas (se omiten las que quedan sin cambios visibles con el filtro actual)
+            const filas = cambios.map(x => ({ x, vis: visiblesDe(x) })).filter(r => r.vis.length);
+            // Gráfica: nº de cambios por fecha (respeta el filtro), con las fechas pico en ámbar.
+            const porFecha = {};
+            filas.forEach(({ x, vis }) => { const dia = String(x.fecha).slice(0, 10); porFecha[dia] = (porFecha[dia] || 0) + vis.length; });
+            const fechas = Object.keys(porFecha).sort();
+            const valores = fechas.map(f2 => porFecha[f2]);
+            const top = [...fechas].sort((a, b) => porFecha[b] - porFecha[a]).slice(0, 3).filter(f2 => porFecha[f2] > 0);
+            document.getElementById('mmTopFechas').textContent = top.length ? '· mayor actividad: ' + top.map(f2 => `${f2.slice(5).replace('-', '/')} (${porFecha[f2]})`).join(', ') : '';
+            const c0 = colores();
+            if (charts.mmChart) charts.mmChart.destroy();
+            charts.mmChart = new Chart(document.getElementById('mmChart'), {
+                type: 'bar',
+                data: { labels: fechas.map(f2 => f2.slice(5)), datasets: [{ label: 'Cambios', data: valores, backgroundColor: fechas.map(f2 => top.includes(f2) ? '#f59e0b' : '#8b5cf6') }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { grid: { display: false }, ticks: { color: c0.text, font: { size: 8 }, maxRotation: 90 } }, y: { beginAtZero: true, grid: { color: c0.grid }, ticks: { color: c0.text, precision: 0 } } } }
+            });
+            document.getElementById('mmSub').textContent = `${filas.length} de ${mmData.total} modificaciones` + (mmData.total >= 500 ? ' (últimas 500)' : '') + (mmFiltro ? '' : mmVerTecnicos ? '' : ' · cambios técnicos ocultos');
+            document.getElementById('mmTbody').innerHTML = filas.length ? filas.map(({ x, vis }) => `
+                <tr class="border-t border-slate-100 dark:border-slate-800 align-top">
+                    <td class="px-3 py-1.5 whitespace-nowrap text-slate-500">${fmtFechaLima(x.fecha)}</td>
+                    <td class="px-3 py-1.5"><div class="font-medium whitespace-nowrap">${esc(x.estudiante)}</div><div class="text-[10px] text-slate-400 font-mono">${esc(x.dni_estudiante)}</div></td>
+                    <td class="px-3 py-1.5">${vis.map(cx => `<div><b>${esc(cx.etiqueta)}</b>: <span class="text-red-500 line-through">${esc(cx.antes ?? '∅')}</span> → <span class="text-emerald-600 font-bold">${esc(cx.despues ?? '∅')}</span></div>`).join('')}</td>
+                    <td class="px-3 py-1.5 whitespace-nowrap text-slate-500">${esc(x.modificado_por || '—')}</td>
+                </tr>`).join('') : `<tr><td colspan="4" class="text-center py-6 text-slate-400">Sin cambios de datos (solo técnicos — activa "Mostrar cambios técnicos").</td></tr>`;
+        }
+        async function abrirModal(r) {
+            modalMod.classList.remove('hidden');
+            document.getElementById('mmTitulo').textContent = r.auxiliar;
+            const tb = document.getElementById('mmTbody');
+            document.getElementById('mmResumen').innerHTML = '';
+            tb.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Cargando…</td></tr>`;
+            try {
+                mmData = await getJSON('/api/stats/reportes-aux/rendimiento-auxiliares/modificaciones?users_id=' + r.users_id);
+                mmFiltro = ''; mmVerTecnicos = false; document.getElementById('mmTecnicos').checked = false;
+                renderModalMod();
+            } catch (e) { tb.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-red-500">Error al cargar el detalle.</td></tr>`; }
+        }
+
+        // Export CSV del resumen
+        document.getElementById('csvBtn').addEventListener('click', () => {
+            if (!D) return;
+            const porDni = arr => Object.fromEntries((arr || []).map(r => [r.dni, r]));
+            const mPunt = porDni(D.puntualidad), mAct = porDni(D.actividad), mDoc = porDni(D.asistDocentes), mGest = porDni(D.gestion), mMod = porDni(D.modificaciones);
+            const head = ['Auxiliar', 'DNI', 'Listas', 'Días', 'Grupos', 'Hora promedio', 'Acciones', 'Registros', 'Ediciones', 'Eliminaciones', 'Asist. docentes', 'Asignados', 'Habilitados', '%Habilitados', 'Sincronizados', '%Sincronizados', 'Modificaciones'];
+            const rows = D.cobertura.map(r => {
+                const p = mPunt[r.dni] || {}, a = mAct[r.dni] || {}, dd = mDoc[r.dni] || {}, g = mGest[r.dni] || {}, mo = mMod[r.dni] || {};
+                return [r.auxiliar, r.dni, r.listas_tomadas, r.dias_con_asistencia, r.grupos_cubiertos, p.hora_promedio || '', a.total_acciones || 0, a.registros || 0, a.ediciones || 0, a.eliminaciones || 0, dd.asist_docentes_registradas || 0, g.asignados || 0, g.habilitados || 0, g.pct_habilitados || 0, g.sincronizados || 0, g.pct_sincronizados || 0, mo.total_modificaciones || 0];
+            });
+            const csv = [head, ...rows].map(r => r.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'rendimiento-auxiliares.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+        });
+
+        cargar();
+    </script>
+</body>
+</html>
