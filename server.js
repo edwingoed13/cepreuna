@@ -76,7 +76,8 @@ function requireAdmin(req, res, next) {
 function requireCoordinadorAuxiliar(req, res, next) {
   requireStatsAuth(req, res, (err) => {
     if (err) return;
-    if (req.user?.role !== 'Coordinador Auxiliar') {
+    // Coordinadores de auxiliares y también administradores (ven/califican a todos).
+    if (req.user?.role !== 'Coordinador Auxiliar' && !esAdmin(req.user?.role)) {
       return res.status(403).json({ error: 'Acceso restringido a coordinadores de auxiliares', code: 'FORBIDDEN' });
     }
     next();
@@ -374,10 +375,40 @@ const dbConfig = {
 // Pool de conexiones
 const pool = mysql.createPool(dbConfig);
 
-let auxiliarCalificacionesTablePromise;
-function ensureAuxiliarCalificacionesTable() {
-  if (!auxiliarCalificacionesTablePromise) {
-    auxiliarCalificacionesTablePromise = pool.query(`
+// ============ Supabase (almacén de calificaciones de auxiliares) ============
+// Si SUPABASE_URL + SUPABASE_SERVICE_KEY están en el entorno, las calificaciones
+// se guardan/leen en Supabase (tabla auxiliar_calificaciones, ver
+// supabase-auxiliar-calificaciones.sql). Si no, se usa MySQL como antes.
+// La clave service_role solo vive en el backend; RLS bloquea el acceso anónimo.
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_KEY || '').trim();
+const supabaseActivo = () => Boolean(SUPABASE_URL && SUPABASE_KEY);
+async function supabaseFetch(path, opts = {}) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...opts,
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {})
+    }
+  });
+  if (!r.ok) throw new Error(`Supabase ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const txt = await r.text();
+  return txt ? JSON.parse(txt) : null;
+}
+
+// Devuelve true si la tabla existe (o se pudo crear). El usuario de BD del panel no
+// tiene permiso CREATE: si la tabla no existe hay que crearla manualmente ejecutando
+// auxiliar-calificaciones.sql con un usuario privilegiado. Nunca lanza: los endpoints
+// degradan (la lista carga; solo guardar/historial requieren la tabla).
+let auxiliarCalificacionesTableReady = false;
+async function ensureAuxiliarCalificacionesTable() {
+  if (auxiliarCalificacionesTableReady) return true;
+  try {
+    const [ex] = await pool.query(`SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'auxiliar_calificaciones'`);
+    if (Number(ex[0].n) > 0) { auxiliarCalificacionesTableReady = true; return true; }
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS auxiliar_calificaciones (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         coordinador_users_id BIGINT UNSIGNED NOT NULL,
@@ -398,12 +429,13 @@ function ensureAuxiliarCalificacionesTable() {
         KEY idx_auxiliar_calificaciones_auxiliar (auxiliar_users_id),
         KEY idx_auxiliar_calificaciones_fecha (fecha)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).catch((error) => {
-      auxiliarCalificacionesTablePromise = null;
-      throw error;
-    });
+    `);
+    auxiliarCalificacionesTableReady = true;
+    return true;
+  } catch (error) {
+    console.warn('⚠️  auxiliar_calificaciones no existe y no se pudo crear (ejecutar auxiliar-calificaciones.sql):', error.message);
+    return false;
   }
-  return auxiliarCalificacionesTablePromise;
 }
 
 // Verificar conexión al iniciar
@@ -4414,9 +4446,22 @@ app.get('/api/stats/catalogos/auxiliares', requireAdmin, cacheMiddleware(600), a
 app.get('/api/stats/calificacion-auxiliares', requireCoordinadorAuxiliar, async (req, res) => {
   let conn;
   try {
-    await ensureAuxiliarCalificacionesTable();
+    const tablaOk = supabaseActivo() ? true : await ensureAuxiliarCalificacionesTable();
     conn = await pool.getConnection();
-    const [auxiliares] = await conn.query(`
+    // Coordinador: solo los auxiliares de sus grupos. Admin: todos los auxiliares activos.
+    const esAdm = esAdmin(req.user.role);
+    const [auxiliares] = await conn.query(esAdm ? `
+      SELECT u.id,
+             CONCAT_WS(' ', u.paterno, u.materno, u.name) AS nombre,
+             GROUP_CONCAT(DISTINCT g.denominacion ORDER BY g.denominacion SEPARATOR ', ') AS grupos
+      FROM auxiliares a
+      JOIN users u ON u.id = a.users_id AND u.estado = '1'
+      LEFT JOIN auxiliar_grupos ag ON ag.auxiliares_id = a.id
+      LEFT JOIN grupo_aulas ga ON ga.id = ag.grupo_aulas_id
+      LEFT JOIN grupos g ON g.id = ga.grupos_id
+      GROUP BY u.id, u.paterno, u.materno, u.name
+      ORDER BY u.paterno, u.materno, u.name
+    ` : `
       SELECT u.id,
              CONCAT_WS(' ', u.paterno, u.materno, u.name) AS nombre,
              GROUP_CONCAT(DISTINCT g.denominacion ORDER BY g.denominacion SEPARATOR ', ') AS grupos
@@ -4429,23 +4474,36 @@ app.get('/api/stats/calificacion-auxiliares', requireCoordinadorAuxiliar, async 
       WHERE cg.coordinador_id = ?
       GROUP BY u.id, u.paterno, u.materno, u.name
       ORDER BY u.paterno, u.materno, u.name
-    `, [req.user.sub]);
+    `, esAdm ? [] : [req.user.sub]);
 
-    const [historial] = await conn.query(`
-      SELECT ac.id, ac.auxiliar_users_id AS auxiliar_id,
-             CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar,
-             DATE_FORMAT(ac.fecha, '%Y-%m-%d') AS fecha,
-             ac.pregunta_1, ac.pregunta_2, ac.pregunta_3,
-             ac.pregunta_4, ac.pregunta_5, ac.pregunta_6,
-             ac.promedio, ac.observacion
-      FROM auxiliar_calificaciones ac
-      JOIN users u ON u.id = ac.auxiliar_users_id
-      WHERE ac.coordinador_users_id = ?
-      ORDER BY ac.fecha DESC, ac.updated_at DESC
-      LIMIT 50
-    `, [req.user.sub]);
+    let historial = [];
+    if (supabaseActivo()) {
+      try {
+        const rows = await supabaseFetch(`auxiliar_calificaciones?coordinador_users_id=eq.${Number(req.user.sub)}&select=*&order=fecha.desc,updated_at.desc&limit=50`);
+        historial = (rows || []).map(r2 => ({
+          id: r2.id, auxiliar_id: r2.auxiliar_users_id, auxiliar: r2.auxiliar_nombre, fecha: r2.fecha,
+          pregunta_1: r2.pregunta_1, pregunta_2: r2.pregunta_2, pregunta_3: r2.pregunta_3,
+          pregunta_4: r2.pregunta_4, pregunta_5: r2.pregunta_5, pregunta_6: r2.pregunta_6,
+          promedio: r2.promedio, observacion: r2.observacion
+        }));
+      } catch (e2) { console.warn('Supabase historial:', e2.message); }
+    } else if (tablaOk) {
+      [historial] = await conn.query(`
+        SELECT ac.id, ac.auxiliar_users_id AS auxiliar_id,
+               CONCAT_WS(' ', u.paterno, u.materno, u.name) AS auxiliar,
+               DATE_FORMAT(ac.fecha, '%Y-%m-%d') AS fecha,
+               ac.pregunta_1, ac.pregunta_2, ac.pregunta_3,
+               ac.pregunta_4, ac.pregunta_5, ac.pregunta_6,
+               ac.promedio, ac.observacion
+        FROM auxiliar_calificaciones ac
+        JOIN users u ON u.id = ac.auxiliar_users_id
+        WHERE ac.coordinador_users_id = ?
+        ORDER BY ac.fecha DESC, ac.updated_at DESC
+        LIMIT 50
+      `, [req.user.sub]);
+    }
     conn.release();
-    res.json({ auxiliares, historial });
+    res.json({ auxiliares, historial, tabla_pendiente: !tablaOk });
   } catch (error) {
     if (conn) conn.release();
     console.error('Error al cargar calificación de auxiliares:', error);
@@ -4474,24 +4532,58 @@ app.post('/api/stats/calificacion-auxiliares', requireCoordinadorAuxiliar, async
 
   let conn;
   try {
-    await ensureAuxiliarCalificacionesTable();
+    if (!supabaseActivo() && !(await ensureAuxiliarCalificacionesTable())) {
+      return res.status(503).json({ error: 'La tabla auxiliar_calificaciones aún no existe en la BD: ejecutar auxiliar-calificaciones.sql con un usuario con permiso CREATE.' });
+    }
     conn = await pool.getConnection();
-    const [permitido] = await conn.query(`
-      SELECT 1
-      FROM coordinador_grupos cg
-      JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = cg.grupos_id
-      JOIN auxiliares a ON a.id = ag.auxiliares_id
-      WHERE cg.coordinador_id = ? AND a.users_id = ?
-      LIMIT 1
-    `, [req.user.sub, auxiliarId]);
-    if (permitido.length === 0) {
-      conn.release();
-      return res.status(403).json({ error: 'El auxiliar no está asignado a tus grupos' });
+    // Admin puede calificar a cualquier auxiliar activo; el coordinador solo a los suyos.
+    if (esAdmin(req.user.role)) {
+      const [existe] = await conn.query(`
+        SELECT 1 FROM auxiliares a JOIN users u ON u.id = a.users_id AND u.estado = '1'
+        WHERE a.users_id = ? LIMIT 1`, [auxiliarId]);
+      if (existe.length === 0) {
+        conn.release();
+        return res.status(403).json({ error: 'El usuario no es un auxiliar activo' });
+      }
+    } else {
+      const [permitido] = await conn.query(`
+        SELECT 1
+        FROM coordinador_grupos cg
+        JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = cg.grupos_id
+        JOIN auxiliares a ON a.id = ag.auxiliares_id
+        WHERE cg.coordinador_id = ? AND a.users_id = ?
+        LIMIT 1
+      `, [req.user.sub, auxiliarId]);
+      if (permitido.length === 0) {
+        conn.release();
+        return res.status(403).json({ error: 'El auxiliar no está asignado a tus grupos' });
+      }
     }
 
     // La pregunta 6 es negativa: "Nunca" aporta 5 y "Siempre" aporta 1.
     const promedio = (respuestas.slice(0, 5).reduce((s, v) => s + v, 0) + (6 - respuestas[5])) / 6;
     const fechaSql = fecha || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    if (supabaseActivo()) {
+      // Nombres desnormalizados para no cruzar bases al leer.
+      const [[nomAux]] = await conn.query(`SELECT CONCAT_WS(' ', paterno, materno, name) AS nombre FROM users WHERE id = ?`, [auxiliarId]);
+      const [[nomCoord]] = await conn.query(`SELECT CONCAT_WS(' ', paterno, materno, name) AS nombre FROM users WHERE id = ?`, [req.user.sub]);
+      conn.release();
+      conn = null;
+      await supabaseFetch('auxiliar_calificaciones?on_conflict=coordinador_users_id,auxiliar_users_id,fecha', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify([{
+          coordinador_users_id: Number(req.user.sub), coordinador_nombre: nomCoord?.nombre || null,
+          auxiliar_users_id: auxiliarId, auxiliar_nombre: nomAux?.nombre || null,
+          fecha: fechaSql,
+          pregunta_1: respuestas[0], pregunta_2: respuestas[1], pregunta_3: respuestas[2],
+          pregunta_4: respuestas[3], pregunta_5: respuestas[4], pregunta_6: respuestas[5],
+          promedio: Number(promedio.toFixed(2)), observacion: observacion || null,
+          updated_at: new Date().toISOString()
+        }])
+      });
+      return res.json({ success: true, promedio: Number(promedio.toFixed(2)), fecha: fechaSql, almacen: 'supabase' });
+    }
     await conn.query(`
       INSERT INTO auxiliar_calificaciones
         (coordinador_users_id, auxiliar_users_id, fecha,
@@ -4518,10 +4610,55 @@ app.post('/api/stats/calificacion-auxiliares', requireCoordinadorAuxiliar, async
 app.get('/api/stats/calificacion-auxiliares/resultados', requireAdmin, async (req, res) => {
   let conn;
   try {
-    await ensureAuxiliarCalificacionesTable();
-    conn = await pool.getConnection();
     const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.desde || '')) ? String(req.query.desde) : null;
     const hasta = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.hasta || '')) ? String(req.query.hasta) : null;
+    if (supabaseActivo()) {
+      // Agregación en Node sobre las filas de Supabase (mismo formato de respuesta).
+      let q = 'auxiliar_calificaciones?select=*&order=fecha.desc,updated_at.desc';
+      if (desde) q += `&fecha=gte.${desde}`;
+      if (hasta) q += `&fecha=lte.${hasta}`;
+      const rows = (await supabaseFetch(q)) || [];
+      const rnd = v => Math.round(v * 100) / 100;
+      const avg = (arr, f) => arr.length ? rnd(arr.reduce((s, x) => s + Number(f(x)), 0) / arr.length) : null;
+      const inv6 = r2 => 6 - Number(r2.pregunta_6);
+      const resumen = {
+        evaluaciones: rows.length,
+        auxiliares: new Set(rows.map(r2 => r2.auxiliar_users_id)).size,
+        coordinadores: new Set(rows.map(r2 => r2.coordinador_users_id)).size,
+        promedio: avg(rows, r2 => r2.promedio),
+        fecha_min: rows.length ? rows.reduce((m, r2) => r2.fecha < m ? r2.fecha : m, rows[0].fecha) : null,
+        fecha_max: rows.length ? rows.reduce((m, r2) => r2.fecha > m ? r2.fecha : m, rows[0].fecha) : null
+      };
+      const criterios = {
+        pregunta_1: avg(rows, r2 => r2.pregunta_1), pregunta_2: avg(rows, r2 => r2.pregunta_2),
+        pregunta_3: avg(rows, r2 => r2.pregunta_3), pregunta_4: avg(rows, r2 => r2.pregunta_4),
+        pregunta_5: avg(rows, r2 => r2.pregunta_5), pregunta_6: avg(rows, inv6)
+      };
+      const porAux = {};
+      rows.forEach(r2 => { (porAux[r2.auxiliar_users_id] = porAux[r2.auxiliar_users_id] || []).push(r2); });
+      const auxiliares = Object.values(porAux).map(list => ({
+        auxiliar_id: list[0].auxiliar_users_id,
+        auxiliar: list[0].auxiliar_nombre,
+        evaluaciones: list.length,
+        coordinadores: new Set(list.map(r2 => r2.coordinador_users_id)).size,
+        promedio: avg(list, r2 => r2.promedio),
+        pregunta_1: avg(list, r2 => r2.pregunta_1), pregunta_2: avg(list, r2 => r2.pregunta_2),
+        pregunta_3: avg(list, r2 => r2.pregunta_3), pregunta_4: avg(list, r2 => r2.pregunta_4),
+        pregunta_5: avg(list, r2 => r2.pregunta_5), pregunta_6: avg(list, inv6),
+        ultima_fecha: list.reduce((m, r2) => r2.fecha > m ? r2.fecha : m, list[0].fecha)
+      })).sort((a, b) => (Number(b.promedio) || 0) - (Number(a.promedio) || 0) || String(a.auxiliar).localeCompare(String(b.auxiliar)));
+      const detalle = rows.slice(0, 200).map(r2 => ({
+        id: r2.id, fecha: r2.fecha, coordinador: r2.coordinador_nombre, auxiliar: r2.auxiliar_nombre,
+        pregunta_1: r2.pregunta_1, pregunta_2: r2.pregunta_2, pregunta_3: r2.pregunta_3,
+        pregunta_4: r2.pregunta_4, pregunta_5: r2.pregunta_5, pregunta_6: r2.pregunta_6,
+        promedio: r2.promedio, observacion: r2.observacion
+      }));
+      return res.json({ filtros: { desde, hasta }, resumen, criterios, auxiliares, detalle, almacen: 'supabase' });
+    }
+    if (!(await ensureAuxiliarCalificacionesTable())) {
+      return res.json({ filtros: { desde, hasta }, resumen: {}, criterios: {}, auxiliares: [], detalle: [], tabla_pendiente: true });
+    }
+    conn = await pool.getConnection();
     const condiciones = [];
     const params = [];
     if (desde) { condiciones.push('ac.fecha >= ?'); params.push(desde); }

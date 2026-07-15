@@ -24,7 +24,7 @@
     try { sessionData = JSON.parse(localStorage.getItem('stats_session') || 'null'); } catch (_) {}
     function tokenVencido(t) { try { const p=JSON.parse(atob(String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); return !p.exp || p.exp*1000<Date.now(); } catch(_){ return true; } }
     if (!sessionData?.token || tokenVencido(sessionData.token)) { localStorage.removeItem('stats_session'); location.href='/stats/login'; }
-    else if (sessionData.user?.role !== 'Coordinador Auxiliar') { location.href='/stats/alumnos'; }
+    else if (sessionData.user?.role !== 'Coordinador Auxiliar' && !['Administrador', 'Super Admin', 'Oficina de Administración'].includes(sessionData.user?.role)) { location.href='/stats/alumnos'; }
     if (localStorage.getItem('stats_theme') === 'dark') document.documentElement.classList.add('dark');
   </script>
 
