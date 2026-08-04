@@ -279,6 +279,11 @@ app.use('/data', (req, res) => res.status(404).send('Not found'));
 // solo devuelve un registro por DNI vía /api/simulacro/resultado/:dni.
 app.use('/simulacro-resultados', (req, res) => res.status(404).send('Not found'));
 
+// El acceso al curso/docentes se movió a /docentes; la raíz queda libre para la
+// futura plataforma de información. Redirección temporal (302). Debe ir ANTES de
+// express.static, que por defecto sirve index.html en la raíz.
+app.get('/', (req, res) => res.redirect(302, '/docentes'));
+
 // Servir archivos estáticos (HTML, CSS, JS).
 // Los .html se sirven con `no-cache` para que el navegador siempre revalide
 // y no muestre versiones viejas tras un deploy/cambio.
@@ -6496,8 +6501,12 @@ app.get('/stats/reportes-aux/rendimiento', (req, res) => {
 
 // ============ ENDPOINT DE AUTENTICACIÓN ============
 
-// Endpoint para autenticar participantes
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
+// Endpoint para autenticar participantes.
+// Responde en /api/portal/login (nombre nuevo, sin colisión) y en /api/auth/login
+// (compatibilidad). Al servir bajo cepreuna.info tras el proxy de Astro, el
+// admin de Astro usa /api/auth/login, así que el frontend del docente llama a
+// /api/portal/login.
+app.post(['/api/portal/login', '/api/auth/login'], loginLimiter, async (req, res) => {
   try {
     const { dni } = req.body;
 
@@ -6854,8 +6863,8 @@ app.get(
   }
 );
 
-// Servir index.html en la raíz
-app.get('/', (req, res) => {
+// Acceso al curso (login por DNI). Movido desde la raíz a /docentes.
+app.get('/docentes', (req, res) => {
   res.sendFile(__dirname + '/index.html');
 });
 

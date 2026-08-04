@@ -195,7 +195,7 @@
         // Verificar autenticación
         const estudiante = JSON.parse(localStorage.getItem('estudiante'));
         if (!estudiante) {
-            window.location.href = '/';
+            window.location.href = '/docentes';
         } else if (estudiante.inscrito === false) {
             // Docente que no siguió el curso: no tiene certificado
             window.location.replace('/dashboard');

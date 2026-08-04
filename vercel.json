@@ -157,7 +157,7 @@
       }
     },
     {
-      "src": "/api/auth/login",
+      "src": "/api/(auth|portal)/login",
       "dest": "server.js",
       "headers": {
         "Cache-Control": "private, no-cache, no-store, must-revalidate"
@@ -206,7 +206,7 @@
       }
     },
     {
-      "src": "/(dashboard|curso|videos|materiales|certificado|simulacro)",
+      "src": "/(dashboard|curso|videos|materiales|certificado|simulacro|docentes)",
       "dest": "server.js",
       "headers": {
         "Cache-Control": "public, max-age=1800, s-maxage=1800, stale-while-revalidate=3600"
@@ -216,7 +216,7 @@
       "src": "/",
       "dest": "server.js",
       "headers": {
-        "Cache-Control": "public, max-age=1800, s-maxage=1800, stale-while-revalidate=3600"
+        "Cache-Control": "no-store"
       }
     },
     {

@@ -377,7 +377,7 @@
         let estudiante = JSON.parse(localStorage.getItem('estudiante'));
 
         if (!estudiante) {
-            window.location.href = '/';
+            window.location.href = '/docentes';
         } else {
             // Migración automática para datos antiguos
             if (!estudiante.areaCorto) {
@@ -582,7 +582,7 @@
         // Confirmar logout
         document.getElementById('confirmLogout').addEventListener('click', () => {
             localStorage.removeItem('estudiante');
-            window.location.href = '/';
+            window.location.href = '/docentes';
         });
 
         // Cancelar logout
