@@ -380,6 +380,55 @@ const dbConfig = {
 // Pool de conexiones
 const pool = mysql.createPool(dbConfig);
 
+// ============ BD multiciclo (ciclos 2022-I en adelante) ============
+// Base consolidada con histórico de periodos y el ciclo vigente (`periodos.es_actual = 1`).
+// Vive en la red interna y solo se alcanza por VPN, así que el pool se crea únicamente
+// si DB2_* está configurado; los endpoints que la usan responden 503 cuando no hay acceso
+// (es lo que ocurre en el despliegue de Vercel, que no tiene ruta a esa red).
+const { obtenerReporteCicloActual } = require('./api-interna/lib/reporte-ciclo');
+
+const MULTICICLO_OK = Boolean(process.env.DB2_HOST && process.env.DB2_USER);
+const poolMulticiclo = MULTICICLO_OK
+  ? mysql.createPool({
+      host: process.env.DB2_HOST,
+      user: process.env.DB2_USER,
+      password: process.env.DB2_PASSWORD,
+      database: process.env.DB2_NAME,
+      port: process.env.DB2_PORT || 3306,
+      waitForConnections: true,
+      connectionLimit: 5,
+      queueLimit: 0,
+      connectTimeout: 20000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0
+    })
+  : null;
+
+const SIN_MULTICICLO = {
+  error: 'Base multiciclo no disponible',
+  detalle: 'El ciclo vigente vive en la base interna (VPN). Este entorno no tiene acceso a ella.'
+};
+
+// Con API_INTERNA_URL los datos del ciclo vigente se piden por HTTPS a la API
+// publicada desde la red institucional (ver api-interna/). Es el modo que usa el
+// despliegue en Vercel, que no tiene ruta hacia la red interna. Sin esa variable
+// se consulta MySQL directamente, que es lo que funciona en local con la VPN.
+const API_INTERNA_URL = (process.env.API_INTERNA_URL || '').trim().replace(/\/+$/, '');
+const API_INTERNA_TOKEN = (process.env.API_INTERNA_TOKEN || '').trim();
+
+async function pedirAApiInterna(ruta) {
+  const res = await fetch(`${API_INTERNA_URL}${ruta}`, {
+    headers: { Authorization: `Bearer ${API_INTERNA_TOKEN}` },
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!res.ok) {
+    const e = new Error(`API interna respondió ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
+  return res.json();
+}
+
 // ============ Supabase (almacén de calificaciones de auxiliares) ============
 // Si SUPABASE_URL + SUPABASE_SERVICE_KEY están en el entorno, las calificaciones
 // se guardan/leen en Supabase (tabla auxiliar_calificaciones, ver
@@ -2284,6 +2333,123 @@ app.get('/api/stats-inscripciones/reporte-sedes', requireStatsAuth, cacheMiddlew
     if (connection) connection.release();
     console.error('Error en reporte de sedes:', error);
     res.status(500).json({ error: 'Error al generar reporte', message: error.message });
+  }
+});
+
+// Preparación del ciclo siguiente: qué vacantes están configuradas por sede/área/turno.
+//
+// Solo cuentan las filas con estado='1'; las inactivas se reportan aparte porque
+// señalan una sede que se ofertó antes y todavía no se ha habilitado.
+// Como referencia de demanda se adjuntan los matriculados del ciclo en curso
+// (periodo 1), que permiten ver si lo configurado guarda proporción con lo real.
+app.get('/api/stats-inscripciones/vacantes-ciclo', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+
+    const [config] = await conn.query(`
+      SELECT s.id sede_id, s.denominacion sede, s.modalidad,
+             a.id area_id, a.denominacion area,
+             t.id turno_id, t.denominacion turno,
+             cv.cantidad, cv.estado,
+             DATE_FORMAT(cv.updated_at, '%Y-%m-%dT%H:%i:%s-05:00') actualizado
+      FROM configuracion_vacantes cv
+      JOIN sedes s ON s.id = cv.sedes_id
+      JOIN areas a ON a.id = cv.areas_id
+      JOIN turnos t ON t.id = cv.turnos_id
+      WHERE s.estado = '1'
+      ORDER BY s.denominacion, t.id, a.denominacion`);
+
+    const [sedes] = await conn.query(`SELECT id, denominacion, modalidad FROM sedes WHERE estado = '1' ORDER BY denominacion`);
+
+    // Demanda observada en el ciclo en curso, para contrastar lo configurado.
+    const [referencia] = await conn.query(`
+      SELECT s.denominacion sede, a.denominacion area, t.denominacion turno,
+             COUNT(DISTINCT m.estudiantes_id) matriculados
+      FROM matriculas m
+      JOIN grupo_aulas ga ON ga.id = m.grupo_aulas_id
+      JOIN areas a ON a.id = ga.areas_id
+      JOIN turnos t ON t.id = ga.turnos_id
+      JOIN aulas au ON au.id = ga.aulas_id
+      JOIN locales lo ON lo.id = au.locales_id
+      JOIN sedes s ON s.id = lo.sedes_id
+      WHERE m.periodos_id = 1
+      GROUP BY s.denominacion, a.denominacion, t.denominacion`);
+    conn.release();
+
+    const activas = config.filter(c => c.estado === '1');
+    const refPorSede = {};
+    referencia.forEach(r => { refPorSede[r.sede] = (refPorSede[r.sede] || 0) + Number(r.matriculados); });
+
+    const porSede = sedes.map(s => {
+      const filas = config.filter(c => c.sede_id === s.id);
+      const act = filas.filter(c => c.estado === '1');
+      return {
+        sede_id: s.id,
+        sede: s.denominacion,
+        es_virtual: String(s.modalidad) === '1',
+        vacantes: act.reduce((t, c) => t + Number(c.cantidad || 0), 0),
+        combinaciones_activas: act.length,
+        combinaciones_inactivas: filas.length - act.length,
+        configurada: act.length > 0,
+        matriculados_ciclo_actual: refPorSede[s.denominacion] || 0,
+        detalle: filas.map(c => ({
+          area: c.area, turno: c.turno,
+          cantidad: Number(c.cantidad || 0),
+          activa: c.estado === '1',
+          actualizado: c.actualizado,
+          matriculados_ciclo_actual: (referencia.find(r =>
+            r.sede === s.denominacion && r.area === c.area && r.turno === c.turno)?.matriculados) || 0
+        }))
+      };
+    });
+
+    res.json({
+      resumen: {
+        total_vacantes: activas.reduce((t, c) => t + Number(c.cantidad || 0), 0),
+        sedes_configuradas: porSede.filter(s => s.configurada).length,
+        sedes_totales: porSede.length,
+        sedes_pendientes: porSede.filter(s => !s.configurada).map(s => s.sede),
+        ultima_actualizacion: activas.map(c => c.actualizado).sort().pop() || null
+      },
+      sedes: porSede,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    if (conn) conn.release();
+    console.error('Error en vacantes-ciclo:', error);
+    res.status(500).json({ error: 'Error al generar el reporte de vacantes', message: error.message });
+  }
+});
+
+// Reporte de inscripciones del CICLO VIGENTE.
+//
+// Dos orígenes posibles, según el entorno:
+//   - Con API_INTERNA_URL: se pide por HTTPS a la API publicada desde la red
+//     institucional. Es el modo del despliegue en Vercel, sin ruta a la red interna.
+//   - Sin ella: se consulta MySQL directamente (local con la VPN levantada).
+//
+// El periodo no se fija a mano: lo resuelve `periodos.es_actual = 1`, así que al
+// abrirse el siguiente ciclo el reporte lo toma sin tocar código.
+app.get('/api/stats-inscripciones/reporte-ciclo-actual', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
+  try {
+    if (API_INTERNA_URL) {
+      return res.json(await pedirAApiInterna('/ciclo-actual/reporte-sedes'));
+    }
+    if (!poolMulticiclo) return res.status(503).json(SIN_MULTICICLO);
+    res.json(await obtenerReporteCicloActual(poolMulticiclo));
+  } catch (error) {
+    if (error.codigo === 'SIN_PERIODO') return res.status(404).json({ error: error.message });
+    // fetch envuelve el fallo de red: el código real viaja en `cause`.
+    const codigo = error.code || error.cause?.code;
+    console.error('Error en reporte-ciclo-actual:', codigo || error.message);
+    // Sin ruta a la red interna (o API caída) el fallo es de conectividad, no del reporte.
+    const sinRuta = ['ETIMEDOUT', 'ECONNREFUSED', 'EHOSTUNREACH', 'ENOTFOUND', 'ABORT_ERR', 'UND_ERR_SOCKET'].includes(codigo)
+      || ['TimeoutError', 'AbortError'].includes(error.name)
+      || error.message === 'fetch failed'
+      || error.status >= 500;
+    if (sinRuta) return res.status(503).json(SIN_MULTICICLO);
+    res.status(500).json({ error: 'Error al generar el reporte del ciclo vigente', message: error.message });
   }
 });
 
@@ -4733,6 +4899,133 @@ app.get('/api/stats/calificacion-auxiliares/resultados', requireAdmin, async (re
   }
 });
 
+// ============ Informe Excel de la encuesta de calificación de auxiliares ============
+// 6 preguntas en escala 1-5; la pregunta 6 es negativa y se invierte (Nunca=5).
+// Puntaje total = suma de las 6 (con la 6 invertida): mínimo 6, máximo 30.
+const CALIF_PREGUNTAS = [
+  { corta: 'Puntualidad', texto: '¿El auxiliar llega a la hora exacta para recibir a los docentes y estudiantes?' },
+  { corta: 'Registro a tiempo', texto: '¿El auxiliar completa y cierra el registro de asistencia de todos los salones dentro del tiempo estipulado?' },
+  { corta: 'Firmas de docentes', texto: '¿El auxiliar se asegura de que cada docente firme su asistencia (entrada y salida) en el formato designado, sin excepciones?' },
+  { corta: 'Reporte inmediato', texto: '¿El auxiliar reporta inmediatamente (en menos de 5 minutos) al coordinador cuando un docente no llega a su salón?' },
+  { corta: 'Registro real de tardanzas', texto: 'Cuando un docente llega tarde, ¿el auxiliar registra la hora real de llegada y hace firmar al docente con esa hora exacta (sin "favores")?' },
+  { corta: 'Reclamos de estudiantes (invertida)', texto: '¿Hay reclamos recurrentes de estudiantes que dicen "estaba en clase pero el auxiliar no marcó mi asistencia"? (Nunca = mejor)', negativa: true }
+];
+async function obtenerCalificaciones(desde, hasta) {
+  if (supabaseActivo()) {
+    let q = 'auxiliar_calificaciones?select=*&order=fecha.asc,updated_at.asc';
+    if (desde) q += `&fecha=gte.${desde}`;
+    if (hasta) q += `&fecha=lte.${hasta}`;
+    return (await supabaseFetch(q)) || [];
+  }
+  if (!(await ensureAuxiliarCalificacionesTable())) return [];
+  const conn = await pool.getConnection();
+  try {
+    const cond = []; const params = [];
+    if (desde) { cond.push('ac.fecha >= ?'); params.push(desde); }
+    if (hasta) { cond.push('ac.fecha <= ?'); params.push(hasta); }
+    const [rows] = await conn.query(`
+      SELECT ac.*, DATE_FORMAT(ac.fecha, '%Y-%m-%d') AS fecha,
+             (SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name) FROM users u WHERE u.id = ac.coordinador_users_id) AS coordinador_nombre,
+             (SELECT CONCAT_WS(' ', u.paterno, u.materno, u.name) FROM users u WHERE u.id = ac.auxiliar_users_id) AS auxiliar_nombre
+      FROM auxiliar_calificaciones ac
+      ${cond.length ? 'WHERE ' + cond.join(' AND ') : ''}
+      ORDER BY ac.fecha`, params);
+    return rows;
+  } finally { conn.release(); }
+}
+app.get('/api/stats/calificacion-auxiliares/excel', requireAdmin, async (req, res) => {
+  try {
+    const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.desde || '')) ? String(req.query.desde) : null;
+    const hasta = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.hasta || '')) ? String(req.query.hasta) : null;
+    const rows = await obtenerCalificaciones(desde, hasta);
+    const n = v => Number(v) || 0;
+    const inv6 = r => 6 - n(r.pregunta_6);
+    const puntaje = r => n(r.pregunta_1) + n(r.pregunta_2) + n(r.pregunta_3) + n(r.pregunta_4) + n(r.pregunta_5) + inv6(r);
+    const rnd = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const avg = (arr, f) => arr.length ? rnd(arr.reduce((s, x) => s + f(x), 0) / arr.length) : 0;
+    const banda = p => p >= 27 ? 'Excelente' : p >= 24 ? 'Bueno' : p >= 18 ? 'Regular' : 'Deficiente';
+    const colorCalif = { Excelente: 'FFC6EFCE', Bueno: 'FFDDEBC8', Regular: 'FFFFEB9C', Deficiente: 'FFFFC7CE' };
+    const pregVal = (r, i) => i === 5 ? inv6(r) : n(r['pregunta_' + (i + 1)]);
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const azul = c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } }; c.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } }; c.alignment = { horizontal: 'center', wrapText: true }; };
+
+    // ===== Hoja 1: Resumen =====
+    const ws = wb.addWorksheet('Resumen');
+    ws.addRow(['INFORME DE LA ENCUESTA DE CALIFICACIÓN DE AUXILIARES']).font = { bold: true, size: 13 };
+    ws.addRow([`Periodo: ${desde || 'inicio'} a ${hasta || 'hoy'} · 6 preguntas en escala 1-5 · Puntaje total: mínimo 6, máximo 30 (la pregunta 6 es negativa y se invierte: "Nunca" aporta 5).`]).font = { size: 9, italic: true };
+    ws.addRow([`Calificación por puntaje: ≥27 Excelente · 24-26.9 Bueno · 18-23.9 Regular · <18 Deficiente.`]).font = { size: 9, italic: true };
+    ws.addRow([]);
+    const promGeneral = avg(rows, puntaje);
+    const kpis = [
+      ['Evaluaciones registradas', rows.length],
+      ['Auxiliares evaluados', new Set(rows.map(r => r.auxiliar_users_id)).size],
+      ['Coordinadores que evaluaron', new Set(rows.map(r => r.coordinador_users_id)).size],
+      ['Rango de fechas', rows.length ? `${rows[0].fecha} a ${rows[rows.length - 1].fecha}` : '—'],
+      ['PUNTAJE PROMEDIO GENERAL', rows.length ? `${promGeneral} / 30 (${rnd((promGeneral - 6) / 24 * 100, 1)}%) — ${banda(promGeneral)}` : '—']
+    ];
+    kpis.forEach(k => { const r2 = ws.addRow(k); r2.getCell(1).font = { bold: true, size: 10 }; r2.getCell(2).font = { size: 10 }; });
+    ws.addRow([]);
+    const hq = ws.addRow(['#', 'Pregunta', 'Promedio (1-5)', 'Diagnóstico']);
+    hq.eachCell(azul);
+    CALIF_PREGUNTAS.forEach((q, i) => {
+      const prom = avg(rows, r => pregVal(r, i));
+      const diag = prom >= 4.5 ? 'Fortaleza' : prom >= 3.5 ? 'Aceptable' : prom >= 2.5 ? 'A mejorar' : 'Crítico';
+      const r2 = ws.addRow([`P${i + 1}`, q.texto, prom, diag]);
+      r2.eachCell(c => { c.font = { size: 9 }; c.alignment = { wrapText: true, vertical: 'top' }; });
+      r2.getCell(4).font = { size: 9, bold: true, color: { argb: prom >= 3.5 ? 'FF107C41' : 'FFB45309' } };
+    });
+    ws.columns = [{ width: 26 }, { width: 90 }, { width: 13 }, { width: 12 }];
+
+    // ===== Hoja 2: Por auxiliar (ranking) =====
+    const wa = wb.addWorksheet('Por auxiliar');
+    const porAux = {};
+    rows.forEach(r => { (porAux[r.auxiliar_users_id] = porAux[r.auxiliar_users_id] || []).push(r); });
+    const filasAux = Object.values(porAux).map(list => {
+      const p = avg(list, puntaje);
+      return {
+        auxiliar: list[0].auxiliar_nombre, evals: list.length,
+        coords: new Set(list.map(r => r.coordinador_users_id)).size,
+        pregs: CALIF_PREGUNTAS.map((_, i) => avg(list, r => pregVal(r, i))),
+        puntaje: p, pct: rnd((p - 6) / 24 * 100, 1), calif: banda(p)
+      };
+    }).sort((a, b) => b.puntaje - a.puntaje);
+    wa.addRow(['RANKING POR AUXILIAR · puntaje promedio sobre 30']).font = { bold: true, size: 12 };
+    wa.addRow([]);
+    const ha = wa.addRow(['#', 'Auxiliar', 'Evaluaciones', 'Coordinadores', ...CALIF_PREGUNTAS.map((q, i) => `P${i + 1} ${q.corta}`), 'PUNTAJE (6-30)', '%', 'CALIFICACIÓN']);
+    ha.eachCell(azul);
+    filasAux.forEach((r, i) => {
+      const row = wa.addRow([i + 1, r.auxiliar, r.evals, r.coords, ...r.pregs, r.puntaje, r.pct, r.calif]);
+      row.eachCell(c => { c.font = { size: 9 }; });
+      row.getCell(11).font = { size: 9, bold: true };
+      row.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorCalif[r.calif] } };
+      row.getCell(13).font = { size: 9, bold: true };
+    });
+    wa.columns = [{ width: 4 }, { width: 34 }, { width: 11 }, { width: 12 }, ...CALIF_PREGUNTAS.map(() => ({ width: 12 })), { width: 13 }, { width: 8 }, { width: 12 }];
+    wa.views = [{ state: 'frozen', ySplit: 3 }];
+
+    // ===== Hoja 3: Detalle =====
+    const wd = wb.addWorksheet('Detalle');
+    wd.addRow(['DETALLE DE EVALUACIONES (respuestas crudas; P6 se muestra tal como se respondió)']).font = { bold: true, size: 12 };
+    wd.addRow([]);
+    const hd2 = wd.addRow(['Fecha', 'Coordinador', 'Auxiliar', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'PUNTAJE (6-30)', 'Promedio (1-5)', 'Observación']);
+    hd2.eachCell(azul);
+    rows.forEach(r => {
+      const row = wd.addRow([r.fecha, r.coordinador_nombre, r.auxiliar_nombre, n(r.pregunta_1), n(r.pregunta_2), n(r.pregunta_3), n(r.pregunta_4), n(r.pregunta_5), n(r.pregunta_6), puntaje(r), rnd(puntaje(r) / 6), r.observacion || '']);
+      row.eachCell(c => { c.font = { size: 9 }; });
+      row.getCell(10).font = { size: 9, bold: true };
+    });
+    wd.columns = [{ width: 11 }, { width: 32 }, { width: 32 }, { width: 5 }, { width: 5 }, { width: 5 }, { width: 5 }, { width: 5 }, { width: 5 }, { width: 13 }, { width: 12 }, { width: 42 }];
+    wd.views = [{ state: 'frozen', ySplit: 3 }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="informe-calificacion-auxiliares.xlsx"');
+    res.send(Buffer.from(buf));
+  } catch (e) { console.error('Error excel calificación:', e); res.status(500).json({ error: 'Error al generar el informe' }); }
+});
+
 // Construye el SQL + params del reporte de horas-docentes a partir de los
 // filtros de la request. Devuelve { sql, params, filtros } o { blocked: true }
 // si el rol no tiene grupos asignados. Lanza Error si faltan desde/hasta.
@@ -5757,11 +6050,18 @@ app.get('/api/stats/habilitados/constancia/:matricula_id', requireStatsAuth, asy
     if (m.habilitado !== '1' || m.habilitado_estado !== '1') {
       return res.status(409).json({ error: 'El estudiante debe estar habilitado y sincronizado para emitir la constancia' });
     }
-    const r = await fetch(`https://sistemas.cepreuna.edu.pe/api/perfil/encrypt/${matriculaId}`);
-    if (!r.ok) throw new Error(`token ${r.status}`);
+    // La constancia (token + PDF) la genera el sistema externo sistemas.cepreuna.edu.pe.
+    let r;
+    try { r = await fetch(`https://sistemas.cepreuna.edu.pe/api/perfil/encrypt/${matriculaId}`, { signal: AbortSignal.timeout(20000) }); }
+    catch (netErr) {
+      return res.status(503).json({ error: 'El sistema de constancias (sistemas.cepreuna.edu.pe) no responde en este momento. Vuelve a intentar más tarde.', externo: true });
+    }
+    if (!r.ok) {
+      return res.status(503).json({ error: `El sistema de constancias (sistemas.cepreuna.edu.pe) está temporalmente fuera de servicio (${r.status}). No es un problema del estudiante; reintenta cuando el sistema vuelva.`, externo: true });
+    }
     const token = (await r.text()).trim();
     res.json({ token, pdf_url: `https://sistemas.cepreuna.edu.pe/dga/estudiantes/pdf-constancia/${token}`, matricula_id: matriculaId });
-  } catch (e) { if (conn) conn.release(); console.error('Error constancia:', e); res.status(502).json({ error: 'No se pudo generar la constancia' }); }
+  } catch (e) { if (conn) conn.release(); console.error('Error constancia:', e); res.status(500).json({ error: 'Error al procesar la solicitud de constancia' }); }
 });
 
 // ============ HABILITACIONES · AUXILIARES (gráficas reportes-aux) ============
@@ -6518,48 +6818,65 @@ app.post(['/api/portal/login', '/api/auth/login'], loginLimiter, async (req, res
       });
     }
 
-    // Validar contra la lista de docentes aptos del periodo actual.
-    const connection = await pool.getConnection();
+    // Padrón de acceso. Se prefiere Supabase: la base MySQL original vivía en el
+    // servidor de la nube que se dio de baja, así que el padrón se migró allí
+    // (tabla `acceso_docentes`, ver supabase-acceso-docentes.sql). Si Supabase no
+    // está configurado se consulta MySQL, que es como funcionaba antes.
     let docente = null;
     let area = null;
     let inscrito = false; // ¿siguió el curso? (solo los inscritos pueden ver el certificado)
-    try {
-      const [rows] = await connection.query(
-        `SELECT d.nombres, d.paterno, d.materno, d.nro_documento, d.email, d.celular
-         FROM docente_aptos da
-         JOIN docentes d ON d.id = da.docentes_id
-         WHERE da.periodos_id = 1 AND d.nro_documento = ?
-         LIMIT 1`,
-        [dni]
-      );
-      docente = rows[0] || null;
 
-      // Inscripción al curso: define el área y el acceso al certificado.
-      if (docente) {
-        const [insc] = await connection.query(
-          `SELECT area FROM inscripcion_curso_tallers WHERE nro_documento = ? LIMIT 1`,
-          [dni]
-        );
-        inscrito = insc.length > 0;
-        if (inscrito && insc[0].area != null) area = parseInt(insc[0].area);
-      } else {
-        // No es docente apto del periodo, pero puede estar inscrito al curso-taller
-        // (hay inscritos que no figuran en `docentes`): se les permite entrar para
-        // que puedan descargar su certificado del curso.
-        const [insc] = await connection.query(
-          `SELECT nombres, paterno, materno, nro_documento, celular, email, area
-           FROM inscripcion_curso_tallers WHERE nro_documento = ? LIMIT 1`,
-          [dni]
-        );
-        if (insc.length) {
-          const r = insc[0];
-          docente = { nombres: r.nombres, paterno: r.paterno, materno: r.materno, nro_documento: r.nro_documento, email: r.email, celular: r.celular };
-          inscrito = true;
-          if (r.area != null) area = parseInt(r.area);
-        }
+    if (supabaseActivo()) {
+      const filas = await supabaseFetch(
+        `acceso_docentes?nro_documento=eq.${encodeURIComponent(dni)}` +
+        `&select=nombres,paterno,materno,nro_documento,email,celular,area,es_apto,inscrito&limit=1`
+      );
+      const r = (filas || [])[0];
+      if (r) {
+        docente = { nombres: r.nombres, paterno: r.paterno, materno: r.materno, nro_documento: r.nro_documento, email: r.email, celular: r.celular };
+        inscrito = Boolean(r.inscrito);
+        if (r.area != null) area = parseInt(r.area);
       }
-    } finally {
-      connection.release();
+    } else {
+      const connection = await pool.getConnection();
+      try {
+        const [rows] = await connection.query(
+          `SELECT d.nombres, d.paterno, d.materno, d.nro_documento, d.email, d.celular
+           FROM docente_aptos da
+           JOIN docentes d ON d.id = da.docentes_id
+           WHERE da.periodos_id = 1 AND d.nro_documento = ?
+           LIMIT 1`,
+          [dni]
+        );
+        docente = rows[0] || null;
+
+        // Inscripción al curso: define el área y el acceso al certificado.
+        if (docente) {
+          const [insc] = await connection.query(
+            `SELECT area FROM inscripcion_curso_tallers WHERE nro_documento = ? LIMIT 1`,
+            [dni]
+          );
+          inscrito = insc.length > 0;
+          if (inscrito && insc[0].area != null) area = parseInt(insc[0].area);
+        } else {
+          // No es docente apto del periodo, pero puede estar inscrito al curso-taller
+          // (hay inscritos que no figuran en `docentes`): se les permite entrar para
+          // que puedan descargar su certificado del curso.
+          const [insc] = await connection.query(
+            `SELECT nombres, paterno, materno, nro_documento, celular, email, area
+             FROM inscripcion_curso_tallers WHERE nro_documento = ? LIMIT 1`,
+            [dni]
+          );
+          if (insc.length) {
+            const r = insc[0];
+            docente = { nombres: r.nombres, paterno: r.paterno, materno: r.materno, nro_documento: r.nro_documento, email: r.email, celular: r.celular };
+            inscrito = true;
+            if (r.area != null) area = parseInt(r.area);
+          }
+        }
+      } finally {
+        connection.release();
+      }
     }
 
     if (!docente) {

@@ -348,10 +348,10 @@
             const original = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="material-symbols-outlined text-base animate-spin">progress_activity</span>Generando…`;
             try {
                 const r = await fetch('/api/stats/habilitados/constancia/' + mid, { headers: authHeaders });
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                const d = await r.json();
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { alert(d.error || 'No se pudo generar la constancia.'); return; }
                 window.open(d.pdf_url, '_blank');
-            } catch (e) { alert('No se pudo generar la constancia.'); }
+            } catch (e) { alert('No se pudo conectar para generar la constancia. Revisa tu conexión e intenta de nuevo.'); }
             finally { btn.disabled = false; btn.innerHTML = original; }
         }
         document.getElementById('dniBuscar').addEventListener('click', buscarDni);

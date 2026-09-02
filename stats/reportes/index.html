@@ -150,6 +150,7 @@
                 <div class="hidden lg:flex items-center gap-2">
                     <span class="material-symbols-outlined text-primary dark:text-white">description</span>
                     <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Reportes por Sede</h2>
+                    <div id="periodoActual" class="flex items-center gap-2 ml-2"></div>
                 </div>
                 <div class="flex items-center gap-3">
                     <button id="refreshBtn" class="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors">
@@ -266,18 +267,47 @@
             return resp;
         }
 
+        const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        // Muestra a qué ciclo corresponden los datos, junto al título de la página.
+        function mostrarPeriodo(periodo, totales) {
+            const cont = document.getElementById('periodoActual');
+            if (!cont || !periodo) return;
+            cont.innerHTML = `
+                <span class="px-3 py-1 rounded-full bg-primary/10 text-primary dark:bg-white/10 dark:text-white text-xs font-bold">
+                    Ciclo ${esc(periodo.codigo)} · ${esc(periodo.rango)}
+                </span>
+                <span class="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold">
+                    ${(totales?.inscritos ?? 0).toLocaleString('es-PE')} inscritos
+                </span>`;
+        }
+
         async function cargarReportes() {
             try {
-                const resp = await authFetch('/api/stats-inscripciones/reporte-sedes');
+                // Ciclo vigente (base multiciclo). El periodo lo resuelve el backend con es_actual=1.
+                const resp = await authFetch('/api/stats-inscripciones/reporte-ciclo-actual');
                 const data = await resp.json();
+
+                // La base del ciclo vigente es interna (VPN); en producción puede no haber ruta.
+                if (resp.status === 503) {
+                    document.getElementById('tabsContent').innerHTML = `
+                        <div class="text-center py-16 px-6">
+                            <span class="material-symbols-outlined text-5xl text-amber-500">cloud_off</span>
+                            <h3 class="mt-3 text-lg font-bold text-slate-700 dark:text-slate-200">Ciclo vigente no disponible</h3>
+                            <p class="mt-2 text-sm text-slate-500 max-w-xl mx-auto">${esc(data.detalle || '')}</p>
+                        </div>`;
+                    return;
+                }
+                if (!resp.ok) throw new Error(data.error || 'Error al cargar el reporte');
+
                 const reportes = data.reporte || [];
+                mostrarPeriodo(data.periodo, data.totales);
 
                 if (reportes.length === 0) {
-                    document.getElementById('tabsContent').innerHTML = '<p class="text-center py-20 text-slate-400">No hay datos disponibles</p>';
+                    document.getElementById('tabsContent').innerHTML = '<p class="text-center py-20 text-slate-400">Aún no hay inscripciones registradas en el ciclo vigente</p>';
                     return;
                 }
 
-                const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
                 let tabsHTML = '';
                 let contentHTML = '';
 
