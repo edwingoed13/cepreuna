@@ -434,7 +434,12 @@ async function pedirAApiInterna(ruta) {
 // se guardan/leen en Supabase (tabla auxiliar_calificaciones, ver
 // supabase-auxiliar-calificaciones.sql). Si no, se usa MySQL como antes.
 // La clave service_role solo vive en el backend; RLS bloquea el acceso anónimo.
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+// Se admite que la URL venga con o sin el sufijo /rest/v1: en el panel de Supabase
+// se copia de las dos formas y el codigo lo anade despues, asi que se normaliza
+// aqui para que no dependa de como se haya pegado en el entorno.
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim()
+  .replace(/\/+$/, '')
+  .replace(/\/rest\/v1$/, '');
 const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_KEY || '').trim();
 const supabaseActivo = () => Boolean(SUPABASE_URL && SUPABASE_KEY);
 async function supabaseFetch(path, opts = {}) {
