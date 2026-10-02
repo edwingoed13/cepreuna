@@ -2468,6 +2468,19 @@ app.get('/api/stats-inscripciones/reporte-ciclo-actual', requireStatsAuth, cache
 //
 // El SQL base no tiene WHERE; lo envolvemos en `SELECT * FROM (...) AS t` para
 // poder filtrar por las columnas alias (estado_cuota1, etc.) sin tocar el SQL fuente.
+// Filtros del reporte de pagos tal como viajan a la API interna. No se envia SQL:
+// solo valores, que alla se usan como parametros. `grupos` sale del JWT.
+function filtrosReportePagos(req) {
+  const g = req.user.grupos;
+  return {
+    grupos: Array.isArray(g) ? g : null,
+    gruposSeleccionados: parseList(req.query.grupos),
+    cuota1: req.query.cuota1, cuota2: req.query.cuota2,
+    cuota3: req.query.cuota3, cuota4: req.query.cuota4,
+    q: req.query.q
+  };
+}
+
 // Construye { sql, params } del reporte de pagos según filtros + rol.
 // Devuelve { blocked: true } si el rol no tiene grupos asignados.
 function buildReportePagosQuery(req) {
@@ -2517,6 +2530,15 @@ function buildReportePagosQuery(req) {
 app.get('/api/stats/reporte-pagos', requireStatsAuth, cacheMiddleware(120), async (req, res) => {
   let connection;
   try {
+    if (API_INTERNA_URL) {
+      const r = await pedirAApiInterna('/stats/reporte-pagos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(filtrosReportePagos(req))
+      });
+      return res.json({ ...r, timestamp: new Date().toISOString() });
+    }
+
     const q = buildReportePagosQuery(req);
     if (q.blocked) return res.json({ total: 0, registros: [], timestamp: new Date().toISOString() });
 
@@ -2542,6 +2564,22 @@ app.get('/api/stats/alumno/:dni', requireStatsAuth, async (req, res) => {
   try {
     const dni = String(req.params.dni || '').trim();
     if (!/^\d{6,12}$/.test(dni)) return res.status(400).json({ error: 'DNI inválido' });
+
+    if (API_INTERNA_URL) {
+      try {
+        const g = req.user.grupos;
+        return res.json(await pedirAApiInterna('/stats/alumno', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dni, grupos: Array.isArray(g) ? g : null })
+        }));
+      } catch (e) {
+        if (e.status === 404) return res.status(404).json({ error: 'Estudiante no encontrado' });
+        if (e.status === 403) return res.status(403).json({ error: 'Sin acceso a este alumno' });
+        throw e;
+      }
+    }
+
     conn = await pool.getConnection();
 
     const [[est]] = await conn.query(`
@@ -2608,13 +2646,23 @@ app.get('/api/stats/alumno/:dni', requireStatsAuth, async (req, res) => {
 app.get('/api/stats/reporte-pagos/excel', requireStatsAuth, async (req, res) => {
   let connection;
   try {
-    const q = buildReportePagosQuery(req);
-    const rows = q.blocked ? [] : await (async () => {
-      connection = await pool.getConnection();
-      const [r] = await connection.query(q.sql, q.params);
-      connection.release();
-      return r;
-    })();
+    let rows;
+    if (API_INTERNA_URL) {
+      const r = await pedirAApiInterna('/stats/reporte-pagos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(filtrosReportePagos(req))
+      });
+      rows = r.registros || [];
+    } else {
+      const q = buildReportePagosQuery(req);
+      rows = q.blocked ? [] : await (async () => {
+        connection = await pool.getConnection();
+        const [r] = await connection.query(q.sql, q.params);
+        connection.release();
+        return r;
+      })();
+    }
 
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();

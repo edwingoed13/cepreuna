@@ -28,6 +28,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { obtenerReporteCicloActual } = require('./lib/reporte-ciclo');
 const { validarCredenciales } = require('./lib/auth-panel');
+const { reportePagos, fichaAlumno } = require('./lib/alumnos');
 
 const app = express();
 app.use(express.json({ limit: '8kb' }));
@@ -124,6 +125,39 @@ app.post('/auth/validar', requiereToken, async (req, res) => {
   } catch (e) {
     console.error('Error en /auth/validar:', e.code || e.message);
     res.status(500).json({ error: 'No se pudo validar el acceso' });
+  }
+});
+
+// Reporte de pagos de /stats/alumnos. Recibe FILTROS, nunca SQL: la consulta se
+// arma aqui con el SQL base del paquete y los valores van como parametros.
+// `grupos` llega resuelto desde el servidor a partir del JWT (null = global).
+app.post('/stats/reporte-pagos', requiereToken, async (req, res) => {
+  try {
+    const f = req.body || {};
+    res.json(await reportePagos(pool, {
+      grupos: f.grupos === null ? null : f.grupos,
+      gruposSeleccionados: f.gruposSeleccionados,
+      cuota1: f.cuota1, cuota2: f.cuota2, cuota3: f.cuota3, cuota4: f.cuota4,
+      q: f.q
+    }));
+  } catch (e) {
+    console.error('Error en /stats/reporte-pagos:', e.code || e.message);
+    res.status(500).json({ error: 'No se pudo generar el reporte' });
+  }
+});
+
+// Ficha de un alumno. El permiso por grupos lo decide el servidor y viaja aqui.
+app.post('/stats/alumno', requiereToken, async (req, res) => {
+  try {
+    const { dni, grupos } = req.body || {};
+    const r = await fichaAlumno(pool, dni, grupos === null ? null : grupos);
+    if (r.error === 'dni_invalido') return res.status(400).json({ error: 'DNI invalido' });
+    if (r.error === 'no_encontrado') return res.status(404).json({ error: 'Estudiante no encontrado' });
+    if (r.error === 'sin_acceso') return res.status(403).json({ error: 'Sin acceso a este alumno' });
+    res.json(r);
+  } catch (e) {
+    console.error('Error en /stats/alumno:', e.code || e.message);
+    res.status(500).json({ error: 'No se pudo obtener la ficha' });
   }
 });
 
