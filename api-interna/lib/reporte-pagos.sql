@@ -113,7 +113,15 @@ LEFT JOIN tarifa_estudiantes t4
 
 -- Catálogos de presentación
 JOIN sedes s ON s.id = i.sedes_id
-LEFT JOIN matriculas m ON m.estudiantes_id = e.id AND m.periodos_id = i.periodos_id
+-- Una sola matricula por alumno y periodo: en la base hay registros repetidos
+-- (819 en el ciclo vigente) y unirlos de forma directa multiplicaba las filas
+-- del reporte. Se toma la mas reciente.
+LEFT JOIN (
+    SELECT estudiantes_id, periodos_id, MAX(id) AS id
+    FROM matriculas
+    GROUP BY estudiantes_id, periodos_id
+) mu ON mu.estudiantes_id = e.id AND mu.periodos_id = i.periodos_id
+LEFT JOIN matriculas m ON m.id = mu.id
 LEFT JOIN grupo_aulas ga ON ga.id = m.grupo_aulas_id
 LEFT JOIN areas ON areas.id = ga.areas_id
 LEFT JOIN grupos ON grupos.id = ga.grupos_id
