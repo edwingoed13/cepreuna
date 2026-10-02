@@ -416,9 +416,10 @@ const SIN_MULTICICLO = {
 const API_INTERNA_URL = (process.env.API_INTERNA_URL || '').trim().replace(/\/+$/, '');
 const API_INTERNA_TOKEN = (process.env.API_INTERNA_TOKEN || '').trim();
 
-async function pedirAApiInterna(ruta) {
+async function pedirAApiInterna(ruta, opts = {}) {
   const res = await fetch(`${API_INTERNA_URL}${ruta}`, {
-    headers: { Authorization: `Bearer ${API_INTERNA_TOKEN}` },
+    ...opts,
+    headers: { Authorization: `Bearer ${API_INTERNA_TOKEN}`, ...(opts.headers || {}) },
     signal: AbortSignal.timeout(20000)
   });
   if (!res.ok) {
@@ -7010,6 +7011,42 @@ app.post('/api/stats/login', loginLimiter, async (req, res) => {
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+  }
+
+  // Con la API interna configurada, las credenciales se validan contra la base
+  // institucional a traves de ella: los usuarios del panel ya no estan en la base
+  // antigua. El JWT se sigue firmando aqui, con el secreto que solo vive en este
+  // servidor, de modo que la API interna no puede emitir sesiones.
+  if (API_INTERNA_URL) {
+    try {
+      const perfil = await pedirAApiInterna('/auth/validar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      if (!perfil.role) return res.status(403).json({ error: 'Usuario sin rol asignado' });
+      const token = jwt.sign(
+        { sub: perfil.id, role: perfil.role, grupos: perfil.grupos },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN }
+      );
+      return res.json({
+        success: true,
+        token,
+        user: {
+          id: perfil.id,
+          name: perfil.name,
+          email: perfil.email,
+          role: perfil.role,
+          grupos_count: perfil.grupos === null ? null : perfil.grupos.length
+        }
+      });
+    } catch (e) {
+      if (e.status === 401) return res.status(401).json({ error: 'Credenciales invalidas' });
+      if (e.status === 400) return res.status(400).json({ error: 'Email y contrasena son requeridos' });
+      console.error('Login via API interna:', e.code || e.cause?.code || e.message);
+      return res.status(503).json({ error: 'El servicio de acceso no esta disponible en este momento' });
+    }
   }
 
   let connection;

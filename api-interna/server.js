@@ -27,8 +27,10 @@ const mysql = require('mysql2/promise');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { obtenerReporteCicloActual } = require('./lib/reporte-ciclo');
+const { validarCredenciales } = require('./lib/auth-panel');
 
 const app = express();
+app.use(express.json({ limit: '8kb' }));
 const PORT = process.env.API_PORT || 3001;
 const TOKEN = process.env.API_INTERNA_TOKEN || '';
 
@@ -103,6 +105,25 @@ app.get('/ciclo-actual/reporte-sedes', requiereToken, async (_req, res) => {
     if (e.codigo === 'SIN_PERIODO') return res.status(404).json({ error: e.message });
     console.error('Error en reporte-sedes:', e.code || e.message);
     res.status(500).json({ error: 'No se pudo generar el reporte' });
+  }
+});
+
+// Validacion de credenciales del panel /stats. Solo comprueba la contrasena y
+// devuelve el perfil; la sesion (JWT) la firma el servidor principal con su
+// propio secreto, de modo que este servicio no puede emitir sesiones.
+app.post('/auth/validar', requiereToken, async (req, res) => {
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
+    return res.status(400).json({ error: 'Email y contrasena son requeridos' });
+  }
+  try {
+    const perfil = await validarCredenciales(pool, email, password);
+    // Mismo mensaje exista o no el usuario: no se revela que correos estan dados de alta.
+    if (!perfil) return res.status(401).json({ error: 'Credenciales invalidas' });
+    res.json(perfil);
+  } catch (e) {
+    console.error('Error en /auth/validar:', e.code || e.message);
+    res.status(500).json({ error: 'No se pudo validar el acceso' });
   }
 });
 
