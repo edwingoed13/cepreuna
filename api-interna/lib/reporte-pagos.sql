@@ -39,49 +39,48 @@ SELECT
     tc.denominacion AS tipo_colegio,
     i.estado,
 
-    -- Resumen de lo abonado. El primer pago es la inscripcion y cada pago
-    -- siguiente cubre una cuota, de ahi que el total sean cinco.
-    COALESCE(pg.n_pagos, 0) AS n_pagos,
-    COALESCE(pg.total_pagado, 0) AS total_pagado,
-    pg.ultimo_pago,
+    -- Resumen economico del alumno
+    tf.mensualidad AS monto_mensualidad,
+    COALESCE(ip.pago_matricula, 0)     AS pago_matricula,
+    COALESCE(ip.pago_mensualidades, 0) AS pago_mensualidades,
+    COALESCE(ip.pago_rezagado, 0)      AS pago_rezagado,
+    COALESCE(ip.total_pagado, 0)       AS total_pagado,
+    CASE WHEN tf.mensualidad IS NULL THEN NULL
+         ELSE LEAST(4, FLOOR(COALESCE(ip.pago_mensualidades,0) / tf.mensualidad)) END AS cuotas_cubiertas,
 
     -- Deuda residual de cada cuota (solo principal; mora es cobranza, no obligación)
-    GREATEST(0, COALESCE(t1.monto,0) - COALESCE(t1.pagado,0)) AS primera_mensualidad,
-    GREATEST(0, COALESCE(t2.monto,0) - COALESCE(t2.pagado,0)) AS segunda_mensualidad,
-    GREATEST(0, COALESCE(t3.monto,0) - COALESCE(t3.pagado,0)) AS tercera_mensualidad,
-    GREATEST(0, COALESCE(t4.monto,0) - COALESCE(t4.pagado,0)) AS cuarta_mensualidad,
+    GREATEST(0, COALESCE(tf.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 0 * COALESCE(tf.mensualidad,0))) AS primera_mensualidad,
+    GREATEST(0, COALESCE(tf.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 1 * COALESCE(tf.mensualidad,0))) AS segunda_mensualidad,
+    GREATEST(0, COALESCE(tf.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 2 * COALESCE(tf.mensualidad,0))) AS tercera_mensualidad,
+    GREATEST(0, COALESCE(tf.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 3 * COALESCE(tf.mensualidad,0))) AS cuarta_mensualidad,
 
     -- Estado por cuota
     CASE
-        WHEN COALESCE(pg.n_pagos,0) >= 2 THEN 'PAGADA'
-        WHEN t1.id IS NULL THEN 'SIN_PAGAR'
-        WHEN COALESCE(t1.pagado,0) >= COALESCE(t1.monto,0) THEN 'PAGADA'
-        WHEN COALESCE(t1.pagado,0) = 0 THEN 'SIN_PAGAR'
-        ELSE 'PARCIAL'
+        WHEN tf.mensualidad IS NULL THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / tf.mensualidad) >= 1 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (1 - 1) * tf.mensualidad THEN 'PARCIAL'
+        ELSE 'SIN_PAGAR'
     END AS estado_cuota1,
 
     CASE
-        WHEN COALESCE(pg.n_pagos,0) >= 3 THEN 'PAGADA'
-        WHEN t2.id IS NULL THEN 'SIN_PAGAR'
-        WHEN COALESCE(t2.pagado,0) >= COALESCE(t2.monto,0) THEN 'PAGADA'
-        WHEN COALESCE(t2.pagado,0) = 0 THEN 'SIN_PAGAR'
-        ELSE 'PARCIAL'
+        WHEN tf.mensualidad IS NULL THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / tf.mensualidad) >= 2 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (2 - 1) * tf.mensualidad THEN 'PARCIAL'
+        ELSE 'SIN_PAGAR'
     END AS estado_cuota2,
 
     CASE
-        WHEN COALESCE(pg.n_pagos,0) >= 4 THEN 'PAGADA'
-        WHEN t3.id IS NULL THEN 'SIN_PAGAR'
-        WHEN COALESCE(t3.pagado,0) >= COALESCE(t3.monto,0) THEN 'PAGADA'
-        WHEN COALESCE(t3.pagado,0) = 0 THEN 'SIN_PAGAR'
-        ELSE 'PARCIAL'
+        WHEN tf.mensualidad IS NULL THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / tf.mensualidad) >= 3 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (3 - 1) * tf.mensualidad THEN 'PARCIAL'
+        ELSE 'SIN_PAGAR'
     END AS estado_cuota3,
 
     CASE
-        WHEN COALESCE(pg.n_pagos,0) >= 5 THEN 'PAGADA'
-        WHEN t4.id IS NULL THEN 'SIN_PAGAR'
-        WHEN COALESCE(t4.pagado,0) >= COALESCE(t4.monto,0) THEN 'PAGADA'
-        WHEN COALESCE(t4.pagado,0) = 0 THEN 'SIN_PAGAR'
-        ELSE 'PARCIAL'
+        WHEN tf.mensualidad IS NULL THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / tf.mensualidad) >= 4 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (4 - 1) * tf.mensualidad THEN 'PARCIAL'
+        ELSE 'SIN_PAGAR'
     END AS estado_cuota4,
 
     -- Flags: la modalidad/tipo_estudiante de la cuota difiere de la inscripción.
@@ -121,20 +120,40 @@ LEFT JOIN tarifa_estudiantes t4
     ON t4.estudiantes_id = e.id AND t4.nro_cuota = 4
    AND t4.periodos_id = i.periodos_id
 
--- Pagos del ciclo. En la base nueva las cuotas ya no se anotan en
--- `tarifa_estudiantes` (solo 210 alumnos de 6671 la tienen): lo que queda es un
--- pago por concepto de matricula cada vez que el alumno abona. El primero es la
--- inscripcion y los cuatro siguientes son las cuotas, asi que el numero de pagos
--- dice hasta donde ha cubierto.
+-- Tarifa que corresponde al alumno. El importe vive en `tarifas.importe`
+-- (`monto` esta a 0) y depende de modalidad + tipo_estudiante + tipo de colegio.
+-- Como `inscripciones.tarifas_id` esta vacio, el tipo de colegio se deduce por el
+-- importe de matricula cobrado, que es unico dentro de cada modalidad y tipo.
 LEFT JOIN (
-    SELECT estudiantes_id, periodos_id,
-           COUNT(*) AS n_pagos,
+    SELECT tm.modalidad, tm.tipo_estudiante,
+           tm.importe  AS matricula,
+           tme.importe AS mensualidad
+    FROM tarifas tm
+    JOIN tarifas tme
+      ON tme.periodos_id      = tm.periodos_id
+     AND tme.modalidad        = tm.modalidad
+     AND tme.tipo_estudiante  = tm.tipo_estudiante
+     AND tme.tipo_colegios_id = tm.tipo_colegios_id
+     AND tme.denominacion LIKE 'Mensualidad%'
+    WHERE tm.periodos_id = ? AND tm.denominacion LIKE 'Matricula%'
+) tf ON tf.modalidad       = i.modalidad
+    AND tf.tipo_estudiante = i.tipo_estudiante
+    AND tf.matricula       = i.monto_total
+
+-- Lo abonado segun la imputacion del propio sistema: `inscripcion_pagos` reparte
+-- cada pago entre conceptos (1 matricula, 2 mensualidad, 3 rezagado). La tabla
+-- `pagos` no sirve para esto: alli todo figura como concepto 1.
+LEFT JOIN (
+    SELECT inscripciones_id,
+           SUM(CASE WHEN concepto_pagos_id = 1 THEN monto ELSE 0 END) AS pago_matricula,
+           SUM(CASE WHEN concepto_pagos_id = 2 THEN monto ELSE 0 END) AS pago_mensualidades,
+           SUM(CASE WHEN concepto_pagos_id = 3 THEN monto ELSE 0 END) AS pago_rezagado,
            SUM(monto) AS total_pagado,
-           DATE_FORMAT(MAX(fecha_pago), '%Y-%m-%d') AS ultimo_pago
-    FROM pagos
+           COUNT(*)   AS n_lineas
+    FROM inscripcion_pagos
     WHERE periodos_id = ?
-    GROUP BY estudiantes_id, periodos_id
-) pg ON pg.estudiantes_id = e.id AND pg.periodos_id = i.periodos_id
+    GROUP BY inscripciones_id
+) ip ON ip.inscripciones_id = i.id
 
 -- Catálogos de presentación
 JOIN sedes s ON s.id = i.sedes_id

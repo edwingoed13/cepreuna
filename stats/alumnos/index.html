@@ -46,6 +46,9 @@
         .cell-pagada    { background-color: #66bb6a; color: #0a3d10; }
         .cell-parcial   { background-color: #f4ee5a; color: #332b00; }
         .cell-sinpagar  { background-color: #ef5350; color: #4a0000; }
+        /* Sin tarifario deducible: no se puede afirmar si debe o no. Gris, para
+           no contarlo entre los morosos ni entre los que estan al dia. */
+        .cell-sintarifa { background-color: #cbd5e1; color: #334155; }
         /* Cuota pagada bajo distinta modalidad/tipo que la inscripción actual */
         .cell-cambio-mod { position: relative; box-shadow: inset 0 0 0 2px #6366f1; }
         .cell-cambio-mod::after {
@@ -444,7 +447,8 @@
         const claseCelda = (estado, cambioMod) => {
             const base = estado === 'PAGADA' ? 'cell-pagada'
                 : estado === 'PARCIAL' ? 'cell-parcial'
-                : estado === 'SIN_PAGAR' ? 'cell-sinpagar' : '';
+                : estado === 'SIN_PAGAR' ? 'cell-sinpagar'
+                : estado === 'SIN_TARIFA' ? 'cell-sintarifa' : '';
             return cambioMod ? `${base} cell-cambio-mod` : base;
         };
 
@@ -452,12 +456,14 @@
             if (estado === 'PAGADA') return 'cell-pagada';
             if (estado === 'PARCIAL') return 'cell-parcial';
             if (estado === 'SIN_PAGAR') return 'cell-sinpagar';
+            if (estado === 'SIN_TARIFA') return 'cell-sintarifa';
             return '';
         };
 
         // Señal NO basada solo en color (accesibilidad daltonismo): glifo + título por estado.
-        const glifoEstado = (estado) => estado === 'PAGADA' ? '✓' : estado === 'PARCIAL' ? '◐' : estado === 'SIN_PAGAR' ? '✗' : '';
-        const tituloEstado = (estado) => estado === 'PAGADA' ? 'Pagada' : estado === 'PARCIAL' ? 'Parcial' : estado === 'SIN_PAGAR' ? 'Sin pagar' : '';
+        const glifoEstado = (estado) => estado === 'PAGADA' ? '✓' : estado === 'PARCIAL' ? '◐' : estado === 'SIN_PAGAR' ? '✗' : estado === 'SIN_TARIFA' ? '?' : '';
+        const tituloEstado = (estado) => estado === 'PAGADA' ? 'Pagada' : estado === 'PARCIAL' ? 'Parcial' : estado === 'SIN_PAGAR' ? 'Sin pagar'
+            : estado === 'SIN_TARIFA' ? 'Sin tarifario: el monto de matrícula no coincide con ninguna tarifa del ciclo' : '';
         const celdaCuota = (estado, cambioMod, monto) =>
             `<td class="px-3 py-2 text-right font-mono ${claseCelda(estado, cambioMod)}" title="${tituloEstado(estado)}"><span class="float-left opacity-60">${glifoEstado(estado)}</span>${fmtMoney(monto)}</td>`;
 
