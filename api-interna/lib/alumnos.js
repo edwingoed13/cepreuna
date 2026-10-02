@@ -18,9 +18,10 @@ const { conReintento } = require('./reintento');
 
 // El SQL base no lleva WHERE: se envuelve para poder filtrar por las columnas
 // calculadas (estado_cuota1, etc.) sin tocar el fuente.
+// El archivo ya no trae ORDER BY final (lo pone el envoltorio de abajo): recortarlo
+// con una expresion se llevaba por delante los ORDER BY internos de los LATERAL.
 const SQL_BASE = fs
   .readFileSync(path.join(__dirname, 'reporte-pagos.sql'), 'utf8')
-  .replace(/ORDER\s+BY[\s\S]*$/i, '')
   .replace(/;\s*$/, '')
   .trim();
 
@@ -48,9 +49,9 @@ const soloEnteros = (v) => (Array.isArray(v) ? v : [])
 /** Arma la consulta del reporte a partir de filtros ya validados. */
 function construirConsulta(filtros = {}, periodo) {
   const cond = [];
-  // El periodo aparece tres veces en el SQL base, en este orden: el tarifario,
-  // la imputacion de pagos y el filtro de inscripciones.
-  const params = [periodo, periodo, periodo];
+  // El periodo aparece dos veces en el SQL base: la imputacion de pagos y el
+  // filtro de inscripciones. Los LATERAL del tarifario lo toman de la propia fila.
+  const params = [periodo, periodo];
 
   // Permisos: array = restringido a esos grupos; null = global.
   const permitidos = filtros.grupos === null ? null : soloEnteros(filtros.grupos);
