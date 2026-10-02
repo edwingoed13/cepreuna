@@ -11,7 +11,13 @@
  * modo que al abrirse el siguiente ciclo el reporte lo toma sin tocar código.
  */
 
+const { conReintento } = require('./reintento');
+
 async function obtenerReporteCicloActual(pool) {
+  return conReintento(() => obtenerReporte(pool));
+}
+
+async function obtenerReporte(pool) {
   const conn = await pool.getConnection();
   try {
     const [[periodo]] = await conn.query(

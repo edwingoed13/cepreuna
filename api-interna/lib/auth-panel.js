@@ -15,6 +15,7 @@
  */
 
 const bcrypt = require('bcryptjs');
+const { conReintento } = require('./reintento');
 
 // Roles con acceso global al panel. Debe coincidir con ADMIN_ROLES del servidor.
 const ADMIN_ROLES = ['Administrador', 'Super Admin', 'Oficina de Administración'];
@@ -56,6 +57,10 @@ async function gruposPermitidos(conn, userId, rol) {
  * qué correos están dados de alta.
  */
 async function validarCredenciales(pool, email, password) {
+  return conReintento(() => validar(pool, email, password));
+}
+
+async function validar(pool, email, password) {
   const conn = await pool.getConnection();
   try {
     const [users] = await conn.query(
