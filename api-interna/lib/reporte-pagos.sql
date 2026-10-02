@@ -39,6 +39,12 @@ SELECT
     tc.denominacion AS tipo_colegio,
     i.estado,
 
+    -- Resumen de lo abonado. El primer pago es la inscripcion y cada pago
+    -- siguiente cubre una cuota, de ahi que el total sean cinco.
+    COALESCE(pg.n_pagos, 0) AS n_pagos,
+    COALESCE(pg.total_pagado, 0) AS total_pagado,
+    pg.ultimo_pago,
+
     -- Deuda residual de cada cuota (solo principal; mora es cobranza, no obligación)
     GREATEST(0, COALESCE(t1.monto,0) - COALESCE(t1.pagado,0)) AS primera_mensualidad,
     GREATEST(0, COALESCE(t2.monto,0) - COALESCE(t2.pagado,0)) AS segunda_mensualidad,
@@ -47,6 +53,7 @@ SELECT
 
     -- Estado por cuota
     CASE
+        WHEN COALESCE(pg.n_pagos,0) >= 2 THEN 'PAGADA'
         WHEN t1.id IS NULL THEN 'SIN_PAGAR'
         WHEN COALESCE(t1.pagado,0) >= COALESCE(t1.monto,0) THEN 'PAGADA'
         WHEN COALESCE(t1.pagado,0) = 0 THEN 'SIN_PAGAR'
@@ -54,6 +61,7 @@ SELECT
     END AS estado_cuota1,
 
     CASE
+        WHEN COALESCE(pg.n_pagos,0) >= 3 THEN 'PAGADA'
         WHEN t2.id IS NULL THEN 'SIN_PAGAR'
         WHEN COALESCE(t2.pagado,0) >= COALESCE(t2.monto,0) THEN 'PAGADA'
         WHEN COALESCE(t2.pagado,0) = 0 THEN 'SIN_PAGAR'
@@ -61,6 +69,7 @@ SELECT
     END AS estado_cuota2,
 
     CASE
+        WHEN COALESCE(pg.n_pagos,0) >= 4 THEN 'PAGADA'
         WHEN t3.id IS NULL THEN 'SIN_PAGAR'
         WHEN COALESCE(t3.pagado,0) >= COALESCE(t3.monto,0) THEN 'PAGADA'
         WHEN COALESCE(t3.pagado,0) = 0 THEN 'SIN_PAGAR'
@@ -68,6 +77,7 @@ SELECT
     END AS estado_cuota3,
 
     CASE
+        WHEN COALESCE(pg.n_pagos,0) >= 5 THEN 'PAGADA'
         WHEN t4.id IS NULL THEN 'SIN_PAGAR'
         WHEN COALESCE(t4.pagado,0) >= COALESCE(t4.monto,0) THEN 'PAGADA'
         WHEN COALESCE(t4.pagado,0) = 0 THEN 'SIN_PAGAR'
@@ -110,6 +120,21 @@ LEFT JOIN tarifa_estudiantes t3
 LEFT JOIN tarifa_estudiantes t4
     ON t4.estudiantes_id = e.id AND t4.nro_cuota = 4
    AND t4.periodos_id = i.periodos_id
+
+-- Pagos del ciclo. En la base nueva las cuotas ya no se anotan en
+-- `tarifa_estudiantes` (solo 210 alumnos de 6671 la tienen): lo que queda es un
+-- pago por concepto de matricula cada vez que el alumno abona. El primero es la
+-- inscripcion y los cuatro siguientes son las cuotas, asi que el numero de pagos
+-- dice hasta donde ha cubierto.
+LEFT JOIN (
+    SELECT estudiantes_id, periodos_id,
+           COUNT(*) AS n_pagos,
+           SUM(monto) AS total_pagado,
+           DATE_FORMAT(MAX(fecha_pago), '%Y-%m-%d') AS ultimo_pago
+    FROM pagos
+    WHERE periodos_id = ?
+    GROUP BY estudiantes_id, periodos_id
+) pg ON pg.estudiantes_id = e.id AND pg.periodos_id = i.periodos_id
 
 -- Catálogos de presentación
 JOIN sedes s ON s.id = i.sedes_id
