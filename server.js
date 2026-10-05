@@ -498,6 +498,37 @@ async function ensureAuxiliarCalificacionesTable() {
   }
 }
 
+// ============ Periodo vigente ============
+// Las consultas del panel se refieren siempre al ciclo en curso. En la base
+// antigua solo existia un periodo y valia fijarlo a 1; en la multiciclo hay diez
+// y el 1 es un ciclo historico, de modo que fijarlo mostraba datos del ciclo
+// equivocado.
+//
+// Se resuelve una vez al arrancar con `periodos.es_actual = 1` y se refresca
+// cada hora, que es de sobra: cambia una vez por ciclo. Si la base no responde
+// se conserva el ultimo valor conocido, mejor que dejar el panel sin datos.
+let PERIODO_ACTUAL = 1;
+let periodoResuelto = false;
+
+async function resolverPeriodoActual() {
+  try {
+    const [[p]] = await pool.query('SELECT id, codigo FROM periodos WHERE es_actual = 1 LIMIT 1');
+    if (p && p.id) {
+      if (p.id !== PERIODO_ACTUAL || !periodoResuelto) {
+        console.log(`📅 Ciclo vigente: ${p.codigo || ''} (periodo ${p.id})`);
+      }
+      PERIODO_ACTUAL = p.id;
+      periodoResuelto = true;
+    }
+  } catch (e) {
+    // La tabla no tiene `es_actual` en bases antiguas: ahi el 1 es correcto.
+    if (!periodoResuelto) console.warn('No se pudo resolver el ciclo vigente, se usa el periodo 1:', e.code || e.message);
+  }
+}
+
+resolverPeriodoActual();
+if (!process.env.VERCEL) setInterval(resolverPeriodoActual, 3600000).unref();
+
 // Verificar conexión al iniciar
 pool.getConnection()
   .then(connection => {
@@ -584,7 +615,7 @@ app.get('/api/inscritos-por-area', async (req, res) => {
       INNER JOIN estudiantes e ON ise.nro_documento = e.nro_documento
       INNER JOIN inscripciones i ON e.id = i.estudiantes_id
       INNER JOIN areas a ON i.areas_id = a.id
-      WHERE i.periodos_id = 1
+      WHERE i.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY a.id, a.denominacion
       ORDER BY a.denominacion
     `);
@@ -618,7 +649,7 @@ app.get('/api/matriculas/totales', cacheMiddleware(300), async (req, res) => {
         SUM(CASE WHEN m.habilitado = '1' THEN 1 ELSE 0 END) as total_habilitados,
         SUM(CASE WHEN m.habilitado = '1' AND m.habilitado_estado = '1' THEN 1 ELSE 0 END) as total_sincronizados
       FROM matriculas m
-      WHERE m.periodos_id = 1
+      WHERE m.periodos_id = ${PERIODO_ACTUAL}
     `);
 
     connection.release();
@@ -655,7 +686,7 @@ app.get('/api/matriculas/por-area', cacheMiddleware(300), async (req, res) => {
         INNER JOIN grupo_aulas ga ON m.grupo_aulas_id = ga.id
         INNER JOIN areas a ON ga.areas_id = a.id
       WHERE
-        m.periodos_id = 1
+        m.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY
         a.id, a.denominacion
       ORDER BY
@@ -701,7 +732,7 @@ app.get('/api/matriculas/por-sede', cacheMiddleware(300), async (req, res) => {
       INNER JOIN aulas au ON ga.aulas_id = au.id
       INNER JOIN locales l ON au.locales_id = l.id
       INNER JOIN sedes s ON l.sedes_id = s.id
-      WHERE m.periodos_id = 1
+      WHERE m.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY s.id, s.denominacion
       ORDER BY s.denominacion
     `);
@@ -745,7 +776,7 @@ app.get('/api/matriculas/por-sede-area', async (req, res) => {
       INNER JOIN aulas au ON ga.aulas_id = au.id
       INNER JOIN locales l ON au.locales_id = l.id
       INNER JOIN sedes s ON l.sedes_id = s.id
-      WHERE m.periodos_id = 1
+      WHERE m.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY s.id, s.denominacion, a.id, a.denominacion
       ORDER BY s.denominacion, a.denominacion
     `);
@@ -794,7 +825,7 @@ app.get('/api/matriculas/por-sede-area-turno', async (req, res) => {
       INNER JOIN aulas au ON ga.aulas_id = au.id
       INNER JOIN locales l ON au.locales_id = l.id
       INNER JOIN sedes s ON l.sedes_id = s.id
-      WHERE m.periodos_id = 1
+      WHERE m.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY s.id, s.denominacion, a.id, a.denominacion, t.id, t.denominacion
       ORDER BY s.denominacion, a.denominacion, t.denominacion
     `);
@@ -850,7 +881,7 @@ app.get('/api/matriculas/completo', cacheMiddleware(600), async (req, res) => {
       INNER JOIN aulas au ON ga.aulas_id = au.id
       INNER JOIN locales l ON au.locales_id = l.id
       INNER JOIN sedes s ON l.sedes_id = s.id
-      WHERE m.periodos_id = 1
+      WHERE m.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY s.id, s.denominacion, a.id, a.denominacion, t.id, t.denominacion, g.id, g.denominacion
       ORDER BY s.denominacion, a.denominacion, t.denominacion, g.denominacion
     `);
@@ -909,7 +940,7 @@ app.get('/api/matriculas/pendientes-sin-deuda/detalle', async (req, res) => {
       FROM
         estudiantes e
         INNER JOIN inscripciones i ON e.id = i.estudiantes_id
-        INNER JOIN matriculas m ON e.id = m.estudiantes_id AND m.periodos_id = 1
+        INNER JOIN matriculas m ON e.id = m.estudiantes_id AND m.periodos_id = ${PERIODO_ACTUAL}
         INNER JOIN tarifa_estudiantes te ON e.id = te.estudiantes_id
         INNER JOIN grupo_aulas ga ON m.grupo_aulas_id = ga.id
         INNER JOIN grupos g ON ga.grupos_id = g.id
@@ -919,7 +950,7 @@ app.get('/api/matriculas/pendientes-sin-deuda/detalle', async (req, res) => {
         INNER JOIN locales l ON au.locales_id = l.id
         INNER JOIN sedes s ON l.sedes_id = s.id
       WHERE
-        i.periodos_id = 1
+        i.periodos_id = ${PERIODO_ACTUAL}
         AND m.habilitado = '0'
         AND s.denominacion = ?
         AND a.denominacion = ?
@@ -994,7 +1025,7 @@ app.get('/api/matriculas/pendientes-sin-deuda', async (req, res) => {
           g.id AS grupo_id
         FROM
           estudiantes e
-          INNER JOIN matriculas m ON e.id = m.estudiantes_id AND m.periodos_id = 1
+          INNER JOIN matriculas m ON e.id = m.estudiantes_id AND m.periodos_id = ${PERIODO_ACTUAL}
           INNER JOIN tarifa_estudiantes te ON e.id = te.estudiantes_id
           INNER JOIN grupo_aulas ga ON m.grupo_aulas_id = ga.id
           INNER JOIN grupos g ON ga.grupos_id = g.id
@@ -1076,7 +1107,7 @@ app.get('/api/matriculas/habilitados-con-deuda', async (req, res) => {
         SUM(te.monto - te.pagado) as deuda_total
       FROM estudiantes e
       INNER JOIN inscripciones i ON e.id = i.estudiantes_id
-      INNER JOIN matriculas m ON e.id = m.estudiantes_id AND m.periodos_id = 1
+      INNER JOIN matriculas m ON e.id = m.estudiantes_id AND m.periodos_id = ${PERIODO_ACTUAL}
       INNER JOIN tarifa_estudiantes te ON e.id = te.estudiantes_id
       INNER JOIN sedes s ON i.sedes_id = s.id
       INNER JOIN grupo_aulas ga ON m.grupo_aulas_id = ga.id
@@ -1084,7 +1115,7 @@ app.get('/api/matriculas/habilitados-con-deuda', async (req, res) => {
       INNER JOIN areas a ON ga.areas_id = a.id
       INNER JOIN turnos t ON ga.turnos_id = t.id
       WHERE
-        i.periodos_id = 1
+        i.periodos_id = ${PERIODO_ACTUAL}
         AND m.habilitado = '1'
       GROUP BY
         e.id,
@@ -1243,7 +1274,7 @@ app.get('/api/matriculas/buscar-por-dni/:dni', async (req, res) => {
         LEFT JOIN sedes s ON l.sedes_id = s.id
       WHERE
         e.nro_documento = ?
-        AND m.periodos_id = 1
+        AND m.periodos_id = ${PERIODO_ACTUAL}
       LIMIT 1
     `, [dni]);
 
@@ -1925,9 +1956,9 @@ app.get('/api/stats-inscripciones/totales', requireStatsAuth, cacheMiddleware(18
         SUM(CASE WHEN modalidad = '1' THEN 1 ELSE 0 END) as total_virtual,
         SUM(CASE WHEN modalidad = '2' THEN 1 ELSE 0 END) as total_presencial,
         (SELECT COUNT(*) FROM banco_pagos WHERE fch_pag >= '2026-02-25' AND imp_pag > 200) as total_pagos_25feb,
-        (SELECT COUNT(*) FROM inscripciones WHERE periodos_id = 1 AND DATE(created_at) = CURDATE()) as total_hoy
+        (SELECT COUNT(*) FROM inscripciones WHERE periodos_id = ${PERIODO_ACTUAL} AND DATE(created_at) = CURDATE()) as total_hoy
       FROM inscripciones
-      WHERE periodos_id = 1
+      WHERE periodos_id = ${PERIODO_ACTUAL}
     `);
 
     connection.release();
@@ -1961,7 +1992,7 @@ app.get('/api/stats-inscripciones/por-sede', requireStatsAuth, cacheMiddleware(3
         SUM(CASE WHEN i.modalidad = '1' THEN 1 ELSE 0 END) as \`virtual\`,
         SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
       FROM sedes s
-      LEFT JOIN inscripciones i ON i.sedes_id = s.id AND i.periodos_id = 1
+      LEFT JOIN inscripciones i ON i.sedes_id = s.id AND i.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY s.id, s.denominacion
       ORDER BY total_inscritos DESC
     `);
@@ -2000,7 +2031,7 @@ app.get('/api/stats-inscripciones/por-area', requireStatsAuth, cacheMiddleware(3
         SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
       FROM inscripciones i
       INNER JOIN areas a ON i.areas_id = a.id
-      WHERE i.periodos_id = 1
+      WHERE i.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY a.id, a.denominacion
       ORDER BY total_inscritos DESC
     `);
@@ -2039,7 +2070,7 @@ app.get('/api/stats-inscripciones/por-turno', requireStatsAuth, cacheMiddleware(
         SUM(CASE WHEN i.modalidad = '2' THEN 1 ELSE 0 END) as presencial
       FROM inscripciones i
       INNER JOIN turnos t ON i.turnos_id = t.id
-      WHERE i.periodos_id = 1
+      WHERE i.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY t.id, t.denominacion
       ORDER BY total_inscritos DESC
     `);
@@ -2076,7 +2107,7 @@ app.get('/api/stats-inscripciones/por-dia', requireStatsAuth, cacheMiddleware(30
         SUM(CASE WHEN modalidad = '1' THEN 1 ELSE 0 END) as \`virtual\`,
         SUM(CASE WHEN modalidad = '2' THEN 1 ELSE 0 END) as presencial
       FROM inscripciones
-      WHERE periodos_id = 1 AND created_at IS NOT NULL
+      WHERE periodos_id = ${PERIODO_ACTUAL} AND created_at IS NOT NULL
       GROUP BY DATE(created_at)
       ORDER BY fecha ASC
     `);
@@ -2157,7 +2188,7 @@ app.get('/api/stats-inscripciones/filtro-completo', requireStatsAuth, async (req
       LEFT JOIN inscripciones i ON i.sedes_id = s.id
         AND i.areas_id = a.id
         AND i.turnos_id = t.id
-        AND i.periodos_id = 1
+        AND i.periodos_id = ${PERIODO_ACTUAL}
       WHERE 1=1
     `;
 
@@ -2295,7 +2326,7 @@ app.get('/api/stats-inscripciones/reporte-sedes', requireStatsAuth, cacheMiddlew
         SELECT DISTINCT t.id as turno_id, t.denominacion as turno
         FROM turnos t
         WHERE t.id IN (
-          SELECT DISTINCT turnos_id FROM inscripciones WHERE sedes_id = ? AND periodos_id = 1
+          SELECT DISTINCT turnos_id FROM inscripciones WHERE sedes_id = ? AND periodos_id = ${PERIODO_ACTUAL}
           UNION
           SELECT DISTINCT turnos_id FROM configuracion_vacantes WHERE sedes_id = ? AND estado = '1'
         )
@@ -2316,7 +2347,7 @@ app.get('/api/stats-inscripciones/reporte-sedes', requireStatsAuth, cacheMiddlew
           LEFT JOIN inscripciones i ON i.areas_id = a.id 
             AND i.sedes_id = ? 
             AND i.turnos_id = ? 
-            AND i.periodos_id = 1
+            AND i.periodos_id = ${PERIODO_ACTUAL}
           LEFT JOIN configuracion_vacantes cv ON a.id = cv.areas_id
             AND cv.sedes_id = ?
             AND cv.turnos_id = ?
@@ -2403,7 +2434,7 @@ app.get('/api/stats-inscripciones/vacantes-ciclo', requireStatsAuth, cacheMiddle
       JOIN aulas au ON au.id = ga.aulas_id
       JOIN locales lo ON lo.id = au.locales_id
       JOIN sedes s ON s.id = lo.sedes_id
-      WHERE m.periodos_id = 1
+      WHERE m.periodos_id = ${PERIODO_ACTUAL}
       GROUP BY s.denominacion, a.denominacion, t.denominacion`);
     conn.release();
 
@@ -2626,7 +2657,7 @@ app.get('/api/stats/alumno/:dni', requireStatsAuth, async (req, res) => {
       LEFT JOIN areas ar ON ar.id = ga.areas_id
       LEFT JOIN turnos t ON t.id = ga.turnos_id
       LEFT JOIN sedes s ON s.id = i.sedes_id
-      WHERE i.estudiantes_id = ? AND i.periodos_id = 1 AND i.estado = '1'
+      WHERE i.estudiantes_id = ? AND i.periodos_id = ${PERIODO_ACTUAL} AND i.estado = '1'
       GROUP BY i.estudiantes_id`, [est.id]);
 
     // Restricción por rol: un usuario no-admin solo ve alumnos de sus grupos.
@@ -2785,7 +2816,7 @@ const CALIFICACIONES_SQL_BASE = `
         FROM carga_academicas ca3
         JOIN cursos c2 ON c2.id = ca3.cursos_id
         WHERE ca3.grupo_aulas_id = m.grupo_aulas_id
-          AND ca3.periodos_id = 1 AND ca3.estado = '1' AND ca3.tipo = '1'
+          AND ca3.periodos_id = ${PERIODO_ACTUAL} AND ca3.estado = '1' AND ca3.tipo = '1'
           AND ca3.docentes_id IS NOT NULL
           AND ca3.docentes_id NOT IN (
             SELECT ca4.docentes_id
@@ -2794,7 +2825,7 @@ const CALIFICACIONES_SQL_BASE = `
             JOIN carga_academicas ca4      ON ca4.id = cd2.carga_academicas_id
             WHERE d2.estudiantes_id = e.id
               AND ca4.grupo_aulas_id = m.grupo_aulas_id
-              AND ca4.periodos_id = 1 AND ca4.estado = '1' AND ca4.tipo = '1'
+              AND ca4.periodos_id = ${PERIODO_ACTUAL} AND ca4.estado = '1' AND ca4.tipo = '1'
               AND ca4.docentes_id IS NOT NULL
           )
       )
@@ -2822,7 +2853,7 @@ const CALIFICACIONES_SQL_BASE = `
     SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
     FROM carga_academicas ca
     JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado = '1'
-    WHERE ca.periodos_id = 1 AND ca.tipo = '1'
+    WHERE ca.periodos_id = ${PERIODO_ACTUAL} AND ca.tipo = '1'
     GROUP BY ca.grupo_aulas_id
   ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
   -- X: docentes TITULARES del grupo que el alumno efectivamente calificó.
@@ -2840,7 +2871,7 @@ const CALIFICACIONES_SQL_BASE = `
     JOIN carga_academicas ca      ON ca.id = cd.carga_academicas_id AND ca.tipo = '1'
     GROUP BY d.estudiantes_id
   ) cal ON cal.estudiantes_id = e.id
-  WHERE i.periodos_id = 1 AND i.estado = '1'
+  WHERE i.periodos_id = ${PERIODO_ACTUAL} AND i.estado = '1'
 `;
 
 app.get('/api/stats/calificaciones', requireStatsAuth, cacheMiddleware(300), async (req, res) => {
@@ -3020,7 +3051,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
         FROM calificacion_docentes cd
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-        WHERE cd.estado='1' AND ca.periodos_id=1 AND ca.tipo='1'
+        WHERE cd.estado='1' AND ca.periodos_id = ${PERIODO_ACTUAL} AND ca.tipo='1'
         GROUP BY ca.grupo_aulas_id`;
     // Numerador por alumno (inmutable): docentes distintos calificados. Sin grupo.
     const NUM_SUBQ = `
@@ -3189,7 +3220,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
       LEFT JOIN (${NUM_SUBQ}
       ) cal ON cal.estudiantes_id = e.id
-      WHERE i.periodos_id=1 AND i.estado='1'
+      WHERE i.periodos_id = ${PERIODO_ACTUAL} AND i.estado='1'
       GROUP BY s.id ORDER BY pct DESC
     `),
 
@@ -3281,7 +3312,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
       LEFT JOIN (${NUM_SUBQ}
       ) cal ON cal.estudiantes_id = e.id
-      WHERE i.periodos_id=1 AND i.estado='1' ${grWhereStr}
+      WHERE i.periodos_id = ${PERIODO_ACTUAL} AND i.estado='1' ${grWhereStr}
       GROUP BY ga.id
       HAVING alumnos >= 10
       ORDER BY cobertura_pct ASC, alumnos DESC LIMIT 20
@@ -3365,7 +3396,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       ) c ON c.estudiantes_id = i.estudiantes_id
-      WHERE i.periodos_id = 1 AND i.estado = '1'
+      WHERE i.periodos_id = ${PERIODO_ACTUAL} AND i.estado = '1'
     `),
     ]); // ===== fin OLA 1 =====
 
@@ -4378,7 +4409,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
              ROUND(AVG(CASE WHEN cd.modalidad='0' THEN cd.promedio END), 2) AS prom_presencial,
              ROUND(AVG(CASE WHEN cd.modalidad='1' THEN cd.promedio END), 2) AS prom_virtual,
              EXISTS (SELECT 1 FROM carga_academicas cax
-                     WHERE cax.docentes_id = d.id AND cax.tipo='1' AND cax.periodos_id=1 AND cax.estado='1') AS tiene_carga_activa
+                     WHERE cax.docentes_id = d.id AND cax.tipo='1' AND cax.periodos_id = ${PERIODO_ACTUAL} AND cax.estado='1') AS tiene_carga_activa
       FROM doc_cargas dc
       JOIN docentes d ON d.id = dc.doc_id
       JOIN carga_academicas ca ON ca.id = dc.carga_id
@@ -4607,7 +4638,7 @@ app.get('/api/stats/catalogos/grupos', requireStatsAuth, async (req, res) => {
     const { sede_id, turno_id, area_id } = req.query;
     const allowedGrupos = req.user.grupos;
 
-    const conditions = ['ga.periodos_id = 1'];
+    const conditions = [`ga.periodos_id = ${PERIODO_ACTUAL}`];
     const params = [];
     if (Array.isArray(allowedGrupos)) {
       if (allowedGrupos.length === 0) return res.json([]);
@@ -5313,7 +5344,7 @@ async function fetchCoberturaData(req) {
   const auxiliares = parseList(req.query.auxiliares);
   const filtros = { sedes, turnos, areas, grupos, auxiliares };
 
-  const conditions = ['ga.periodos_id = 1'];
+  const conditions = [`ga.periodos_id = ${PERIODO_ACTUAL}`];
   const params = [];
 
   const allowedGrupos = req.user.grupos;
@@ -5879,14 +5910,14 @@ const HAB_CARGOS_SUBQ = `(
          SUM(te.monto + COALESCE(te.mora,0)
              + CASE WHEN te.pagado < te.monto AND COALESCE(te.mora,0) = 0
                      AND EXISTS (SELECT 1 FROM cronograma_pagos cp
-                                 WHERE cp.periodos_id = 1 AND cp.nro_cuota = te.nro_cuota AND cp.fin < CURDATE())
+                                 WHERE cp.periodos_id = ${PERIODO_ACTUAL} AND cp.nro_cuota = te.nro_cuota AND cp.fin < CURDATE())
                     THEN 30 ELSE 0 END) AS cargos,
          MIN(te.monto) AS min_monto
   FROM tarifa_estudiantes te GROUP BY te.estudiantes_id)`;
 const HAB_ABONOS_SUBQ = `(
   SELECT i.estudiantes_id, SUM(ip.monto) AS abonos
   FROM inscripcion_pagos ip JOIN inscripciones i ON i.id = ip.inscripciones_id
-  WHERE i.periodos_id = 1 GROUP BY i.estudiantes_id)`;
+  WHERE i.periodos_id = ${PERIODO_ACTUAL} GROUP BY i.estudiantes_id)`;
 
 const habilitadosResumenHandler = async (req, res) => {
   const f = habFiltroGrupos(req);
@@ -5898,7 +5929,7 @@ const habilitadosResumenHandler = async (req, res) => {
       SELECT COUNT(DISTINCT m.estudiantes_id) AS total_inscritos,
              SUM(m.habilitado='1') AS total_habilitados,
              SUM(m.habilitado='1' AND m.habilitado_estado='1') AS total_sincronizados
-      FROM matriculas m WHERE m.periodos_id=1 ${f.where}`, f.params);
+      FROM matriculas m WHERE m.periodos_id = ${PERIODO_ACTUAL} ${f.where}`, f.params);
     const [sedes] = await conn.query(`
       SELECT s.denominacion AS sede,
              COUNT(DISTINCT m.estudiantes_id) AS total_inscritos,
@@ -5907,7 +5938,7 @@ const habilitadosResumenHandler = async (req, res) => {
       FROM matriculas m
       JOIN grupo_aulas ga ON ga.id=m.grupo_aulas_id
       JOIN aulas au ON au.id=ga.aulas_id JOIN locales l ON l.id=au.locales_id JOIN sedes s ON s.id=l.sedes_id
-      WHERE m.periodos_id=1 ${f.where}
+      WHERE m.periodos_id = ${PERIODO_ACTUAL} ${f.where}
       GROUP BY s.id, s.denominacion ORDER BY total_inscritos DESC`, f.params);
     const [areas] = await conn.query(`
       SELECT a.denominacion AS area,
@@ -5916,7 +5947,7 @@ const habilitadosResumenHandler = async (req, res) => {
              ROUND(SUM(m.habilitado='1' AND m.habilitado_estado='1')*100.0/NULLIF(COUNT(DISTINCT m.estudiantes_id),0),2) AS porcentaje_sincronizados
       FROM matriculas m
       JOIN grupo_aulas ga ON ga.id=m.grupo_aulas_id JOIN areas a ON a.id=ga.areas_id
-      WHERE m.periodos_id=1 ${f.where}
+      WHERE m.periodos_id = ${PERIODO_ACTUAL} ${f.where}
       GROUP BY a.id, a.denominacion ORDER BY total_estudiantes DESC`, f.params);
     conn.release();
     const num = (rows, keys) => rows.map(r => { const o = { ...r }; keys.forEach(k => o[k] = parseInt(o[k]) || 0); return o; });
@@ -5949,8 +5980,8 @@ app.get('/api/stats/habilitados/con-deuda', requireStatsAuth, async (req, res) =
                 AND au2.event = 'updated' AND au2.new_values LIKE '%"habilitado":"1"%'
               ORDER BY au2.id DESC LIMIT 1) AS habilitado_por
       FROM estudiantes e
-      JOIN inscripciones i ON e.id=i.estudiantes_id AND i.periodos_id=1
-      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+      JOIN inscripciones i ON e.id=i.estudiantes_id AND i.periodos_id = ${PERIODO_ACTUAL}
+      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id = ${PERIODO_ACTUAL}
       JOIN ${HAB_CARGOS_SUBQ} cg ON cg.estudiantes_id = e.id
       LEFT JOIN ${HAB_ABONOS_SUBQ} ab ON ab.estudiantes_id = e.id
       JOIN sedes s ON i.sedes_id=s.id
@@ -5978,7 +6009,7 @@ app.get('/api/stats/habilitados/pendientes', requireStatsAuth, cacheMiddleware(1
         -- pagó completo: cargos (incl. mora) cubiertos por abonos Y tarifa completa (sin cuota en monto=0)
         SELECT e.id, ga.aulas_id AS aulas_id, ga.areas_id AS area_id, ga.turnos_id AS turno_id, ga.grupos_id AS grupo_id
         FROM estudiantes e
-        JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+        JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id = ${PERIODO_ACTUAL}
         JOIN ${HAB_CARGOS_SUBQ} cg ON cg.estudiantes_id = e.id
         LEFT JOIN ${HAB_ABONOS_SUBQ} ab ON ab.estudiantes_id = e.id
         JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id
@@ -6010,7 +6041,7 @@ app.get('/api/stats/habilitados/pendientes/detalle', requireStatsAuth, async (re
              MAX(cg.cargos) AS total_tarifa, MAX(COALESCE(ab.abonos,0)) AS total_pagado,
              GREATEST(MAX(cg.cargos) - MAX(COALESCE(ab.abonos,0)), 0) AS deuda_total
       FROM estudiantes e
-      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id = ${PERIODO_ACTUAL}
       JOIN ${HAB_CARGOS_SUBQ} cg ON cg.estudiantes_id = e.id
       LEFT JOIN ${HAB_ABONOS_SUBQ} ab ON ab.estudiantes_id = e.id
       JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id JOIN grupos g ON ga.grupos_id=g.id
@@ -6041,7 +6072,7 @@ app.get('/api/stats/habilitados/buscar/:dni', requireStatsAuth, async (req, res)
              GREATEST(COALESCE((SELECT cg.cargos FROM ${HAB_CARGOS_SUBQ} cg WHERE cg.estudiantes_id = e.id), 0)
                       - COALESCE((SELECT ab.abonos FROM ${HAB_ABONOS_SUBQ} ab WHERE ab.estudiantes_id = e.id), 0), 0) AS deuda_total
       FROM estudiantes e
-      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id=1
+      JOIN matriculas m ON e.id=m.estudiantes_id AND m.periodos_id = ${PERIODO_ACTUAL}
       LEFT JOIN grupo_aulas ga ON m.grupo_aulas_id=ga.id LEFT JOIN grupos g ON ga.grupos_id=g.id
       LEFT JOIN areas a ON ga.areas_id=a.id LEFT JOIN turnos t ON ga.turnos_id=t.id
       LEFT JOIN aulas au ON ga.aulas_id=au.id LEFT JOIN locales l ON au.locales_id=l.id LEFT JOIN sedes s ON l.sedes_id=s.id
@@ -6116,7 +6147,7 @@ app.get('/api/stats/habilitados/constancia/:matricula_id', requireStatsAuth, asy
   let conn;
   try {
     conn = await pool.getConnection();
-    const [[m]] = await conn.query('SELECT grupo_aulas_id, habilitado, habilitado_estado FROM matriculas WHERE id=? AND periodos_id=1', [matriculaId]);
+    const [[m]] = await conn.query(`SELECT grupo_aulas_id, habilitado, habilitado_estado FROM matriculas WHERE id=? AND periodos_id = ${PERIODO_ACTUAL}`, [matriculaId]);
     conn.release(); conn = null;
     if (!m) return res.status(404).json({ error: 'Matrícula no encontrada' });
     // Verificación de grupo para no-admin.
@@ -6162,7 +6193,7 @@ app.get('/api/stats/reportes-aux/habilitaciones/auxiliares', requireAdmin, cache
       FROM auxiliares a
       JOIN users u ON u.id = a.users_id
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = a.id
-      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado = '0'
       LEFT JOIN ${HAB_DEUDA_SUBQ} d ON d.estudiantes_id = m.estudiantes_id
       GROUP BY u.id, u.paterno, u.materno, u.name, u.dni
       ORDER BY deudores DESC`);
@@ -6202,7 +6233,7 @@ app.get('/api/stats/reportes-aux/habilitaciones/por-dia', requireAdmin, cacheMid
       SELECT m.id FROM matriculas m
       JOIN auxiliar_grupos ag ON ag.grupo_aulas_id = m.grupo_aulas_id
       JOIN auxiliares ax ON ax.id = ag.auxiliares_id
-      WHERE ax.users_id = ? AND m.periodos_id = 1)`;
+      WHERE ax.users_id = ? AND m.periodos_id = ${PERIODO_ACTUAL})`;
     params.push(aux);
   }
   let conn;
@@ -6321,7 +6352,7 @@ app.get('/api/stats/reportes-aux/rendimiento-auxiliares', requireAdmin, cacheMid
       FROM auxiliares aux
       JOIN users u ON u.id = aux.users_id
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
-      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado = '0'
       GROUP BY u.id, u.dni`);
     // 6a. Modificaciones a estudiantes asignados (audits App\Models\Estudiante)
     const [modificaciones] = await conn.query(`
@@ -6333,7 +6364,7 @@ app.get('/api/stats/reportes-aux/rendimiento-auxiliares', requireAdmin, cacheMid
       FROM auxiliares aux
       JOIN users ua ON ua.id = aux.users_id
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
-      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id=1 AND m.estado='0'
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado='0'
       JOIN estudiantes e ON e.id = m.estudiantes_id
       -- Solo cambios hechos por usuarios administrativos logueados: user_id NULL = el
       -- propio estudiante desde su app o procesos automáticos del sistema (no cuentan).
@@ -6415,7 +6446,7 @@ app.get('/api/stats/reportes-aux/rendimiento-auxiliares/modificaciones', require
              (SELECT CONCAT_WS(' ', um.paterno, um.materno, um.name) FROM users um WHERE um.id = a.user_id) AS modificado_por
       FROM auxiliares aux
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
-      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id=1 AND m.estado='0'
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado='0'
       JOIN estudiantes e ON e.id = m.estudiantes_id
       -- Solo cambios hechos por usuarios administrativos logueados: user_id NULL = el
       -- propio estudiante desde su app o procesos automáticos del sistema (no cuentan).
@@ -6433,7 +6464,7 @@ app.get('/api/stats/reportes-aux/rendimiento-auxiliares/modificaciones', require
              (SELECT CONCAT_WS(' ', um.paterno, um.materno, um.name) FROM users um WHERE um.id = a.user_id) AS modificado_por
       FROM auxiliares aux
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
-      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id=1 AND m.estado='0'
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado='0'
       JOIN estudiantes e ON e.id = m.estudiantes_id
       JOIN tarifa_estudiantes te ON te.estudiantes_id = e.id
       JOIN audits a ON a.auditable_type = ? AND a.auditable_id = te.id AND a.event = 'updated' AND a.user_id IS NOT NULL AND a.created_at >= ?
@@ -6512,7 +6543,7 @@ app.get('/api/stats/reportes-aux/rendimiento-auxiliares/ficha', requireAdmin, as
       JOIN grupo_aulas ga ON ga.id = ag.grupo_aulas_id
       JOIN grupos g ON g.id = ga.grupos_id JOIN areas a ON a.id = ga.areas_id JOIN turnos tu ON tu.id = ga.turnos_id
       JOIN aulas au ON au.id = ga.aulas_id JOIN locales l ON l.id = au.locales_id JOIN sedes s ON s.id = l.sedes_id
-      LEFT JOIN matriculas m ON m.grupo_aulas_id = ga.id AND m.periodos_id = 1 AND m.estado = '0'
+      LEFT JOIN matriculas m ON m.grupo_aulas_id = ga.id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado = '0'
       WHERE aux.users_id = ?
       GROUP BY ga.id, g.denominacion, a.denominacion, tu.denominacion, s.denominacion
       ORDER BY tu.denominacion, g.denominacion`, [usersId]);
@@ -6567,7 +6598,7 @@ app.get('/api/stats/reportes-aux/rendimiento-auxiliares/ficha', requireAdmin, as
              COUNT(DISTINCT CASE WHEN m.habilitado='0' AND COALESCE(d.deuda,0) <= 0.5 THEN m.estudiantes_id END) AS listos_por_habilitar
       FROM auxiliares aux
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
-      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado = '0'
       LEFT JOIN ${HAB_DEUDA_SUBQ} d ON d.estudiantes_id = m.estudiantes_id
       WHERE aux.users_id = ?`, [usersId]);
     // Asistencia de DOCENTES registrada por el auxiliar (mismo enfoque interpretado):
@@ -6765,7 +6796,7 @@ app.get('/api/stats/reportes-aux/rendimiento-auxiliares/excel', requireAdmin, as
       FROM auxiliares aux
       JOIN users u ON u.id = aux.users_id AND u.estado = '1'
       JOIN auxiliar_grupos ag ON ag.auxiliares_id = aux.id
-      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = 1 AND m.estado = '0'
+      JOIN matriculas m ON m.grupo_aulas_id = ag.grupo_aulas_id AND m.periodos_id = ${PERIODO_ACTUAL} AND m.estado = '0'
       GROUP BY u.id`);
     // Coordinadores activos → auxiliares activos de sus grupos (para el promedio por coordinador)
     const [coordPares] = await conn.query(`
@@ -6922,7 +6953,7 @@ app.post(['/api/portal/login', '/api/auth/login'], loginLimiter, async (req, res
           `SELECT d.nombres, d.paterno, d.materno, d.nro_documento, d.email, d.celular
            FROM docente_aptos da
            JOIN docentes d ON d.id = da.docentes_id
-           WHERE da.periodos_id = 1 AND d.nro_documento = ?
+           WHERE da.periodos_id = ${PERIODO_ACTUAL} AND d.nro_documento = ?
            LIMIT 1`,
           [dni]
         );
