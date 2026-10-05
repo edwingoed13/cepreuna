@@ -509,6 +509,30 @@ pool.getConnection()
     console.error('Verifica las credenciales y que el servidor MySQL sea accesible');
   });
 
+// Mantener viva una conexión del pool.
+//
+// Abrir una conexión nueva contra la base interna cuesta ~20 s: el servidor MySQL
+// resuelve el nombre del cliente por DNS inverso y espera a que expire. Como el
+// pool cierra las conexiones ociosas, el primer usuario tras un rato de calma
+// pagaba esa espera entera.
+//
+// Un sondeo ligero cada 30 s basta para que siempre haya una conexión abierta y
+// la primera petición sea instantánea. Solo en despliegues con proceso propio:
+// en Vercel cada invocación es efímera y un temporizador no tendría sentido.
+//
+// La cura de raíz es `skip-name-resolve` en el servidor MySQL, que no está en
+// nuestras manos; esto lo compensa desde fuera.
+if (!process.env.VERCEL) {
+  setInterval(async () => {
+    try {
+      const conn = await pool.getConnection();
+      try { await conn.query('SELECT 1'); } finally { conn.release(); }
+    } catch (e) {
+      console.error('Sondeo de conexión falló:', e.code || e.message);
+    }
+  }, 30000).unref();
+}
+
 // ============ ENDPOINTS SIMULACRO ============
 
 // Endpoint para estadísticas del simulacro
