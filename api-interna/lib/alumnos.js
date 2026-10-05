@@ -49,9 +49,10 @@ const soloEnteros = (v) => (Array.isArray(v) ? v : [])
 /** Arma la consulta del reporte a partir de filtros ya validados. */
 function construirConsulta(filtros = {}, periodo) {
   const cond = [];
-  // El periodo aparece tres veces en el SQL base, en este orden: la imputacion
-  // de pagos, el tarifario y el filtro de inscripciones.
-  const params = [periodo, periodo, periodo];
+  // El periodo aparece seis veces en el SQL base, en el orden en que salen los
+  // marcadores: tarifario y pagos del calculo de fechas, cronograma, imputacion
+  // de pagos, tarifario del importe y filtro de inscripciones.
+  const params = Array(6).fill(periodo);
 
   // Permisos: array = restringido a esos grupos; null = global.
   const permitidos = filtros.grupos === null ? null : soloEnteros(filtros.grupos);

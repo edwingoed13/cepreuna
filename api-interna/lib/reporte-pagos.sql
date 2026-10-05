@@ -45,6 +45,18 @@ SELECT
     COALESCE(ip.pago_mensualidades, 0) AS pago_mensualidades,
     COALESCE(ip.pago_rezagado, 0)      AS pago_rezagado,
     COALESCE(ip.total_pagado, 0)       AS total_pagado,
+    DATE_FORMAT(fc.fecha_cuota1, '%Y-%m-%d') AS fecha_cuota1,
+    DATE_FORMAT(fc.fecha_cuota2, '%Y-%m-%d') AS fecha_cuota2,
+    DATE_FORMAT(fc.fecha_cuota3, '%Y-%m-%d') AS fecha_cuota3,
+    DATE_FORMAT(fc.fecha_cuota4, '%Y-%m-%d') AS fecha_cuota4,
+    CASE WHEN fc.fecha_cuota1 IS NULL OR cr.fin1 IS NULL THEN NULL
+         WHEN fc.fecha_cuota1 <= cr.fin1 THEN 1 ELSE 0 END AS puntual_cuota1,
+    CASE WHEN fc.fecha_cuota2 IS NULL OR cr.fin2 IS NULL THEN NULL
+         WHEN fc.fecha_cuota2 <= cr.fin2 THEN 1 ELSE 0 END AS puntual_cuota2,
+    CASE WHEN fc.fecha_cuota3 IS NULL OR cr.fin3 IS NULL THEN NULL
+         WHEN fc.fecha_cuota3 <= cr.fin3 THEN 1 ELSE 0 END AS puntual_cuota3,
+    CASE WHEN fc.fecha_cuota4 IS NULL OR cr.fin4 IS NULL THEN NULL
+         WHEN fc.fecha_cuota4 <= cr.fin4 THEN 1 ELSE 0 END AS puntual_cuota4,
     -- Lo abonado por encima de las cuotas completas: recargos, comisiones o un
     -- abono a cuenta. Se expone para no tener que deducirlo desde fuera.
     GREATEST(0, COALESCE(ip.pago_mensualidades,0)
@@ -52,10 +64,22 @@ SELECT
     LEAST(4, FLOOR(COALESCE(ip.pago_mensualidades,0) / NULLIF(men.importe,0))) AS cuotas_cubiertas,
 
     -- Deuda residual de cada cuota (solo principal; mora es cobranza, no obligación)
-    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 0 * COALESCE(men.importe,0))) AS primera_mensualidad,
-    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 1 * COALESCE(men.importe,0))) AS segunda_mensualidad,
-    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 2 * COALESCE(men.importe,0))) AS tercera_mensualidad,
-    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 3 * COALESCE(men.importe,0))) AS cuarta_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) -
+        CASE WHEN COALESCE(ip.pago_mensualidades,0) - 0 * COALESCE(men.importe,0) >= COALESCE(men.importe,0) * 0.25
+             THEN COALESCE(ip.pago_mensualidades,0) - 0 * COALESCE(men.importe,0)
+             ELSE 0 END) AS primera_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) -
+        CASE WHEN COALESCE(ip.pago_mensualidades,0) - 1 * COALESCE(men.importe,0) >= COALESCE(men.importe,0) * 0.25
+             THEN COALESCE(ip.pago_mensualidades,0) - 1 * COALESCE(men.importe,0)
+             ELSE 0 END) AS segunda_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) -
+        CASE WHEN COALESCE(ip.pago_mensualidades,0) - 2 * COALESCE(men.importe,0) >= COALESCE(men.importe,0) * 0.25
+             THEN COALESCE(ip.pago_mensualidades,0) - 2 * COALESCE(men.importe,0)
+             ELSE 0 END) AS tercera_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) -
+        CASE WHEN COALESCE(ip.pago_mensualidades,0) - 3 * COALESCE(men.importe,0) >= COALESCE(men.importe,0) * 0.25
+             THEN COALESCE(ip.pago_mensualidades,0) - 3 * COALESCE(men.importe,0)
+             ELSE 0 END) AS cuarta_mensualidad,
 
     -- Estado por cuota
     CASE
@@ -138,6 +162,52 @@ LEFT JOIN tarifa_estudiantes t3
 LEFT JOIN tarifa_estudiantes t4
     ON t4.estudiantes_id = e.id AND t4.nro_cuota = 4
    AND t4.periodos_id = i.periodos_id
+
+-- Cuando quedo cubierta cada cuota. Se acumulan los pagos por fecha y se mira
+-- en cual el acumulado alcanza una cuota, dos, tres o cuatro. Permite separar a
+-- quien pago dentro del plazo de quien lo hizo con retraso, que es lo que
+-- distingue un pago al dia de uno con recargo.
+LEFT JOIN (
+    SELECT t.inscripciones_id,
+           MIN(CASE WHEN t.acumulado >= 1 * t.cuota THEN t.fecha END) AS fecha_cuota1,
+           MIN(CASE WHEN t.acumulado >= 2 * t.cuota THEN t.fecha END) AS fecha_cuota2,
+           MIN(CASE WHEN t.acumulado >= 3 * t.cuota THEN t.fecha END) AS fecha_cuota3,
+           MIN(CASE WHEN t.acumulado >= 4 * t.cuota THEN t.fecha END) AS fecha_cuota4
+      FROM (
+        SELECT ip2.inscripciones_id,
+               DATE(pg.fecha_pago) AS fecha,
+               SUM(ip2.monto) OVER (PARTITION BY ip2.inscripciones_id ORDER BY pg.fecha_pago, ip2.id) AS acumulado,
+               tf.cuota
+          FROM inscripcion_pagos ip2
+          JOIN pagos pg ON pg.id = ip2.pagos_id
+          JOIN inscripciones i2 ON i2.id = ip2.inscripciones_id
+          JOIN estudiantes e2 ON e2.id = i2.estudiantes_id
+          JOIN colegios cl2 ON cl2.id = e2.colegios_id
+          JOIN (
+              SELECT modalidad, tipo_estudiante, tipo_colegios_id, importe AS cuota FROM (
+                SELECT tr.modalidad, tr.tipo_estudiante, tr.tipo_colegios_id,
+                       COALESCE(NULLIF(tr.monto,0), NULLIF(tr.importe,0), 0) AS importe,
+                       ROW_NUMBER() OVER (PARTITION BY tr.modalidad, tr.tipo_estudiante, tr.tipo_colegios_id
+                                          ORDER BY tr.tipo_colegios_id IS NULL, tr.id DESC) AS p
+                  FROM tarifas tr
+                 WHERE tr.periodos_id = ? AND tr.estado = '1' AND tr.denominacion LIKE 'Mensualidad%'
+              ) y WHERE y.p = 1
+          ) tf ON (tf.modalidad = i2.modalidad OR tf.modalidad IS NULL)
+              AND (tf.tipo_estudiante = i2.tipo_estudiante OR tf.tipo_estudiante IS NULL)
+              AND (tf.tipo_colegios_id = cl2.tipo_colegios_id OR tf.tipo_colegios_id IS NULL)
+         WHERE ip2.periodos_id = ? AND ip2.concepto_pagos_id = 2 AND tf.cuota > 0
+      ) t
+     GROUP BY t.inscripciones_id
+) fc ON fc.inscripciones_id = i.id
+
+-- Plazos del ciclo, para saber si cada cuota se pago dentro de fecha.
+LEFT JOIN (
+    SELECT MAX(CASE WHEN nro_cuota = 1 THEN fin END) AS fin1,
+           MAX(CASE WHEN nro_cuota = 2 THEN fin END) AS fin2,
+           MAX(CASE WHEN nro_cuota = 3 THEN fin END) AS fin3,
+           MAX(CASE WHEN nro_cuota = 4 THEN fin END) AS fin4
+      FROM cronograma_pagos WHERE periodos_id = ?
+) cr ON TRUE
 
 -- Lo abonado segun la imputacion del propio sistema: `inscripcion_pagos` reparte
 -- cada pago entre conceptos (1 matricula, 2 mensualidad, 3 rezagado). La tabla
