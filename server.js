@@ -356,11 +356,6 @@ app.get('/stats/habilitados-stats', (req, res) => {
 
 // SQL base del reporte de pagos (cargado una vez al iniciar; sin ORDER BY ni `;` final
 // para poder envolverlo en un SELECT * FROM (...) y aplicar filtros dinámicos.)
-const REPORTE_PAGOS_SQL_BASE = require('fs')
-  .readFileSync(require('path').join(__dirname, 'reporte-pagos.sql'), 'utf8')
-  .replace(/ORDER\s+BY[\s\S]*$/i, '')
-  .replace(/;\s*$/, '')
-  .trim();
 
 // Configuración de la base de datos
 const dbConfig = {
@@ -386,6 +381,10 @@ const pool = mysql.createPool(dbConfig);
 // si DB2_* está configurado; los endpoints que la usan responden 503 cuando no hay acceso
 // (es lo que ocurre en el despliegue de Vercel, que no tiene ruta a esa red).
 const { obtenerReporteCicloActual } = require('./api-interna/lib/reporte-ciclo');
+// Mismas consultas que publica la API interna: viven en un solo sitio para que
+// no se queden a medias las correcciones (periodo vigente, matriculas repetidas,
+// tarifa segun el tipo de colegio, pagos imputados por concepto).
+const { reportePagos: consultarReportePagos, fichaAlumno: consultarFichaAlumno } = require('./api-interna/lib/alumnos');
 
 const MULTICICLO_OK = Boolean(process.env.DB2_HOST && process.env.DB2_USER);
 const poolMulticiclo = MULTICICLO_OK
@@ -2536,49 +2535,6 @@ function filtrosReportePagos(req) {
   };
 }
 
-// Construye { sql, params } del reporte de pagos según filtros + rol.
-// Devuelve { blocked: true } si el rol no tiene grupos asignados.
-function buildReportePagosQuery(req) {
-  const { cuota1, cuota2, cuota3, cuota4, q } = req.query;
-  const { grupos: gruposPermitidos } = req.user;
-
-  if (Array.isArray(gruposPermitidos) && gruposPermitidos.length === 0) return { blocked: true };
-
-  const conditions = [];
-  const params = [];
-
-  // Filtro por rol: si grupos es array (no admin), restringir a esos grupo_aulas_id
-  if (Array.isArray(gruposPermitidos)) {
-    conditions.push(`grupo_aulas_id IN (${gruposPermitidos.map(() => '?').join(',')})`);
-    params.push(...gruposPermitidos);
-  }
-
-  // Filtro opcional por grupos seleccionados en la UI (se intersecta con los permitidos).
-  const gruposSel = parseList(req.query.grupos);
-  if (gruposSel.length) {
-    conditions.push(`grupo_aulas_id IN (${gruposSel.map(() => '?').join(',')})`);
-    params.push(...gruposSel);
-  }
-
-  // Nota: el filtro de "solo inscritos" (estado='1') vive en el SQL base.
-  const cuotaFilter = (val, col) => {
-    if (val === '0') conditions.push(`${col} = 'PAGADA'`);
-    else if (val === '1') conditions.push(`${col} <> 'PAGADA'`);
-  };
-  cuotaFilter(cuota1, 'estado_cuota1');
-  cuotaFilter(cuota2, 'estado_cuota2');
-  cuotaFilter(cuota3, 'estado_cuota3');
-  cuotaFilter(cuota4, 'estado_cuota4');
-
-  if (q && String(q).trim().length > 0) {
-    conditions.push('nro_documento LIKE ?');
-    params.push(`%${String(q).trim()}%`);
-  }
-
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const sql = `SELECT * FROM (${REPORTE_PAGOS_SQL_BASE}) AS t ${where} ORDER BY paterno, materno, nombres`;
-  return { sql, params };
-}
 
 // El SQL base no tiene WHERE; lo envolvemos en `SELECT * FROM (...) AS t` para
 // poder filtrar por las columnas alias (estado_cuota1, etc.) sin tocar el SQL fuente.
@@ -2594,14 +2550,8 @@ app.get('/api/stats/reporte-pagos', requireStatsAuth, cacheMiddleware(120), asyn
       return res.json({ ...r, timestamp: new Date().toISOString() });
     }
 
-    const q = buildReportePagosQuery(req);
-    if (q.blocked) return res.json({ total: 0, registros: [], timestamp: new Date().toISOString() });
-
-    connection = await pool.getConnection();
-    const [rows] = await connection.query(q.sql, q.params);
-    connection.release();
-
-    res.json({ total: rows.length, registros: rows, timestamp: new Date().toISOString() });
+    const r = await consultarReportePagos(pool, filtrosReportePagos(req));
+    res.json({ ...r, timestamp: new Date().toISOString() });
   } catch (error) {
     if (connection) connection.release();
     console.error('Error reporte-pagos:', error);
@@ -2609,11 +2559,6 @@ app.get('/api/stats/reporte-pagos', requireStatsAuth, cacheMiddleware(120), asyn
   }
 });
 
-// Ficha de un alumno (modal en /stats/alumnos): contacto + asistencia del ciclo.
-// Asistencia por alumno desde asistencia_estudiante_detalles (estado: 1=presente,
-// 2=tarde, 3=falta), fecha vía la sesión asistencia_estudiantes. Rango del ciclo:
-// 23/03 → 10/07/2026 (16 semanas, lunes a viernes).
-const CICLO_ASIS = { desde: '2026-03-23', hasta: '2026-07-10' };
 app.get('/api/stats/alumno/:dni', requireStatsAuth, async (req, res) => {
   let conn;
   try {
@@ -2635,61 +2580,11 @@ app.get('/api/stats/alumno/:dni', requireStatsAuth, async (req, res) => {
       }
     }
 
-    conn = await pool.getConnection();
-
-    const [[est]] = await conn.query(`
-      SELECT e.id, e.nro_documento AS dni, e.celular, e.email,
-             CONCAT_WS(' ', e.paterno, e.materno, e.nombres) AS nombre
-      FROM estudiantes e WHERE e.nro_documento = ?`, [dni]);
-    if (!est) { conn.release(); return res.status(404).json({ error: 'Estudiante no encontrado' }); }
-
-    // Contexto académico (sede/grupo) del periodo activo
-    const [[ctx]] = await conn.query(`
-      SELECT ANY_VALUE(s.denominacion) AS sede,
-             ANY_VALUE(g.denominacion) AS grupo,
-             ANY_VALUE(ar.denominacion) AS area,
-             ANY_VALUE(t.denominacion) AS turno,
-             ANY_VALUE(m.grupo_aulas_id) AS grupo_aulas_id
-      FROM inscripciones i
-      LEFT JOIN matriculas m ON m.estudiantes_id = i.estudiantes_id AND m.periodos_id = i.periodos_id
-      LEFT JOIN grupo_aulas ga ON ga.id = m.grupo_aulas_id
-      LEFT JOIN grupos g ON g.id = ga.grupos_id
-      LEFT JOIN areas ar ON ar.id = ga.areas_id
-      LEFT JOIN turnos t ON t.id = ga.turnos_id
-      LEFT JOIN sedes s ON s.id = i.sedes_id
-      WHERE i.estudiantes_id = ? AND i.periodos_id = ${PERIODO_ACTUAL} AND i.estado = '1'
-      GROUP BY i.estudiantes_id`, [est.id]);
-
-    // Restricción por rol: un usuario no-admin solo ve alumnos de sus grupos.
-    const permitidos = req.user.grupos;
-    if (Array.isArray(permitidos)) {
-      const gid = ctx && Number(ctx.grupo_aulas_id);
-      if (!gid || !permitidos.map(Number).includes(gid)) {
-        conn.release();
-        return res.status(403).json({ error: 'Sin acceso a este alumno' });
-      }
-    }
-
-    const [asis] = await conn.query(`
-      SELECT DATE_FORMAT(ae.fecha, '%Y-%m-%d') AS fecha, MAX(aed.estado) AS estado
-      FROM asistencia_estudiante_detalles aed
-      JOIN asistencia_estudiantes ae ON ae.id = aed.asistencia_estudiantes_id
-      WHERE aed.estudiantes_id = ? AND ae.fecha BETWEEN ? AND ?
-      GROUP BY ae.fecha
-      ORDER BY ae.fecha`, [est.id, CICLO_ASIS.desde, CICLO_ASIS.hasta]);
-    conn.release();
-
-    const resumen = { presente: 0, tarde: 0, falta: 0 };
-    for (const r of asis) {
-      if (r.estado === '1') resumen.presente++;
-      else if (r.estado === '2') resumen.tarde++;
-      else if (r.estado === '3') resumen.falta++;
-    }
-    const totalReg = asis.length;
-    resumen.total = totalReg;
-    resumen.pct = totalReg ? Math.round(100 * (resumen.presente + resumen.tarde) / totalReg) : null;
-
-    res.json({ ...est, ...(ctx || {}), asistencia: asis, resumen, rango: CICLO_ASIS });
+    const g = req.user.grupos;
+    const r = await consultarFichaAlumno(pool, dni, Array.isArray(g) ? g : null);
+    if (r.error === 'no_encontrado') return res.status(404).json({ error: 'Estudiante no encontrado' });
+    if (r.error === 'sin_acceso') return res.status(403).json({ error: 'Sin acceso a este alumno' });
+    res.json(r);
   } catch (error) {
     if (conn) conn.release();
     console.error('Error ficha alumno:', error);
@@ -2710,13 +2605,7 @@ app.get('/api/stats/reporte-pagos/excel', requireStatsAuth, async (req, res) => 
       });
       rows = r.registros || [];
     } else {
-      const q = buildReportePagosQuery(req);
-      rows = q.blocked ? [] : await (async () => {
-        connection = await pool.getConnection();
-        const [r] = await connection.query(q.sql, q.params);
-        connection.release();
-        return r;
-      })();
+      rows = (await consultarReportePagos(pool, filtrosReportePagos(req))).registros || [];
     }
 
     const ExcelJS = require('exceljs');
