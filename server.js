@@ -7342,8 +7342,14 @@ app.get('/stats/reportes', (req, res) => {
   res.sendFile(__dirname + '/stats/reportes/index.html');
 });
 
-// Iniciar servidor (solo en desarrollo local)
-if (process.env.NODE_ENV !== 'production') {
+// Iniciar servidor.
+//
+// En Vercel el módulo se importa y la plataforma invoca el handler: abrir un
+// puerto ahí no sirve de nada. En cualquier otro sitio —desarrollo o un servidor
+// propio— hay que escuchar, también en producción. Vercel se reconoce por su
+// propia variable de entorno, no por NODE_ENV: condicionarlo a NODE_ENV dejaba
+// el proceso vivo pero sin atender peticiones al desplegarlo fuera de Vercel.
+if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
   });
