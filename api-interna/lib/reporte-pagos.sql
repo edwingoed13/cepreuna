@@ -45,6 +45,10 @@ SELECT
     COALESCE(ip.pago_mensualidades, 0) AS pago_mensualidades,
     COALESCE(ip.pago_rezagado, 0)      AS pago_rezagado,
     COALESCE(ip.total_pagado, 0)       AS total_pagado,
+    -- Lo abonado por encima de las cuotas completas: recargos, comisiones o un
+    -- abono a cuenta. Se expone para no tener que deducirlo desde fuera.
+    GREATEST(0, COALESCE(ip.pago_mensualidades,0)
+                - LEAST(4, FLOOR(COALESCE(ip.pago_mensualidades,0) / NULLIF(men.importe,0))) * COALESCE(men.importe,0)) AS sobrante_mensualidades,
     LEAST(4, FLOOR(COALESCE(ip.pago_mensualidades,0) / NULLIF(men.importe,0))) AS cuotas_cubiertas,
 
     -- Deuda residual de cada cuota (solo principal; mora es cobranza, no obligación)
@@ -57,28 +61,44 @@ SELECT
     CASE
         WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
         WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 1 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (1 - 1) * men.importe THEN 'PARCIAL'
+        -- Solo es un abono a cuenta si pasa de la cuarta parte de la cuota. Por
+        -- debajo es el recargo por pagar fuera de plazo (S/30) o la comision
+        -- del banco (S/1), que el sistema imputa a Mensualidad en vez de a
+        -- Rezagado y hacian figurar como pago adelantado lo que era una mora.
+        WHEN COALESCE(ip.pago_mensualidades,0) - (1 - 1) * men.importe >= men.importe * 0.25 THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota1,
 
     CASE
         WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
         WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 2 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (2 - 1) * men.importe THEN 'PARCIAL'
+        -- Solo es un abono a cuenta si pasa de la cuarta parte de la cuota. Por
+        -- debajo es el recargo por pagar fuera de plazo (S/30) o la comision
+        -- del banco (S/1), que el sistema imputa a Mensualidad en vez de a
+        -- Rezagado y hacian figurar como pago adelantado lo que era una mora.
+        WHEN COALESCE(ip.pago_mensualidades,0) - (2 - 1) * men.importe >= men.importe * 0.25 THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota2,
 
     CASE
         WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
         WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 3 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (3 - 1) * men.importe THEN 'PARCIAL'
+        -- Solo es un abono a cuenta si pasa de la cuarta parte de la cuota. Por
+        -- debajo es el recargo por pagar fuera de plazo (S/30) o la comision
+        -- del banco (S/1), que el sistema imputa a Mensualidad en vez de a
+        -- Rezagado y hacian figurar como pago adelantado lo que era una mora.
+        WHEN COALESCE(ip.pago_mensualidades,0) - (3 - 1) * men.importe >= men.importe * 0.25 THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota3,
 
     CASE
         WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
         WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 4 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (4 - 1) * men.importe THEN 'PARCIAL'
+        -- Solo es un abono a cuenta si pasa de la cuarta parte de la cuota. Por
+        -- debajo es el recargo por pagar fuera de plazo (S/30) o la comision
+        -- del banco (S/1), que el sistema imputa a Mensualidad en vez de a
+        -- Rezagado y hacian figurar como pago adelantado lo que era una mora.
+        WHEN COALESCE(ip.pago_mensualidades,0) - (4 - 1) * men.importe >= men.importe * 0.25 THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota4,
 
