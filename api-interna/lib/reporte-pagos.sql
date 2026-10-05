@@ -134,6 +134,7 @@ LEFT JOIN (
     GROUP BY inscripciones_id
 ) ip ON ip.inscripciones_id = i.id
 
+
 -- Catálogos de presentación
 JOIN sedes s ON s.id = i.sedes_id
 -- Una sola matricula por alumno y periodo: en la base hay registros repetidos
@@ -186,29 +187,6 @@ LEFT JOIN (
      AND (men.tipo_estudiante  = i.tipo_estudiante   OR men.tipo_estudiante  IS NULL)
      AND (men.tipo_colegios_id = cl.tipo_colegios_id OR men.tipo_colegios_id IS NULL)
 
--- Catálogos de presentación
-JOIN sedes s ON s.id = i.sedes_id
--- Una sola matricula por alumno y periodo: en la base hay registros repetidos
--- (819 en el ciclo vigente) y unirlos de forma directa multiplicaba las filas
--- del reporte. Se toma la mas reciente.
-LEFT JOIN (
-    SELECT estudiantes_id, periodos_id, MAX(id) AS id
-    FROM matriculas
-    GROUP BY estudiantes_id, periodos_id
-) mu ON mu.estudiantes_id = e.id AND mu.periodos_id = i.periodos_id
-LEFT JOIN matriculas m ON m.id = mu.id
-LEFT JOIN grupo_aulas ga ON ga.id = m.grupo_aulas_id
-LEFT JOIN areas ON areas.id = ga.areas_id
-LEFT JOIN grupos ON grupos.id = ga.grupos_id
-LEFT JOIN turnos ON turnos.id = ga.turnos_id
--- Sede REAL del aula del grupo (para etiquetar Puno vs Virtual correctamente).
--- Nota: la `sede` arriba viene de `inscripciones` (donde el alumno se inscribió),
--- que puede no coincidir con la sede del aula en que finalmente fue matriculado.
-LEFT JOIN aulas aula_real ON aula_real.id = ga.aulas_id
-LEFT JOIN locales local_aula ON local_aula.id = aula_real.locales_id
-LEFT JOIN sedes sede_aula ON sede_aula.id = local_aula.sedes_id
-JOIN colegios cl ON cl.id = e.colegios_id
-JOIN tipo_colegios tc ON tc.id = cl.tipo_colegios_id
 
 -- Tarifa que corresponde al alumno, segun resolverMonto() del sistema de
 -- inscripciones: el tipo de colegio sale de `colegios.tipo_colegios_id` (no del
