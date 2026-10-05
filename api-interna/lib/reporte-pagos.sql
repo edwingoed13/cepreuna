@@ -40,46 +40,45 @@ SELECT
     i.estado,
 
     -- Resumen economico del alumno
-    men.mensualidad AS monto_mensualidad,
-    mat.matricula   AS monto_matricula,
+    men.importe AS monto_mensualidad,
     COALESCE(ip.pago_matricula, 0)     AS pago_matricula,
     COALESCE(ip.pago_mensualidades, 0) AS pago_mensualidades,
     COALESCE(ip.pago_rezagado, 0)      AS pago_rezagado,
     COALESCE(ip.total_pagado, 0)       AS total_pagado,
-    LEAST(4, FLOOR(COALESCE(ip.pago_mensualidades,0) / NULLIF(men.mensualidad,0))) AS cuotas_cubiertas,
+    LEAST(4, FLOOR(COALESCE(ip.pago_mensualidades,0) / NULLIF(men.importe,0))) AS cuotas_cubiertas,
 
     -- Deuda residual de cada cuota (solo principal; mora es cobranza, no obligación)
-    GREATEST(0, COALESCE(men.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 0 * COALESCE(men.mensualidad,0))) AS primera_mensualidad,
-    GREATEST(0, COALESCE(men.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 1 * COALESCE(men.mensualidad,0))) AS segunda_mensualidad,
-    GREATEST(0, COALESCE(men.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 2 * COALESCE(men.mensualidad,0))) AS tercera_mensualidad,
-    GREATEST(0, COALESCE(men.mensualidad,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 3 * COALESCE(men.mensualidad,0))) AS cuarta_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 0 * COALESCE(men.importe,0))) AS primera_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 1 * COALESCE(men.importe,0))) AS segunda_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 2 * COALESCE(men.importe,0))) AS tercera_mensualidad,
+    GREATEST(0, COALESCE(men.importe,0) - GREATEST(0, COALESCE(ip.pago_mensualidades,0) - 3 * COALESCE(men.importe,0))) AS cuarta_mensualidad,
 
     -- Estado por cuota
     CASE
-        WHEN COALESCE(men.mensualidad,0) = 0 THEN 'SIN_TARIFA'
-        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.mensualidad) >= 1 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (1 - 1) * men.mensualidad THEN 'PARCIAL'
+        WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 1 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (1 - 1) * men.importe THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota1,
 
     CASE
-        WHEN COALESCE(men.mensualidad,0) = 0 THEN 'SIN_TARIFA'
-        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.mensualidad) >= 2 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (2 - 1) * men.mensualidad THEN 'PARCIAL'
+        WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 2 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (2 - 1) * men.importe THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota2,
 
     CASE
-        WHEN COALESCE(men.mensualidad,0) = 0 THEN 'SIN_TARIFA'
-        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.mensualidad) >= 3 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (3 - 1) * men.mensualidad THEN 'PARCIAL'
+        WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 3 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (3 - 1) * men.importe THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota3,
 
     CASE
-        WHEN COALESCE(men.mensualidad,0) = 0 THEN 'SIN_TARIFA'
-        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.mensualidad) >= 4 THEN 'PAGADA'
-        WHEN COALESCE(ip.pago_mensualidades,0) > (4 - 1) * men.mensualidad THEN 'PARCIAL'
+        WHEN COALESCE(men.importe,0) = 0 THEN 'SIN_TARIFA'
+        WHEN FLOOR(COALESCE(ip.pago_mensualidades,0) / men.importe) >= 4 THEN 'PAGADA'
+        WHEN COALESCE(ip.pago_mensualidades,0) > (4 - 1) * men.importe THEN 'PARCIAL'
         ELSE 'SIN_PAGAR'
     END AS estado_cuota4,
 
@@ -164,31 +163,58 @@ JOIN tipo_colegios tc ON tc.id = cl.tipo_colegios_id
 -- importe cobrado, que al cambiar de modalidad queda desfasado), un NULL en la
 -- tarifa vale como comodin y la fila especifica gana sobre la generica. El valor
 -- es `monto` y, cuando esta a 0, `importe`.
-LEFT JOIN LATERAL (
-    SELECT COALESCE(NULLIF(tr.monto,0), NULLIF(tr.importe,0), 0) AS mensualidad
-      FROM tarifas tr
-     WHERE tr.periodos_id = i.periodos_id
-       AND tr.estado = '1'
-       AND tr.denominacion LIKE 'Mensualidad%'
-       AND (tr.modalidad        = i.modalidad         OR tr.modalidad        IS NULL)
-       AND (tr.tipo_estudiante  = i.tipo_estudiante   OR tr.tipo_estudiante  IS NULL)
-       AND (tr.tipo_colegios_id = cl.tipo_colegios_id OR tr.tipo_colegios_id IS NULL)
-     ORDER BY tr.tipo_colegios_id IS NULL, tr.id DESC
-     LIMIT 1
-) men ON TRUE
+--
+-- Se resuelve una sola vez para las pocas combinaciones que existen (18 filas en
+-- el ciclo) en lugar de por alumno: como subconsulta correlacionada costaba 53 s
+-- para 6671 filas, frente a menos de uno asi.
+LEFT JOIN (
+    SELECT modalidad, tipo_estudiante, tipo_colegios_id, concepto, importe
+      FROM (
+        SELECT tr.modalidad, tr.tipo_estudiante, tr.tipo_colegios_id,
+               CASE WHEN tr.denominacion LIKE 'Mensualidad%' THEN 'M' ELSE 'I' END AS concepto,
+               COALESCE(NULLIF(tr.monto,0), NULLIF(tr.importe,0), 0) AS importe,
+               ROW_NUMBER() OVER (
+                 PARTITION BY tr.modalidad, tr.tipo_estudiante, tr.tipo_colegios_id,
+                              CASE WHEN tr.denominacion LIKE 'Mensualidad%' THEN 'M' ELSE 'I' END
+                 ORDER BY tr.tipo_colegios_id IS NULL, tr.id DESC) AS prioridad
+          FROM tarifas tr
+         WHERE tr.periodos_id = ? AND tr.estado = '1'
+           AND (tr.denominacion LIKE 'Mensualidad%' OR tr.denominacion LIKE 'Matricula%')
+      ) x WHERE x.prioridad = 1
+) men ON men.concepto = 'M'
+     AND (men.modalidad        = i.modalidad         OR men.modalidad        IS NULL)
+     AND (men.tipo_estudiante  = i.tipo_estudiante   OR men.tipo_estudiante  IS NULL)
+     AND (men.tipo_colegios_id = cl.tipo_colegios_id OR men.tipo_colegios_id IS NULL)
 
-LEFT JOIN LATERAL (
-    SELECT COALESCE(NULLIF(tr.monto,0), NULLIF(tr.importe,0), 0) AS matricula
-      FROM tarifas tr
-     WHERE tr.periodos_id = i.periodos_id
-       AND tr.estado = '1'
-       AND tr.denominacion LIKE 'Matricula%'
-       AND (tr.modalidad        = i.modalidad         OR tr.modalidad        IS NULL)
-       AND (tr.tipo_estudiante  = i.tipo_estudiante   OR tr.tipo_estudiante  IS NULL)
-       AND (tr.tipo_colegios_id = cl.tipo_colegios_id OR tr.tipo_colegios_id IS NULL)
-     ORDER BY tr.tipo_colegios_id IS NULL, tr.id DESC
-     LIMIT 1
-) mat ON TRUE
+-- Catálogos de presentación
+JOIN sedes s ON s.id = i.sedes_id
+-- Una sola matricula por alumno y periodo: en la base hay registros repetidos
+-- (819 en el ciclo vigente) y unirlos de forma directa multiplicaba las filas
+-- del reporte. Se toma la mas reciente.
+LEFT JOIN (
+    SELECT estudiantes_id, periodos_id, MAX(id) AS id
+    FROM matriculas
+    GROUP BY estudiantes_id, periodos_id
+) mu ON mu.estudiantes_id = e.id AND mu.periodos_id = i.periodos_id
+LEFT JOIN matriculas m ON m.id = mu.id
+LEFT JOIN grupo_aulas ga ON ga.id = m.grupo_aulas_id
+LEFT JOIN areas ON areas.id = ga.areas_id
+LEFT JOIN grupos ON grupos.id = ga.grupos_id
+LEFT JOIN turnos ON turnos.id = ga.turnos_id
+-- Sede REAL del aula del grupo (para etiquetar Puno vs Virtual correctamente).
+-- Nota: la `sede` arriba viene de `inscripciones` (donde el alumno se inscribió),
+-- que puede no coincidir con la sede del aula en que finalmente fue matriculado.
+LEFT JOIN aulas aula_real ON aula_real.id = ga.aulas_id
+LEFT JOIN locales local_aula ON local_aula.id = aula_real.locales_id
+LEFT JOIN sedes sede_aula ON sede_aula.id = local_aula.sedes_id
+JOIN colegios cl ON cl.id = e.colegios_id
+JOIN tipo_colegios tc ON tc.id = cl.tipo_colegios_id
+
+-- Tarifa que corresponde al alumno, segun resolverMonto() del sistema de
+-- inscripciones: el tipo de colegio sale de `colegios.tipo_colegios_id` (no del
+-- importe cobrado, que al cambiar de modalidad queda desfasado), un NULL en la
+-- tarifa vale como comodin y la fila especifica gana sobre la generica. El valor
+-- es `monto` y, cuando esta a 0, `importe`.
 
 
 -- Solo el ciclo actual y solo alumnos inscritos (estado = '1').
