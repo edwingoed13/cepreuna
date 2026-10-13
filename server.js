@@ -3004,33 +3004,44 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(600
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         GROUP BY cdd.estudiantes_id`;
 
-    // Helper de ranking por dimensión (curso/área/turno/sede). Definido aquí
-    // arriba para poder lanzarlo dentro de la ola 1.
+    // Helper de ranking por dimensión (curso · área · turno · sede).
     //
-    // Hereda los filtros de sede/area/turno igual que el resto del panel: antes
-    // no los aplicaba, asi que al filtrar por una sede estos cuatro rankings
-    // seguian mostrando el agregado de toda la institucion mientras los KPIs de
-    // al lado ya estaban acotados.
+    // Un solo juego de alias para el grupo y su local: la dimension, los filtros
+    // de sede/area/turno y el area que se muestra salen todos de ahi. Montarlo
+    // con los alias de cada sitio acababa uniendo grupo_aulas tres veces y
+    // locales dos, y el ranking por sede llegaba a tardar minutos.
     //
-    // Se arrastra tambien el area de cada carga: la malla cambia por area y un
-    // mismo contenido figura con dos nombres distintos —Aritmetica y Algebra en
-    // Ingenierias son Matematica I en Biomedicas y Sociales—, de modo que sin el
-    // area el listado parece traer cursos repetidos.
-    const dimQuery = (joinExpr, labelExpr, groupBy) => `
+    // El area se arrastra porque la malla cambia entre areas y un mismo
+    // contenido figura con dos nombres: Aritmetica y Algebra en Ingenierias son
+    // Matematica I en Biomedicas y Sociales. Sin el area el listado parece
+    // traer cursos repetidos.
+    const dimWhere = [];
+    const dimValues = [];
+    if (F.aplicados.area)  { dimWhere.push('ga_dim.areas_id = ?');  dimValues.push(F.aplicados.area); }
+    if (F.aplicados.turno) { dimWhere.push('ga_dim.turnos_id = ?'); dimValues.push(F.aplicados.turno); }
+    if (F.aplicados.sede)  { dimWhere.push('lo_dim.sedes_id = ?');  dimValues.push(F.aplicados.sede); }
+
+    // `exige` reproduce el INNER JOIN que tenian las dimensiones de area y
+    // turno: una carga sin grupo asignado no debe aparecer como fila vacia.
+    const dimQuery = (labelExpr, groupBy, { join = '', exige = '' } = {}) => `
       WITH ${CD_CTE}
       SELECT ${labelExpr} AS etiqueta,
              ROUND(AVG(cd.promedio), 2) AS promedio,
              SUM(cd.participantes) AS participantes,
-             COUNT(DISTINCT d.id) AS docentes,
+             COUNT(DISTINCT cd.docentes_id) AS docentes,
              GROUP_CONCAT(DISTINCT a_dim.denominacion ORDER BY a_dim.denominacion SEPARATOR ' · ') AS areas
       FROM cd_src cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
-      JOIN docentes d ON d.id = cd.docentes_id
       LEFT JOIN grupo_aulas ga_dim ON ga_dim.id = ca.grupo_aulas_id
-      LEFT JOIN areas a_dim ON a_dim.id = ga_dim.areas_id
-      ${joinExpr}
-      ${F.joinsCa}
-      WHERE cd.participantes > 0 ${F.whereCa}
+      LEFT JOIN areas  a_dim  ON a_dim.id  = ga_dim.areas_id
+      LEFT JOIN turnos t_dim  ON t_dim.id  = ga_dim.turnos_id
+      LEFT JOIN aulas  au_dim ON au_dim.id = ga_dim.aulas_id
+      LEFT JOIN locales lo_dim ON lo_dim.id = au_dim.locales_id
+      LEFT JOIN sedes  s_dim  ON s_dim.id  = lo_dim.sedes_id
+      ${join}
+      WHERE cd.participantes > 0
+        ${exige ? 'AND ' + exige : ''}
+        ${dimWhere.length ? 'AND ' + dimWhere.join(' AND ') : ''}
       GROUP BY ${groupBy}
       HAVING SUM(cd.participantes) >= 30
       ORDER BY promedio DESC
@@ -3155,31 +3166,14 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(600
     `),
 
     // 6.1) Ranking por DIMENSIÓN (curso · área · sede física · turno) → ola 1
-    q(dimQuery(
-      `JOIN cursos c ON c.id = ca.cursos_id`,
-      `c.denominacion`,
-      `c.denominacion`
-    ), F.valuesCa),
-    q(dimQuery(
-      `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
-       JOIN areas a ON a.id = ga.areas_id`,
-      `a.denominacion`,
-      `a.id, a.denominacion`
-    ), F.valuesCa),
-    q(dimQuery(
-      `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
-       JOIN turnos t ON t.id = ga.turnos_id`,
-      `t.denominacion`,
-      `t.id, t.denominacion`
-    ), F.valuesCa),
-    q(dimQuery(
-      `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
-       LEFT JOIN aulas au ON au.id = ga.aulas_id
-       LEFT JOIN locales lo ON lo.id = au.locales_id
-       LEFT JOIN sedes s ON s.id = lo.sedes_id`,
-      `COALESCE(s.denominacion, '— Sin local —')`,
-      `COALESCE(s.id, 0), COALESCE(s.denominacion, '— Sin local —')`
-    ), F.valuesCa),
+    q(dimQuery(`c.denominacion`, `c.denominacion`,
+      { join: `JOIN cursos c ON c.id = ca.cursos_id` }), dimValues),
+    q(dimQuery(`a_dim.denominacion`, `a_dim.id, a_dim.denominacion`,
+      { exige: `a_dim.id IS NOT NULL` }), dimValues),
+    q(dimQuery(`t_dim.denominacion`, `t_dim.id, t_dim.denominacion`,
+      { exige: `t_dim.id IS NOT NULL` }), dimValues),
+    q(dimQuery(`COALESCE(s_dim.denominacion, '— Sin local —')`,
+               `COALESCE(s_dim.id, 0), COALESCE(s_dim.denominacion, '— Sin local —')`), dimValues),
 
     // 6.2) Promedio por PREGUNTA (criterios activos tipo='1')
     q(`
