@@ -4177,8 +4177,17 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
     const k = d.kpis || {};
 
     // 1) Resumen
+    //
+    // La participacion del ciclo es siempre institucional: no depende de los
+    // filtros. Si hay alguno puesto se dice en el titulo, porque de lo contrario
+    // quien lea el informe dividiria el universo filtrado entre los inscritos
+    // de toda la institucion.
+    const hayFiltro = Boolean(fa.sede || fa.area || fa.turno);
     _hojaConBloques(wb, 'Resumen', `Calificación docente · ciclo ${PERIODO_CODIGO || ''}`, [
-      { titulo: 'Participación del ciclo', headers: ['Indicador', 'Valor'],
+      { titulo: hayFiltro
+          ? 'Participación del ciclo — toda la institución, sin aplicar los filtros'
+          : 'Participación del ciclo',
+        headers: ['Indicador', 'Valor'],
         anchos: [58, 18],
         filas: [
           ['Estudiantes inscritos en el ciclo', n(pc.total_inscritos)],
@@ -4186,7 +4195,10 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
           ['No calificaron', n(pc.no_calificaron)],
           ['Participación (%)', pc.total_inscritos ? Number((100 * pc.calificaron / pc.total_inscritos).toFixed(1)) : ''],
         ] },
-      { titulo: 'Cobertura de quienes participaron', headers: ['Indicador', 'Valor'],
+      { titulo: hayFiltro
+          ? 'Cobertura de quienes participaron — solo lo que abarcan los filtros'
+          : 'Cobertura de quienes participaron',
+        headers: ['Indicador', 'Valor'],
         filas: [
           ['Alumnos que calificaron (universo)', n(k.total_alumnos)],
           ['Calificaron a todos sus docentes', n(k.completos)],
