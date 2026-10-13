@@ -3176,20 +3176,33 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(600
                `COALESCE(s_dim.id, 0), COALESCE(s_dim.denominacion, '— Sin local —')`), dimValues),
 
     // 6.2) Promedio por PREGUNTA (criterios activos tipo='1')
+    //
+    // Se agrupa primero por criterio y modalidad, y solo despues se une a
+    // `criterios`. Escrito al reves —arrancando por criterios y comparando
+    // cr.modalidad = cd.modalidad— el optimizador recorria las 1.839
+    // calificaciones del ciclo una vez por cada pregunta: unos 17 millones de
+    // accesos, y era la consulta mas lenta del panel en todas las peticiones.
+    // Da exactamente las mismas 13 filas: el filtro por modalidad sigue
+    // aplicandose, ahora en la union.
     q(`
       SELECT cr.id, cr.denominacion AS pregunta,
-             ROUND(AVG(cdd.puntaje), 2) AS promedio,
-             COUNT(*) AS respuestas,
-             SUM(CASE WHEN cdd.puntaje >= 4 THEN 1 ELSE 0 END) AS aprobatorias,
-             SUM(CASE WHEN cdd.puntaje <= 2 THEN 1 ELSE 0 END) AS criticas
-      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
-      JOIN criterios cr ON cr.id = cdd.criterios_id
-      JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+             ROUND(agg.suma / agg.n, 2) AS promedio,
+             agg.n AS respuestas, agg.aprobatorias, agg.criticas
+      FROM (
+        SELECT cdd.criterios_id, cd.modalidad,
+               SUM(cdd.puntaje) AS suma, COUNT(*) AS n,
+               SUM(CASE WHEN cdd.puntaje >= 4 THEN 1 ELSE 0 END) AS aprobatorias,
+               SUM(CASE WHEN cdd.puntaje <= 2 THEN 1 ELSE 0 END) AS criticas
+        FROM calificacion_docente_detalles cdd
+        JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
  AND cd.periodos_id = ${PERIODO_ACTUAL}
-      JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
-      ${JOIN_ASIST}
-      WHERE cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
-      GROUP BY cr.id, cr.denominacion
+        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+        ${JOIN_ASIST}
+        WHERE cdd.periodos_id = ${PERIODO_ACTUAL}
+        GROUP BY cdd.criterios_id, cd.modalidad
+      ) agg
+      JOIN criterios cr ON cr.id = agg.criterios_id AND cr.modalidad = agg.modalidad
+      WHERE cr.tipo='1' AND cr.estado='1'
       ORDER BY promedio DESC
     `),
 
