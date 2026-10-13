@@ -2832,6 +2832,28 @@ app.get('/api/stats/calificaciones', requireStatsAuth, cacheMiddleware(300), asy
 // Importante: TODAS las queries que tocan carga_academicas filtran tipo='1'
 // (solo titulares); los suplentes no se cuentan como docentes a calificar.
 
+/**
+ * Parametros del puntaje corregido LOCAL a un curso o materia, a partir de los
+ * promedios por docente: C es la media del propio curso y m la mediana de
+ * evaluadores por docente. El umbral es mas bajo que el institucional porque
+ * dentro de un curso las muestras son menores.
+ *
+ * Vive aqui para que el ranking de la pantalla, su Excel y la hoja de "mejor
+ * por curso" del informe usen el mismo calculo y no puedan desviarse.
+ */
+function _bayesLocal(perDoc) {
+  const proms = perDoc.map(r => Number(r.prom_doc)).filter(x => !isNaN(x));
+  const ns = perDoc.map(r => Number(r.n)).filter(x => !isNaN(x)).sort((a, b) => a - b);
+  const C = proms.length ? Number((proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(3)) : 0;
+  const M = Math.max(10, ns[Math.floor(ns.length / 2)] || 20);
+  return { C, M };
+}
+
+/** Puntaje corregido de un docente dados n, su promedio y los parametros C y m. */
+function _scoreCorregido(n, promedio, C, M) {
+  return Number(((n * promedio + M * C) / (n + M)).toFixed(2));
+}
+
 // ---- Switch "solo calificaciones válidas" (>=80% asistencia del alumno) ----
 // Una calificación se considera válida solo si el alumno tuvo >=80% de asistencia
 // (presente=1 + tarde=2 cuentan; falta=3 no). Cuando el switch está activo, los
@@ -3893,11 +3915,7 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
                         bayes: null, docentes: [], total_calificaciones: 0 });
     }
 
-    const proms = perDoc.map(r => Number(r.prom_doc));
-    const ns = perDoc.map(r => Number(r.n)).sort((a, b) => a - b);
-    const C = Number((proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(3));
-    const medianaN = ns[Math.floor(ns.length / 2)] || 20;
-    const M = Math.max(10, medianaN);  // umbral más bajo que el global (intra-curso = muestras menores)
+    const { C, M } = _bayesLocal(perDoc);
 
     const [docentes] = await conn.query(`
       WITH ${CD_CTE},
@@ -4147,12 +4165,146 @@ function _pedirDashboard(req) {
   });
 }
 
+/**
+ * Mejor docente de cada curso, con el puntaje corregido LOCAL al curso: dentro
+ * de un curso lo justo es comparar contra la media de ese curso, no contra la
+ * institucional. Es el mismo criterio del panel "Ranking de docentes por curso".
+ *
+ * Devuelve una fila por curso, ordenada por el puntaje del ganador.
+ */
+async function _mejorDocentePorCurso(soloValidas, F) {
+  const CD_CTE = cdSourceCTE(soloValidas);
+
+  // Un solo juego de alias para el grupo y su local, igual que en los rankings
+  // por dimension: unirlos dos veces disparaba el coste de la consulta.
+  const cond = [];
+  const valores = [];
+  if (F.aplicados.area)  { cond.push('ga_dim.areas_id = ?');  valores.push(F.aplicados.area); }
+  if (F.aplicados.turno) { cond.push('ga_dim.turnos_id = ?'); valores.push(F.aplicados.turno); }
+  if (F.aplicados.sede)  { cond.push('lo_dim.sedes_id = ?');  valores.push(F.aplicados.sede); }
+
+  const [filas] = await pool.query(`
+    WITH ${CD_CTE}
+    SELECT c.denominacion AS curso,
+           d.id AS docente_id,
+           CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+           d.nro_documento AS dni,
+           CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+           AVG(cd.promedio) AS prom_doc,
+           SUM(cd.participantes) AS n,
+           COUNT(DISTINCT cd.carga_academicas_id) AS grupos,
+           GROUP_CONCAT(DISTINCT a_dim.denominacion ORDER BY a_dim.denominacion SEPARATOR ' · ') AS areas
+    FROM cd_src cd
+    JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+    JOIN cursos c ON c.id = ca.cursos_id
+    JOIN docentes d ON d.id = cd.docentes_id
+    LEFT JOIN grupo_aulas ga_dim ON ga_dim.id = ca.grupo_aulas_id
+    LEFT JOIN areas   a_dim  ON a_dim.id  = ga_dim.areas_id
+    LEFT JOIN aulas   au_dim ON au_dim.id = ga_dim.aulas_id
+    LEFT JOIN locales lo_dim ON lo_dim.id = au_dim.locales_id
+    WHERE cd.participantes > 0
+      ${cond.length ? 'AND ' + cond.join(' AND ') : ''}
+    GROUP BY c.denominacion, d.id
+  `, valores);
+
+  // Agrupar por curso, sacar C y m del propio curso y puntuar a cada docente.
+  const porCurso = new Map();
+  for (const f of filas) {
+    if (!porCurso.has(f.curso)) porCurso.set(f.curso, []);
+    porCurso.get(f.curso).push(f);
+  }
+
+  const resultado = [];
+  for (const [curso, docs] of porCurso) {
+    const { C, M } = _bayesLocal(docs);
+    const puntuados = docs.map(x => ({
+      ...x,
+      score: _scoreCorregido(Number(x.n), Number(x.prom_doc), C, M),
+    })).sort((a, b) => b.score - a.score || Number(b.n) - Number(a.n));
+
+    const g = puntuados[0];
+    const areas = [...new Set(docs.flatMap(x => String(x.areas || '').split(' · ')).filter(Boolean))]
+      .sort().join(' · ');
+    resultado.push({
+      curso,
+      materia: MATERIA_DE_CURSO[curso] || '',
+      areas,
+      docentes_evaluados: docs.length,
+      media_curso: C,
+      docente: g.docente,
+      dni: g.dni || '',
+      vinculo: g.vinculo || '',
+      score: g.score,
+      promedio_crudo: Number(Number(g.prom_doc).toFixed(2)),
+      participantes: Number(g.n),
+      grupos: Number(g.grupos),
+      // Mismos cortes que el panel por curso: dentro de un curso las muestras
+      // son mas pequenas que en el conjunto de la institucion.
+      robustez: Number(g.n) >= 30 ? 'robusta' : Number(g.n) >= 15 ? 'referencial' : 'insuficiente',
+    });
+  }
+
+  return resultado.sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Ranking de TODOS los docentes con el puntaje corregido institucional, el mismo
+ * que usa el top/bottom de la pantalla. C, m y el umbral de robustez llegan del
+ * dashboard para que la pantalla y el informe no puedan discrepar.
+ *
+ * A diferencia de la pantalla no recorta a los 15 primeros ni exige 30
+ * evaluadores: entra todo el mundo y la columna de confianza dice de quien se
+ * puede concluir algo.
+ */
+async function _rankingGeneralDocentes(soloValidas, F, C, M, umbralRobusta) {
+  const CD_CTE = cdSourceCTE(soloValidas);
+  const [filas] = await pool.query(`
+    WITH ${CD_CTE}
+    SELECT d.id,
+           CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+           d.nro_documento AS dni,
+           CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+           d.profesion,
+           ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
+           ROUND((SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?), 2) AS score,
+           SUM(cd.participantes) AS participantes,
+           COUNT(DISTINCT cd.carga_academicas_id) AS asignaciones,
+           COUNT(DISTINCT ca.cursos_id) AS cursos,
+           COUNT(DISTINCT ca.grupo_aulas_id) AS grupos,
+           GROUP_CONCAT(DISTINCT cur.denominacion ORDER BY cur.denominacion SEPARATOR ' · ') AS lista_cursos,
+           CASE WHEN SUM(cd.participantes) >= ${umbralRobusta} THEN 'robusta'
+                WHEN SUM(cd.participantes) >= 30 THEN 'referencial'
+                ELSE 'insuficiente' END AS robustez
+    FROM cd_src cd
+    JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+    ${F.joinsCa}
+    JOIN docentes d ON d.id = cd.docentes_id
+    LEFT JOIN cursos cur ON cur.id = ca.cursos_id
+    WHERE cd.participantes > 0 ${F.whereCa}
+    GROUP BY d.id
+    ORDER BY score DESC, participantes DESC
+  `, [M, C, M, ...F.valuesCa]);
+  return filas;
+}
+
 // ---- Export: el dashboard completo en un solo archivo ----
 // Una hoja por bloque de la pantalla, para armar el informe del ciclo sin tener
 // que descargar cada seccion por separado. Respeta los filtros de la vista.
 app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (req, res) => {
   try {
     const d = await _pedirDashboard(req);
+    const F = buildDashboardFilters(req.query);
+    const soloValidas = req.query.solo_validas === '1' || req.query.solo_validas === 'true';
+
+    // Las dos hojas de ranking que no vienen en el dashboard: el mejor de cada
+    // curso y la lista completa de docentes. Se piden en paralelo.
+    const [mejorPorCurso, rankingGeneral] = await Promise.all([
+      _mejorDocentePorCurso(soloValidas, F),
+      _rankingGeneralDocentes(soloValidas, F,
+        Number(d.bayes && d.bayes.C) || 4.3,
+        Number(d.bayes && d.bayes.m) || 20,
+        Number(d.umbral_robusta) || 50),
+    ]);
 
     // El dashboard devuelve los filtros como ids; en un informe hay que leer
     // "Puno", no "3".
@@ -4245,6 +4397,32 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
       dim('Por área', 'Área', d.ranking_por_area),
       dim('Por turno', 'Turno', d.ranking_por_turno),
       dim('Por sede', 'Sede', d.ranking_por_sede),
+    ]);
+
+    // 2.1) Mejor docente de cada curso
+    _hojaConBloques(wb, 'Mejor por curso',
+      'El docente mejor calificado de cada curso' + (hayFiltro ? ' — con los filtros aplicados' : ''), [
+      { titulo: 'Puntaje corregido local a cada curso: se compara contra la media del propio curso, no contra la institucional',
+        headers: ['Curso', 'Áreas', 'Materia equivalente', 'Docentes evaluados', 'Media del curso',
+                  'Mejor docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo',
+                  'Calificaciones', 'Grupos', 'Confianza'],
+        anchos: [44, 32, 38, 13, 13, 42, 12, 12, 18, 15, 14, 9, 13],
+        filas: mejorPorCurso.map(r => [r.curso, r.areas, r.materia, n(r.docentes_evaluados), n(r.media_curso),
+          r.docente, r.dni, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.grupos), r.robustez]) },
+    ]);
+
+    // 2.2) Ranking general de todos los docentes
+    _hojaConBloques(wb, 'Todos los docentes',
+      `Ranking general de docentes${hayFiltro ? ' — con los filtros aplicados' : ''}`, [
+      { titulo: 'Puntaje corregido institucional (C = ' + (d.bayes && d.bayes.C) + ', m = ' + (d.bayes && d.bayes.m) +
+                '). Entran todos los docentes evaluados; la columna de confianza indica de quiénes se puede concluir algo ' +
+                '(robusta ≥ ' + (d.umbral_robusta) + ' evaluadores · referencial ≥ 30 · por debajo, insuficiente)',
+        headers: ['Puesto', 'Docente', 'DNI', 'Vínculo', 'Profesión', 'Puntaje corregido', 'Promedio crudo',
+                  'Calificaciones', 'Asignaciones', 'Cursos', 'Grupos', 'Confianza', 'Cursos que dicta'],
+        anchos: [8, 42, 12, 12, 34, 18, 15, 14, 13, 9, 9, 13, 60],
+        filas: rankingGeneral.map((r, i) => [i + 1, r.docente, r.dni || '', r.vinculo || '', r.profesion || '',
+          n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.asignaciones), n(r.cursos), n(r.grupos),
+          r.robustez, r.lista_cursos || '']) },
     ]);
 
     // 3) Preguntas de la encuesta
@@ -4407,10 +4585,7 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
       GROUP BY cd.docentes_id
     `, [cursos]);
     if (!perDoc.length) { conn.release(); return res.status(404).json({ error: 'Curso sin datos' }); }
-    const proms = perDoc.map(r => Number(r.prom_doc));
-    const ns = perDoc.map(r => Number(r.n)).sort((a, b) => a - b);
-    const C = Number((proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(3));
-    const M = Math.max(10, ns[Math.floor(ns.length / 2)] || 20);
+    const { C, M } = _bayesLocal(perDoc);
 
     const [rows] = await conn.query(`
       WITH detalles AS (
