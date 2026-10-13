@@ -5,6 +5,7 @@ const cors = require('cors');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const http = require('http');
 require('dotenv').config();
 
 // JWT secret para firmar tokens del panel /stats.
@@ -132,7 +133,13 @@ app.set('trust proxy', 1);
 // Cache en memoria con TTL para reducir Fast Origin Transfer
 const cache = new Map();
 
-function cacheMiddleware(ttlSeconds = 300) {
+/**
+ * `compartido: true` quita el id de usuario de la clave, dejando rol y grupos.
+ * Solo para endpoints cuya respuesta no depende de QUIEN pregunta: con la clave
+ * por usuario, cada administrador que abria el panel pagaba su propia consulta
+ * en frio (unos 8 s), aunque otro acabara de calcular lo mismo.
+ */
+function cacheMiddleware(ttlSeconds = 300, { compartido = false } = {}) {
   return (req, res, next) => {
     // Solo cachear GET requests
     if (req.method !== 'GET') {
@@ -143,8 +150,9 @@ function cacheMiddleware(ttlSeconds = 300) {
     // está autenticada. Evita que una respuesta restringida por grupos (rol
     // auxiliar/coordinador) se sirva a otro usuario si algún día se cachea un
     // endpoint con datos por-grupo. En rutas públicas req.user es undefined.
+    const quien = compartido ? 'compartido' : req.user?.sub;
     const userKey = req.user
-      ? `u:${req.user.sub}:${req.user.role}:${Array.isArray(req.user.grupos) ? req.user.grupos.join('.') : 'all'}|`
+      ? `u:${quien}:${req.user.role}:${Array.isArray(req.user.grupos) ? req.user.grupos.join('.') : 'all'}|`
       : '';
     const key = userKey + (req.originalUrl || req.url);
     const cached = cache.get(key);
@@ -2905,7 +2913,7 @@ function buildDashboardFilters(query) {
   };
 }
 
-app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(600), async (req, res) => {
+app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(600, { compartido: true }), async (req, res) => {
   const F = buildDashboardFilters(req.query);
   const soloValidas = req.query.solo_validas === '1' || req.query.solo_validas === 'true';
   const CD_CTE = cdSourceCTE(soloValidas);
@@ -7342,9 +7350,47 @@ app.get('/stats/reportes', (req, res) => {
 // propia variable de entorno, no por NODE_ENV: condicionarlo a NODE_ENV dejaba
 // el proceso vivo pero sin atender peticiones al desplegarlo fuera de Vercel.
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
+  const servidor = app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
+    precalentarDashboard();
   });
+
+  // El dashboard de docentes lanza 18 consultas a la vez. En caliente cada una
+  // tarda poco mas de 100 ms, pero en frio —cuando MySQL no tiene las tablas en
+  // memoria— las 18 compiten por disco y la pagina tarda unos 8 s. Se mantiene
+  // caliente pidiendola desde dentro antes de que caduque la cache (10 min), de
+  // modo que quien la abre encuentra siempre el resultado ya calculado.
+  const CADA = 8 * 60 * 1000;
+  function precalentarDashboard() {
+    const puerto = servidor.address()?.port || PORT;
+    const token = jwt.sign(
+      { sub: 'precalentado', role: 'Administrador', email: 'interno@local' },
+      JWT_SECRET, { algorithm: 'HS256', expiresIn: '15m' });
+
+    const pedir = () => {
+      const t0 = Date.now();
+      // La vista por defecto, sin filtros: es la que se abre siempre.
+      http.get({
+        host: '127.0.0.1', port: puerto, path: '/api/stats/docentes-stats/dashboard',
+        headers: { Authorization: 'Bearer ' + token }, timeout: 120000,
+      }, (r) => {
+        r.resume();
+        r.on('end', () => {
+          if (r.statusCode === 200) {
+            console.log(`🔥 dashboard docentes precalentado en ${Date.now() - t0} ms (${r.headers['x-cache']})`);
+          } else {
+            console.warn(`precalentado del dashboard: HTTP ${r.statusCode}`);
+          }
+        });
+      }).on('error', (e) => console.warn('precalentado del dashboard:', e.message))
+        .on('timeout', function () { this.destroy(); });
+    };
+
+    // La primera vez se espera a que la conexion a la base este lista: abrirla
+    // cuesta ~20 s por la resolucion inversa de DNS del servidor MySQL.
+    setTimeout(pedir, 30 * 1000);
+    setInterval(pedir, CADA).unref();
+  }
 }
 
 // Exportar para Vercel
