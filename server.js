@@ -2709,8 +2709,9 @@ const CALIFICACIONES_SQL_BASE = `
           AND ca3.docentes_id IS NOT NULL
           AND ca3.docentes_id NOT IN (
             SELECT ca4.docentes_id
-            FROM calificacion_docente_detalles d2
+            FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) d2
             JOIN calificacion_docentes cd2 ON cd2.id = d2.calificacion_docentes_id
+ AND cd2.periodos_id = ${PERIODO_ACTUAL}
             JOIN carga_academicas ca4      ON ca4.id = cd2.carga_academicas_id
             WHERE d2.estudiantes_id = e.id
               AND ca4.grupo_aulas_id = m.grupo_aulas_id
@@ -2742,6 +2743,7 @@ const CALIFICACIONES_SQL_BASE = `
     SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
     FROM carga_academicas ca
     JOIN calificacion_docentes cd ON cd.carga_academicas_id = ca.id AND cd.estado = '1'
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
     WHERE ca.periodos_id = ${PERIODO_ACTUAL} AND ca.tipo = '1'
     GROUP BY ca.grupo_aulas_id
   ) tc ON tc.grupo_aulas_id = m.grupo_aulas_id
@@ -2755,8 +2757,9 @@ const CALIFICACIONES_SQL_BASE = `
   LEFT JOIN (
     SELECT d.estudiantes_id,
            COUNT(DISTINCT cd.docentes_id) AS docentes_calificados
-    FROM calificacion_docente_detalles d
+    FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) d
     JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
     JOIN carga_academicas ca      ON ca.id = cd.carga_academicas_id AND ca.tipo = '1'
     GROUP BY d.estudiantes_id
   ) cal ON cal.estudiantes_id = e.id
@@ -2844,8 +2847,9 @@ function cdSourceCTE(soloValidas) {
              AVG(cdd.puntaje) AS promedio,
              COUNT(DISTINCT cdd.estudiantes_id) AS participantes,
              cd.modalidad
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN calificacion_docente_detalles cdd ON cdd.calificacion_docentes_id = cd.id
+ AND cdd.periodos_id = ${PERIODO_ACTUAL}
       JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
       JOIN asist_valida av ON av.estudiantes_id = cdd.estudiantes_id
       WHERE cd.estado='1'
@@ -2938,15 +2942,16 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     // cobertura por sede y grupos en riesgo.
     const TC_SUBQ = `
         SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
-        FROM calificacion_docentes cd
+        FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
         WHERE cd.estado='1' AND ca.periodos_id = ${PERIODO_ACTUAL} AND ca.tipo='1'
         GROUP BY ca.grupo_aulas_id`;
     // Numerador por alumno (inmutable): docentes distintos calificados. Sin grupo.
     const NUM_SUBQ = `
         SELECT d.estudiantes_id, COUNT(DISTINCT cd.docentes_id) AS docentes_calificados
-        FROM calificacion_docente_detalles d
+        FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) d
         JOIN calificacion_docentes cd ON cd.id = d.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         GROUP BY d.estudiantes_id`;
 
@@ -2970,8 +2975,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         SELECT cdd.estudiantes_id,
                COUNT(DISTINCT cd.docentes_id) AS calif,
                MAX(ca.grupo_aulas_id) AS grupo_ref
-        FROM calificacion_docente_detalles cdd
+        FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
         JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         GROUP BY cdd.estudiantes_id`;
 
@@ -3169,9 +3175,10 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              COUNT(*) AS respuestas,
              SUM(CASE WHEN cdd.puntaje >= 4 THEN 1 ELSE 0 END) AS aprobatorias,
              SUM(CASE WHEN cdd.puntaje <= 2 THEN 1 ELSE 0 END) AS criticas
-      FROM calificacion_docente_detalles cdd
+      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
       JOIN criterios cr ON cr.id = cdd.criterios_id
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       ${JOIN_ASIST}
       WHERE cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
@@ -3243,7 +3250,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              COUNT(DISTINCT cd.carga_academicas_id) AS cargas,
              SUM(cd.participantes) AS calificaciones,
              ROUND(AVG(cd.promedio), 2) AS promedio
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       WHERE cd.participantes > 0
       GROUP BY cd.modalidad
@@ -3281,8 +3288,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       FROM inscripciones i
       LEFT JOIN (
         SELECT DISTINCT cdd.estudiantes_id
-        FROM calificacion_docente_detalles cdd
+        FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
         JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       ) c ON c.estudiantes_id = i.estudiantes_id
       WHERE i.periodos_id = ${PERIODO_ACTUAL} AND i.estado = '1'
@@ -3578,8 +3586,9 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
              ROUND(AVG(CASE WHEN cd.docentes_id = ? THEN cdd.puntaje END), 2) AS promedio_docente,
              ROUND(AVG(cdd.puntaje), 2) AS promedio_global,
              SUM(CASE WHEN cd.docentes_id = ? THEN 1 ELSE 0 END) AS n_docente
-      FROM calificacion_docente_detalles cdd
+      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN criterios cr ON cr.id = cdd.criterios_id
       ${JOIN_ASIST}
@@ -3615,8 +3624,9 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
         ROUND(100 * SUM(cdd.puntaje IN (4))   / COUNT(*), 1) AS pct_buena,
         ROUND(100 * SUM(cdd.puntaje IN (3))   / COUNT(*), 1) AS pct_regular,
         ROUND(100 * SUM(cdd.puntaje IN (1,2)) / COUNT(*), 1) AS pct_critica
-      FROM calificacion_docente_detalles cdd
+      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN criterios cr ON cr.id = cdd.criterios_id
       ${JOIN_ASIST}
@@ -3784,8 +3794,9 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
                SUM(cdd.puntaje = 5)       AS top5,
                SUM(cdd.puntaje IN (1,2))  AS criticas,
                COUNT(*)                    AS total_resp
-        FROM calificacion_docente_detalles cdd
+        FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
         JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         JOIN cursos c ON c.id = ca.cursos_id
         JOIN criterios cr ON cr.id = cdd.criterios_id
@@ -3855,8 +3866,9 @@ app.get('/api/stats/docentes-stats/heatmap', requireAdmin, cacheMiddleware(180),
              cdd.criterios_id AS pregunta_id,
              ROUND(AVG(cdd.puntaje), 2) AS promedio,
              COUNT(*) AS n
-      FROM calificacion_docente_detalles cdd
+      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN cursos c ON c.id = ca.cursos_id
       JOIN docentes d ON d.id = cd.docentes_id
@@ -3935,7 +3947,7 @@ app.get('/api/stats/docentes-stats/export/intervenciones.xlsx', requireAdmin, as
     // Recalcular C y M con los mismos parametros que el dashboard (sin filtro, escala institucional)
     const [perDoc] = await conn.query(`
       SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       WHERE cd.participantes > 0
       GROUP BY cd.docentes_id
@@ -3956,7 +3968,7 @@ app.get('/api/stats/docentes-stats/export/intervenciones.xlsx', requireAdmin, as
              COUNT(DISTINCT ca.cursos_id) AS cursos,
              COUNT(DISTINCT ca.grupo_aulas_id) AS grupos,
              ROUND((? - (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?)) * SUM(cd.participantes), 1) AS impacto
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       ${F.joinsCa}
       JOIN docentes d ON d.id = cd.docentes_id
@@ -4005,7 +4017,7 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
     conn = await pool.getConnection();
     const [perDoc] = await conn.query(`
       SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN cursos c ON c.id = ca.cursos_id
       WHERE cd.participantes > 0 AND c.denominacion = ?
@@ -4023,8 +4035,9 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
                SUM(cdd.puntaje = 5)       AS top5,
                SUM(cdd.puntaje IN (1,2))  AS criticas,
                COUNT(*)                    AS total_resp
-        FROM calificacion_docente_detalles cdd
+        FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
         JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         JOIN cursos c ON c.id = ca.cursos_id
         JOIN criterios cr ON cr.id = cdd.criterios_id
@@ -4040,7 +4053,7 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
              COUNT(DISTINCT cd.carga_academicas_id) AS grupos,
              ROUND(100 * det.top5     / NULLIF(det.total_resp, 0), 1) AS pct_top,
              ROUND(100 * det.criticas / NULLIF(det.total_resp, 0), 1) AS pct_critica
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN cursos c ON c.id = ca.cursos_id
       JOIN docentes d ON d.id = cd.docentes_id
@@ -4100,7 +4113,7 @@ app.get('/api/stats/docentes-stats/export/ficha/:id.xlsx', requireAdmin, async (
              ar.denominacion AS area, t.denominacion AS turno,
              COALESCE(s.denominacion, '— Sin local —') AS sede,
              cd.promedio, cd.participantes
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN cursos c ON c.id = ca.cursos_id
       JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
@@ -4118,8 +4131,9 @@ app.get('/api/stats/docentes-stats/export/ficha/:id.xlsx', requireAdmin, async (
       SELECT cr.denominacion AS pregunta,
              ROUND(AVG(CASE WHEN cd.docentes_id = ? THEN cdd.puntaje END), 2) AS prom_doc,
              ROUND(AVG(cdd.puntaje), 2) AS prom_global
-      FROM calificacion_docente_detalles cdd
+      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN criterios cr ON cr.id = cdd.criterios_id
       WHERE cr.tipo='1' AND cr.estado='1'
@@ -4230,7 +4244,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
     };
     const [perDocAll] = await conn.query(`
       SELECT AVG(cd.promedio) AS prom_doc, SUM(cd.participantes) AS n
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       WHERE cd.participantes > 0 GROUP BY cd.docentes_id
     `);
@@ -4239,8 +4253,9 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       WITH asist_valida AS (${ASIST_VALIDA_SQL})
       SELECT AVG(sub.prom) AS prom_doc, SUM(sub.n) AS n FROM (
         SELECT cd.docentes_id, AVG(cdd.puntaje) AS prom, COUNT(DISTINCT cdd.estudiantes_id) AS n
-        FROM calificacion_docente_detalles cdd
+        FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
         JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
         JOIN asist_valida av ON av.estudiantes_id = cdd.estudiantes_id
@@ -4253,7 +4268,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
     const [ranks] = await conn.query(`
       SELECT cd.docentes_id,
              (SUM(cd.participantes) * AVG(cd.promedio) + ? * ?) / (SUM(cd.participantes) + ?) AS sc
-      FROM calificacion_docentes cd
+      FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       WHERE cd.participantes > 0
       GROUP BY cd.docentes_id
@@ -4275,9 +4290,9 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       WITH doc_cargas AS (
         -- Cargas donde el docente fue REALMENTE evaluado (inmutable, por cdd → cd).
         SELECT cd.docentes_id AS doc_id, cd.carga_academicas_id AS carga_id
-        FROM calificacion_docentes cd
+        FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
         WHERE cd.estado='1' AND cd.participantes > 0 AND cd.docentes_id IS NOT NULL
-          AND EXISTS (SELECT 1 FROM calificacion_docente_detalles cdd
+          AND EXISTS (SELECT 1 FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
                       WHERE cdd.calificacion_docentes_id = cd.id)
         GROUP BY cd.docentes_id, cd.carga_academicas_id
       )
@@ -4303,6 +4318,7 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       JOIN docentes d ON d.id = dc.doc_id
       JOIN carga_academicas ca ON ca.id = dc.carga_id
       LEFT JOIN calificacion_docentes cd ON cd.docentes_id = dc.doc_id AND cd.carga_academicas_id = dc.carga_id
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         AND cd.estado='1' AND cd.participantes > 0
       LEFT JOIN cursos cur ON cur.id = ca.cursos_id
       LEFT JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
@@ -4320,8 +4336,9 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       WITH asist_valida AS (${ASIST_VALIDA_SQL})
       SELECT docentes_id, AVG(prom) AS prom_doc, SUM(n) AS n FROM (
         SELECT cd.docentes_id, AVG(cdd.puntaje) AS prom, COUNT(DISTINCT cdd.estudiantes_id) AS n
-        FROM calificacion_docente_detalles cdd
+        FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
         JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
         JOIN asist_valida av ON av.estudiantes_id = cdd.estudiantes_id
@@ -4335,8 +4352,9 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
       SELECT cd.docentes_id,
              ROUND(100 * SUM(cdd.puntaje=5) / COUNT(*), 1) AS pct_top,
              ROUND(100 * SUM(cdd.puntaje IN (1,2)) / COUNT(*), 1) AS pct_critica
-      FROM calificacion_docente_detalles cdd
+      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN criterios cr ON cr.id = cdd.criterios_id AND cr.tipo='1' AND cr.estado='1'
       GROUP BY cd.docentes_id
@@ -4360,8 +4378,9 @@ app.get('/api/stats/docentes-stats/export/padron.xlsx', requireAdmin, async (req
     // Promedio por pregunta (docente × criterio)
     const [pregRows] = await conn.query(`
       SELECT cd.docentes_id, cdd.criterios_id, ROUND(AVG(cdd.puntaje), 2) AS prom
-      FROM calificacion_docente_detalles cdd
+      FROM (SELECT * FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL}) cdd
       JOIN calificacion_docentes cd ON cd.id = cdd.calificacion_docentes_id AND cd.estado='1'
+ AND cd.periodos_id = ${PERIODO_ACTUAL}
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       -- La pregunta debe corresponder a la modalidad de la clase (cr.modalidad =
       -- cd.modalidad): descarta respuestas cruzadas (p.ej. 1 alumno que respondió
