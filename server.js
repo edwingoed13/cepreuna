@@ -2838,7 +2838,7 @@ function cdSourceCTE(soloValidas) {
     return `cd_src AS (
       SELECT id, docentes_id, carga_academicas_id, promedio, participantes, modalidad
       FROM calificacion_docentes
-      WHERE estado='1' AND participantes > 0
+      WHERE estado='1' AND participantes > 0 AND periodos_id = ${PERIODO_ACTUAL}
     )`;
   }
   return `asist_valida AS (${ASIST_VALIDA_SQL}),
@@ -3062,9 +3062,9 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         -- los total=0 (NULL) los ignora AVG automáticamente. LEAST(100,...) capea
         -- a los alumnos que calificaron a docentes ya movidos de su grupo (calif>total).
         ROUND(AVG(CASE WHEN total = 0 THEN NULL ELSE LEAST(100, 100 * calif / total) END), 1) AS cobertura_global_pct,
-        (SELECT COUNT(*) FROM calificacion_docentes)                 AS total_calificaciones_docente,
-        (SELECT COUNT(*) FROM calificacion_docente_detalles)         AS total_respuestas_criterios,
-        (SELECT COUNT(DISTINCT docentes_id) FROM calificacion_docentes) AS docentes_evaluados
+        (SELECT COUNT(*) FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL})                 AS total_calificaciones_docente,
+        (SELECT COUNT(*) FROM calificacion_docente_detalles WHERE periodos_id = ${PERIODO_ACTUAL})         AS total_respuestas_criterios,
+        (SELECT COUNT(DISTINCT docentes_id) FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) AS docentes_evaluados
       FROM cobertura
     `, gr2Values),
 
@@ -3222,6 +3222,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
              COUNT(DISTINCT calificacion_docentes_id) AS calificaciones,
              COUNT(*) AS respuestas
       FROM calificacion_docente_detalles
+      WHERE periodos_id = ${PERIODO_ACTUAL}
       GROUP BY dia
       ORDER BY dia DESC LIMIT 30
     `),
