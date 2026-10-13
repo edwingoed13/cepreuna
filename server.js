@@ -4060,6 +4060,15 @@ function _setupDocentesWorkbook(ws, titulo, headers) {
  * Cada bloque es { titulo, headers, filas, anchos }. `filas` son arrays de
  * valores ya formateados.
  */
+/** Nombre de archivo legible: quita los acentos en vez de comerse la letra. */
+function _parteNombreArchivo(texto) {
+  return String(texto)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
 function _hojaConBloques(wb, nombre, tituloHoja, bloques) {
   const ws = wb.addWorksheet(nombre);
   const ancho = Math.max(...bloques.map(b => b.headers.length), 1);
@@ -4144,12 +4153,26 @@ function _pedirDashboard(req) {
 app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (req, res) => {
   try {
     const d = await _pedirDashboard(req);
+
+    // El dashboard devuelve los filtros como ids; en un informe hay que leer
+    // "Puno", no "3".
+    const nombreFiltro = async (tabla, id) => {
+      if (!id) return null;
+      try {
+        const [[r]] = await pool.query(`SELECT denominacion FROM ${tabla} WHERE id = ?`, [id]);
+        return r ? r.denominacion : String(id);
+      } catch { return String(id); }
+    };
+    const fa = d.filtros_aplicados || {};
+    const [nomSede, nomArea, nomTurno] = await Promise.all([
+      nombreFiltro('sedes', fa.sede), nombreFiltro('areas', fa.area), nombreFiltro('turnos', fa.turno),
+    ]);
+
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();
     wb.creator = 'CEPREUNA Stats';
 
     const n = (v) => (v == null || v === '' ? '' : Number(v));
-    const f = d.filtros_aplicados || {};
     const pc = d.participacion_ciclo || {};
     const k = d.kpis || {};
 
@@ -4190,9 +4213,9 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
         ] },
       { titulo: 'Alcance de este archivo', headers: ['Indicador', 'Valor'],
         filas: [
-          ['Filtro de sede', f.sede || 'todas'],
-          ['Filtro de área', f.area || 'todas'],
-          ['Filtro de turno', f.turno || 'todos'],
+          ['Filtro de sede', nomSede || 'todas'],
+          ['Filtro de área', nomArea || 'todas'],
+          ['Filtro de turno', nomTurno || 'todos'],
           [`Solo calificaciones válidas (asistencia ≥ ${d.umbral_asistencia != null ? d.umbral_asistencia : 80}%)`,
            d.solo_validas ? 'sí' : 'no'],
         ] },
@@ -4431,7 +4454,7 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
     ws.columns = [{ width: 5 }, { width: 38 }, { width: 12 }, { width: 12 }, { width: 9 }, { width: 14 }, { width: 11 }, { width: 14 }, { width: 14 }, { width: 8 }];
 
     const buf = await wb.xlsx.writeBuffer();
-    const safeName = curso.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const safeName = _parteNombreArchivo(curso);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="ranking-${safeName}-${new Date().toISOString().slice(0,10)}.xlsx"`);
     res.send(Buffer.from(buf));
@@ -4562,7 +4585,7 @@ app.get('/api/stats/docentes-stats/export/ficha/:id.xlsx', requireAdmin, async (
     }
 
     const buf = await wb.xlsx.writeBuffer();
-    const safeName = doc.nombre.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const safeName = _parteNombreArchivo(doc.nombre);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="ficha-${safeName}-${new Date().toISOString().slice(0,10)}.xlsx"`);
     res.send(Buffer.from(buf));
