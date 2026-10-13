@@ -2921,7 +2921,17 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     // Ejecuta una query del pool y devuelve solo las filas. Cada llamada usa su
     // propia conexión del pool, así que varias pueden correr en paralelo con
     // Promise.all (antes eran ~17 queries en serie → ahora 2 olas paralelas).
-    const q = (sql, params) => pool.query(sql, params).then(r => r[0]);
+    // Con DEBUG_SQL=1 se registra el tiempo de cada consulta, para localizar
+    // cual domina el total sin tener que adivinar.
+    const medir = process.env.DEBUG_SQL === '1';
+    const tiempos = [];
+    const q = (sql, params) => {
+      const t0 = Date.now();
+      return pool.query(sql, params).then(r => {
+        if (medir) tiempos.push([Date.now() - t0, String(sql).replace(/\s+/g, ' ').slice(0, 70)]);
+        return r[0];
+      });
+    };
 
     // ------------------------------------------------------------------
     // COBERTURA correlacionada con lo que REALMENTE se calificó (estable).
@@ -3442,6 +3452,13 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       LIMIT 20
     `, [M, C, M, C, M, C, M, ...F.valuesCa, M, C, M, C]),
     ]); // ===== fin OLA 2 =====
+
+    if (medir) {
+      tiempos.sort((a, b) => b[0] - a[0]);
+      console.log('⏱ dashboard docentes — consultas más lentas:');
+      tiempos.slice(0, 8).forEach(([ms, sql]) => console.log(`   ${String(ms).padStart(6)} ms  ${sql}`));
+      console.log(`   total de ${tiempos.length} consultas: ${tiempos.reduce((a, b) => a + b[0], 0)} ms`);
+    }
 
     res.json({
       kpis,
