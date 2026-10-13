@@ -2940,11 +2940,16 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     // o desactiva tras la evaluación sigue contando, así el denominador no cambia
     // (antes ca.estado='1' lo hacía variar en cada F5). Lo usan KPIs, distribución,
     // cobertura por sede y grupos en riesgo.
+    // Docentes que al alumno le toca calificar en su grupo: los ASIGNADOS en la
+    // carga academica, no los que ya recibieron calificacion. Contar estos
+    // ultimos dejaba fuera a los grupos donde aun no habia calificado nadie
+    // —Azangaro figuraba con 44 alumnos de 136— y ademas inflaba la cobertura:
+    // si de doce docentes solo uno habia sido calificado y el alumno lo calificó,
+    // salia al 100%.
     const TC_SUBQ = `
-        SELECT ca.grupo_aulas_id, COUNT(DISTINCT cd.docentes_id) AS total_docentes
-        FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
-        JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id
-        WHERE cd.estado='1' AND ca.periodos_id = ${PERIODO_ACTUAL} AND ca.tipo='1'
+        SELECT ca.grupo_aulas_id, COUNT(DISTINCT ca.docentes_id) AS total_docentes
+        FROM carga_academicas ca
+        WHERE ca.periodos_id = ${PERIODO_ACTUAL} AND ca.tipo='1'
         GROUP BY ca.grupo_aulas_id`;
     // Numerador por alumno (inmutable): docentes distintos calificados. Sin grupo.
     const NUM_SUBQ = `
