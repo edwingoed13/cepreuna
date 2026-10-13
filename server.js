@@ -157,7 +157,14 @@ function cacheMiddleware(ttlSeconds = 300, { compartido = false } = {}) {
     const key = userKey + (req.originalUrl || req.url);
     const cached = cache.get(key);
 
-    if (cached && Date.now() < cached.expiry) {
+    // El precalentado interno pide que se recalcule aunque la entrada siga
+    // viva: si se conformara con el acierto, la cache caducaria igual y el
+    // siguiente en abrir el panel pagaria la espera. Solo se acepta desde el
+    // propio servidor, para que nadie de fuera pueda forzar el recalculo.
+    const esLocal = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket?.remoteAddress);
+    const refrescar = esLocal && req.headers['x-refrescar-cache'] === '1';
+
+    if (cached && Date.now() < cached.expiry && !refrescar) {
       console.log(`✅ CACHE HIT: ${key}`);
       // Agregar header para debugging
       res.setHeader('X-Cache', 'HIT');
@@ -7379,7 +7386,8 @@ if (!process.env.VERCEL) {
       // La vista por defecto, sin filtros: es la que se abre siempre.
       http.get({
         host: '127.0.0.1', port: puerto, path: '/api/stats/docentes-stats/dashboard',
-        headers: { Authorization: 'Bearer ' + token }, timeout: 120000,
+        headers: { Authorization: 'Bearer ' + token, 'X-Refrescar-Cache': '1' },
+        timeout: 300000,
       }, (r) => {
         r.resume();
         r.on('end', () => {
