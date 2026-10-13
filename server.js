@@ -2905,7 +2905,7 @@ function buildDashboardFilters(query) {
   };
 }
 
-app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180), async (req, res) => {
+app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(600), async (req, res) => {
   const F = buildDashboardFilters(req.query);
   const soloValidas = req.query.solo_validas === '1' || req.query.solo_validas === 'true';
   const CD_CTE = cdSourceCTE(soloValidas);
@@ -2998,17 +2998,31 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
 
     // Helper de ranking por dimensión (curso/área/turno/sede). Definido aquí
     // arriba para poder lanzarlo dentro de la ola 1.
+    //
+    // Hereda los filtros de sede/area/turno igual que el resto del panel: antes
+    // no los aplicaba, asi que al filtrar por una sede estos cuatro rankings
+    // seguian mostrando el agregado de toda la institucion mientras los KPIs de
+    // al lado ya estaban acotados.
+    //
+    // Se arrastra tambien el area de cada carga: la malla cambia por area y un
+    // mismo contenido figura con dos nombres distintos —Aritmetica y Algebra en
+    // Ingenierias son Matematica I en Biomedicas y Sociales—, de modo que sin el
+    // area el listado parece traer cursos repetidos.
     const dimQuery = (joinExpr, labelExpr, groupBy) => `
       WITH ${CD_CTE}
       SELECT ${labelExpr} AS etiqueta,
              ROUND(AVG(cd.promedio), 2) AS promedio,
              SUM(cd.participantes) AS participantes,
-             COUNT(DISTINCT d.id) AS docentes
+             COUNT(DISTINCT d.id) AS docentes,
+             GROUP_CONCAT(DISTINCT a_dim.denominacion ORDER BY a_dim.denominacion SEPARATOR ' · ') AS areas
       FROM cd_src cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN docentes d ON d.id = cd.docentes_id
+      LEFT JOIN grupo_aulas ga_dim ON ga_dim.id = ca.grupo_aulas_id
+      LEFT JOIN areas a_dim ON a_dim.id = ga_dim.areas_id
       ${joinExpr}
-      WHERE cd.participantes > 0
+      ${F.joinsCa}
+      WHERE cd.participantes > 0 ${F.whereCa}
       GROUP BY ${groupBy}
       HAVING SUM(cd.participantes) >= 30
       ORDER BY promedio DESC
@@ -3040,7 +3054,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
 
     // ================== OLA 1: queries independientes del score (paralelas) ==================
     const [
-      kpisRows, distribucion, porSede, perDoc,
+      kpisRows, porSede, perDoc,
       rankingPorCurso, rankingPorArea, rankingPorTurno, rankingPorSede,
       porPregunta, gruposRiesgo, evolucion, robustezRows,
       porModalidad, varianzaCursos, participacionCiclo,
@@ -3073,6 +3087,14 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
         SUM(CASE WHEN total > 0 AND calif > 0 AND calif < total THEN 1 ELSE 0 END) AS parciales,
         SUM(CASE WHEN total > 0 AND calif = 0 THEN 1 ELSE 0 END)                 AS sin_calificar,
         SUM(CASE WHEN total = 0 THEN 1 ELSE 0 END)                              AS sin_grupo,
+        -- Reparto por tramos de cobertura, para no repetir el mismo calculo en
+        -- otra consulta: era la segunda mas lenta del panel.
+        SUM(CASE WHEN total > 0 AND LEAST(100, ROUND(100*calif/total)) >= 100 THEN 1 ELSE 0 END) AS tramo_100,
+        SUM(CASE WHEN total > 0 AND LEAST(100, ROUND(100*calif/total)) BETWEEN 75 AND 99 THEN 1 ELSE 0 END) AS tramo_75,
+        SUM(CASE WHEN total > 0 AND LEAST(100, ROUND(100*calif/total)) BETWEEN 50 AND 74 THEN 1 ELSE 0 END) AS tramo_50,
+        SUM(CASE WHEN total > 0 AND LEAST(100, ROUND(100*calif/total)) BETWEEN 25 AND 49 THEN 1 ELSE 0 END) AS tramo_25,
+        SUM(CASE WHEN total > 0 AND LEAST(100, ROUND(100*calif/total)) BETWEEN 1  AND 24 THEN 1 ELSE 0 END) AS tramo_1,
+        SUM(CASE WHEN total > 0 AND LEAST(100, ROUND(100*calif/total)) = 0 THEN 1 ELSE 0 END) AS tramo_0,
         -- Cobertura promedio solo sobre alumnos con docentes evaluables (total>0):
         -- los total=0 (NULL) los ignora AVG automáticamente. LEAST(100,...) capea
         -- a los alumnos que calificaron a docentes ya movidos de su grupo (calif>total).
@@ -3083,38 +3105,6 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       FROM cobertura
     `, gr2Values),
 
-    // 2) Distribución de cumplimiento (histograma) — mismo universo cdd estable
-    q(`
-      WITH calif_src AS (${CALIF_SRC}
-      ),
-      cobertura AS (
-        SELECT
-          CASE WHEN COALESCE(tc.total_docentes,0) = 0 THEN 0
-               ELSE LEAST(100, ROUND(100 * cs.calif / tc.total_docentes)) END AS pct
-        FROM calif_src cs
-        JOIN grupo_aulas ga_r ON ga_r.id = cs.grupo_ref
-        ${gr2JoinsStr}
-        LEFT JOIN (${TC_SUBQ}
-        ) tc ON tc.grupo_aulas_id = cs.grupo_ref
-        ${gr2WhereStr ? gr2WhereStr + ' AND' : 'WHERE'} COALESCE(tc.total_docentes,0) > 0
-      )
-      SELECT rango, alumnos FROM (
-        SELECT
-          CASE
-            WHEN pct >= 100 THEN '100% Completo'
-            WHEN pct >= 75  THEN '75-99%'
-            WHEN pct >= 50  THEN '50-74%'
-            WHEN pct >= 25  THEN '25-49%'
-            WHEN pct >= 1   THEN '1-24%'
-            ELSE '0% Sin calificar'
-          END AS rango,
-          MIN(pct) AS ord,
-          COUNT(*) AS alumnos
-        FROM cobertura
-        GROUP BY rango
-      ) x
-      ORDER BY ord
-    `, gr2Values),
 
     // 3) Cobertura por sede (excluye alumnos sin docentes evaluables: NULL no entra al AVG)
     q(`
@@ -3161,19 +3151,19 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
       `JOIN cursos c ON c.id = ca.cursos_id`,
       `c.denominacion`,
       `c.denominacion`
-    )),
+    ), F.valuesCa),
     q(dimQuery(
       `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
        JOIN areas a ON a.id = ga.areas_id`,
       `a.denominacion`,
       `a.id, a.denominacion`
-    )),
+    ), F.valuesCa),
     q(dimQuery(
       `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
        JOIN turnos t ON t.id = ga.turnos_id`,
       `t.denominacion`,
       `t.id, t.denominacion`
-    )),
+    ), F.valuesCa),
     q(dimQuery(
       `JOIN grupo_aulas ga ON ga.id = ca.grupo_aulas_id
        LEFT JOIN aulas au ON au.id = ga.aulas_id
@@ -3181,7 +3171,7 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
        LEFT JOIN sedes s ON s.id = lo.sedes_id`,
       `COALESCE(s.denominacion, '— Sin local —')`,
       `COALESCE(s.id, 0), COALESCE(s.denominacion, '— Sin local —')`
-    )),
+    ), F.valuesCa),
 
     // 6.2) Promedio por PREGUNTA (criterios activos tipo='1')
     q(`
@@ -3314,6 +3304,22 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(180
     ]); // ===== fin OLA 1 =====
 
     const kpis = kpisRows[0];
+
+    // El histograma de cumplimiento sale de los tramos que ya trae la consulta de
+    // KPIs: antes era una segunda consulta con el mismo CTE, y costaba casi 7 s.
+    // Se mantiene el orden ascendente y se omiten los tramos vacios, como hacia
+    // el GROUP BY que sustituye.
+    const distribucion = [
+      ['0% Sin calificar', kpis.tramo_0],
+      ['1-24%',            kpis.tramo_1],
+      ['25-49%',           kpis.tramo_25],
+      ['50-74%',           kpis.tramo_50],
+      ['75-99%',           kpis.tramo_75],
+      ['100% Completo',    kpis.tramo_100],
+    ].filter(([, n]) => Number(n) > 0)
+     .map(([rango, n]) => ({ rango, alumnos: Number(n) }));
+    for (const k of Object.keys(kpis)) if (k.startsWith('tramo_')) delete kpis[k];
+
     const robustez = robustezRows[0];
     evolucion.reverse();
 

@@ -201,7 +201,7 @@
                         <span class="badge badge-bad" id="cntInsuficientes">— insuficientes</span>
                         <span class="text-slate-400">de <span id="cntTotal">—</span> docentes evaluados</span>
                     </div>
-                    <p class="text-[10px] text-slate-400 mt-2">Los filtros de sede/área/turno aplican a KPIs, top/bottom, intervenciones y grupos en riesgo. El switch de validez recalcula todos los puntajes de calidad docente. El umbral de robusta solo cambia la etiqueta de confianza (no quién entra al ranking, que es ≥30).</p>
+                    <p class="text-[10px] text-slate-400 mt-2">Los filtros de sede/área/turno aplican a KPIs, top/bottom, intervenciones, grupos en riesgo y a los rankings por curso, área, turno y sede. El switch de validez recalcula todos los puntajes de calidad docente. El umbral de robusta solo cambia la etiqueta de confianza (no quién entra al ranking, que es ≥30).</p>
                 </div>
 
                 <!-- ============ PARTICIPACIÓN DEL CICLO ============ -->
@@ -373,7 +373,7 @@
                                 </button>
                             </div>
                         </div>
-                        <p class="text-[11px] text-slate-400 mb-3">Puntaje corregido <b>local al curso</b> — los docentes se comparan contra la media del propio curso, no contra la institucional.</p>
+                        <p class="text-[11px] text-slate-400 mb-3">Puntaje corregido <b>local al curso</b> — los docentes se comparan contra la media del propio curso, no contra la institucional. El menú está agrupado por área porque la malla cambia entre ellas: <b>Aritmética</b> y <b>Álgebra</b> (Ingenierías) son <b>Matemática I</b> en Biomédicas y Sociales, así que un mismo docente puede aparecer en ambos listados.</p>
                         <div id="cursoEmpty" class="text-center py-10 text-slate-400 text-xs">
                             <span class="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-700">menu_book</span>
                             <p class="mt-2">Selecciona un curso del menú para ver el ranking de sus docentes.</p>
@@ -908,7 +908,8 @@
                             label: ctx => 'Promedio: ' + (opts.horizontal === false ? ctx.parsed.y : ctx.parsed.x).toFixed(2),
                             afterLabel: ctx => [
                                 fmt(rows[ctx.dataIndex].participantes) + ' calificaciones',
-                                fmt(rows[ctx.dataIndex].docentes) + ' docentes'
+                                fmt(rows[ctx.dataIndex].docentes) + ' docentes',
+                                ...(rows[ctx.dataIndex].areas ? ['Área: ' + rows[ctx.dataIndex].areas] : [])
                             ]
                         } } },
                     scales: opts.horizontal === false
@@ -919,21 +920,37 @@
         }
 
         function pintarCurso(rows) {
-            // Top 10 + Bottom 10 → 20 barras horizontales (ordenado desc)
-            const top10 = rows.slice(0, 10);
-            const bot10 = rows.slice(-10).reverse();  // peores arriba del bloque inferior
-            const combinado = [...top10, ...bot10];
-            // marcar visualmente con un divisor: ya queda implícito por el orden
+            // El ciclo tiene 22 cursos: caben todos. El recorte a top/bottom 10
+            // dejaba fuera a los del medio sin avisar, y para un informe eso se
+            // nota. Solo se recorta si la lista crece de verdad.
+            const combinado = rows.length <= 24
+                ? rows
+                : [...rows.slice(0, 10), ...rows.slice(-10).reverse()];
             bar('chCurso', combinado, 'promedio', r => r.etiqueta);
             const m = rows[0], p = rows[rows.length - 1];
             document.getElementById('insightCurso').innerHTML =
                 `El curso mejor evaluado es <b>${esc(m.etiqueta)}</b> con <b>${m.promedio}</b>, y el peor es <b>${esc(p.etiqueta)}</b> con <b>${p.promedio}</b>. Diferencia de <b>${(m.promedio - p.promedio).toFixed(2)} puntos</b> entre el mejor y el peor curso.`;
 
-            // Poblar el selector de curso (ordenado alfabéticamente)
+            // Selector de curso agrupado por área. La malla no es la misma en las
+            // tres áreas —Aritmética y Álgebra en Ingenierías equivalen a
+            // Matemática I en Biomédicas y Sociales—, así que sin el área el menú
+            // parece traer cursos duplicados.
             const sel = document.getElementById('selectCurso');
-            const cursos = [...rows].map(r => r.etiqueta).sort((a, b) => a.localeCompare(b, 'es'));
+            const porArea = new Map();
+            [...rows].sort((a, b) => a.etiqueta.localeCompare(b.etiqueta, 'es'))
+                .forEach(r => {
+                    const k = r.areas || 'Sin área';
+                    if (!porArea.has(k)) porArea.set(k, []);
+                    porArea.get(k).push(r.etiqueta);
+                });
+            // Primero los cursos comunes a más áreas, luego los propios de un área.
+            const grupos = [...porArea.entries()]
+                .sort((a, b) => b[0].split('·').length - a[0].split('·').length || a[0].localeCompare(b[0], 'es'));
             sel.innerHTML = '<option value="">Selecciona un curso…</option>' +
-                cursos.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+                grupos.map(([area, cursos]) =>
+                    `<optgroup label="${esc(area)}">` +
+                    cursos.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('') +
+                    '</optgroup>').join('');
         }
 
         async function cargarRankingCurso(curso) {
