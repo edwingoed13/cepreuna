@@ -522,6 +522,8 @@ async function ensureAuxiliarCalificacionesTable() {
 // cada hora, que es de sobra: cambia una vez por ciclo. Si la base no responde
 // se conserva el ultimo valor conocido, mejor que dejar el panel sin datos.
 let PERIODO_ACTUAL = 1;
+// El codigo legible del ciclo ("2026-II"), para titular informes y descargas.
+let PERIODO_CODIGO = '';
 let periodoResuelto = false;
 
 async function resolverPeriodoActual() {
@@ -532,6 +534,7 @@ async function resolverPeriodoActual() {
         console.log(`📅 Ciclo vigente: ${p.codigo || ''} (periodo ${p.id})`);
       }
       PERIODO_ACTUAL = p.id;
+      PERIODO_CODIGO = p.codigo || '';
       periodoResuelto = true;
     }
   } catch (e) {
@@ -2834,6 +2837,45 @@ app.get('/api/stats/calificaciones', requireStatsAuth, cacheMiddleware(300), asy
 // (presente=1 + tarde=2 cuentan; falta=3 no). Cuando el switch está activo, los
 // scores se RECALCULAN desde calificacion_docente_detalles (puntaje individual),
 // porque calificacion_docentes.promedio está pre-agregado y no se puede filtrar.
+// ---- Equivalencias entre cursos de distintas areas ----
+// La malla no es la misma en las tres areas y un mismo contenido esta registrado
+// con dos nombres. La equivalencia se lee de la propia denominacion, no se
+// inventa: el curso de Biomedicas y Sociales se llama literalmente
+// "Matematica I (Aritmetica y Algebra)", que en Ingenierias son dos cursos
+// separados, "Aritmetica" y "Algebra".
+//
+// Sirve para comparar en un solo ranking a todos los docentes que dictan la
+// misma materia; el detalle por curso registrado sigue estando disponible.
+const MATERIAS_EQUIVALENTES = {
+  'Matemática I (Aritmética y Álgebra)':      ['Matemática I (Aritmética y Álgebra)', 'Aritmética', 'Álgebra'],
+  'Matemática II (Geometría y Trigonometría)': ['Matemática II (Geometría y Trigonometría)', 'Geometría', 'Trigonometría'],
+  'Biología y Anatomía':                       ['Biología y Anatomía', 'Biología', 'Anatomía'],
+  'Historia y Geografía':                      ['Historia y Geografía', 'Historia', 'Geografía'],
+  'Comunicación y Literatura':                 ['Comunicación y Literatura', 'Comunicación', 'Literatura'],
+};
+
+// Curso registrado -> materia que lo engloba (null si no forma parte de ninguna).
+const MATERIA_DE_CURSO = Object.fromEntries(
+  Object.entries(MATERIAS_EQUIVALENTES).flatMap(([materia, cursos]) =>
+    cursos.map(c => [c, materia])));
+
+/**
+ * Resuelve `?materia=` o `?curso=` a la lista de cursos a consultar.
+ * Devuelve { etiqueta, cursos, esMateria } o { error } para que quien llama
+ * traduzca el codigo HTTP.
+ */
+function resolverCursos(query) {
+  const materia = String(query.materia || '').trim();
+  if (materia) {
+    const cursos = MATERIAS_EQUIVALENTES[materia];
+    if (!cursos) return { error: 'Materia no reconocida' };
+    return { etiqueta: materia, cursos, esMateria: true };
+  }
+  const curso = String(query.curso || '').trim();
+  if (curso.length < 2) return { error: 'Parámetro "curso" o "materia" requerido' };
+  return { etiqueta: curso, cursos: [curso], esMateria: false };
+}
+
 const UMBRAL_ASISTENCIA = 80;
 
 // Subquery de estudiantes con asistencia válida (>= umbral). Reutilizable.
@@ -3327,6 +3369,21 @@ app.get('/api/stats/docentes-stats/dashboard', requireAdmin, cacheMiddleware(600
 
     const kpis = kpisRows[0];
 
+    // Se marca a que materia pertenece cada curso, para que la vista pueda
+    // ofrecer tambien el ranking unificado. Solo cuenta si de esa materia hay
+    // mas de un curso registrado con datos: si no, agrupar no cambia nada.
+    {
+      const cuantos = {};
+      for (const r of rankingPorCurso) {
+        const m = MATERIA_DE_CURSO[r.etiqueta];
+        if (m) cuantos[m] = (cuantos[m] || 0) + 1;
+      }
+      for (const r of rankingPorCurso) {
+        const m = MATERIA_DE_CURSO[r.etiqueta];
+        r.materia = m && cuantos[m] > 1 ? m : null;
+      }
+    }
+
     // El histograma de cumplimiento sale de los tramos que ya trae la consulta de
     // KPIs: antes era una segunda consulta con el mismo CTE, y costaba casi 7 s.
     // Se mantiene el orden ascendente y se omiten los tramos vacios, como hacia
@@ -3803,8 +3860,11 @@ app.get('/api/stats/docentes-stats/docente/:id', requireAdmin, cacheMiddleware(1
 
 // ---- Ranking de docentes dentro de un curso (score bayesiano local al curso) ----
 app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), async (req, res) => {
-  const curso = String(req.query.curso || '').trim();
-  if (curso.length < 2) return res.status(400).json({ error: 'Parámetro "curso" requerido' });
+  // Acepta un curso registrado o una materia, que agrupa los cursos equivalentes
+  // de las distintas areas para poder compararlos en un solo ranking.
+  const sel = resolverCursos(req.query);
+  if (sel.error) return res.status(400).json({ error: sel.error });
+  const { etiqueta: curso, cursos } = sel;
   const soloValidas = req.query.solo_validas === '1' || req.query.solo_validas === 'true';
   const CD_CTE = cdSourceCTE(soloValidas);
   const JOIN_ASIST = soloValidas
@@ -3823,13 +3883,14 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
       FROM cd_src cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN cursos c ON c.id = ca.cursos_id
-      WHERE cd.participantes > 0 AND c.denominacion = ?
+      WHERE cd.participantes > 0 AND c.denominacion IN (?)
       GROUP BY cd.docentes_id
-    `, [curso]);
+    `, [cursos]);
 
     if (!perDoc.length) {
       conn.release();
-      return res.json({ curso, bayes: null, docentes: [], total_calificaciones: 0 });
+      return res.json({ curso, cursos, es_materia: sel.esMateria,
+                        bayes: null, docentes: [], total_calificaciones: 0 });
     }
 
     const proms = perDoc.map(r => Number(r.prom_doc));
@@ -3852,7 +3913,7 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
         JOIN cursos c ON c.id = ca.cursos_id
         JOIN criterios cr ON cr.id = cdd.criterios_id
         ${JOIN_ASIST}
-        WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1'
+        WHERE c.denominacion IN (?) AND cr.tipo='1' AND cr.estado='1'
         GROUP BY cd.docentes_id
       )
       SELECT d.id,
@@ -3873,16 +3934,20 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
       JOIN cursos c ON c.id = ca.cursos_id
       JOIN docentes d ON d.id = cd.docentes_id
       LEFT JOIN detalles det ON det.docentes_id = d.id
-      WHERE cd.participantes > 0 AND c.denominacion = ?
+      WHERE cd.participantes > 0 AND c.denominacion IN (?)
       GROUP BY d.id, det.top5, det.criticas, det.total_resp
       ORDER BY score DESC, participantes DESC
-    `, [curso, M, C, M, curso]);
+    `, [cursos, M, C, M, cursos]);
 
     const total = docentes.reduce((a, b) => a + Number(b.participantes), 0);
     conn.release();
     res.json({
       curso,
-      bayes: { C, m: M, formula: 'score local al curso = (n·prom_doc + m·C_curso)/(n+m)' },
+      cursos,
+      es_materia: sel.esMateria,
+      bayes: { C, m: M, formula: sel.esMateria
+        ? 'score local a la materia = (n·prom_doc + m·C_materia)/(n+m); agrupa los cursos equivalentes de las tres áreas'
+        : 'score local al curso = (n·prom_doc + m·C_curso)/(n+m)' },
       docentes,
       total_calificaciones: total,
       total_docentes: docentes.length,
@@ -3897,8 +3962,9 @@ app.get('/api/stats/docentes-stats/curso', requireAdmin, cacheMiddleware(180), a
 
 // ---- Heatmap docente × pregunta para un curso ----
 app.get('/api/stats/docentes-stats/heatmap', requireAdmin, cacheMiddleware(180), async (req, res) => {
-  const curso = String(req.query.curso || '').trim();
-  if (curso.length < 2) return res.status(400).json({ error: 'Parámetro "curso" requerido' });
+  const sel = resolverCursos(req.query);
+  if (sel.error) return res.status(400).json({ error: sel.error });
+  const { etiqueta: curso, cursos } = sel;
   const soloValidas = req.query.solo_validas === '1' || req.query.solo_validas === 'true';
   const JOIN_ASIST = soloValidas
     ? `JOIN (${ASIST_VALIDA_SQL}) av ON av.estudiantes_id = cdd.estudiantes_id`
@@ -3925,9 +3991,9 @@ app.get('/api/stats/docentes-stats/heatmap', requireAdmin, cacheMiddleware(180),
       JOIN docentes d ON d.id = cd.docentes_id
       JOIN criterios cr ON cr.id = cdd.criterios_id
       ${JOIN_ASIST}
-      WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
+      WHERE c.denominacion IN (?) AND cr.tipo='1' AND cr.estado='1' AND cr.modalidad = cd.modalidad
       GROUP BY cd.docentes_id, cdd.criterios_id
-    `, [curso]);
+    `, [cursos]);
 
     // Pivotar en JS a matriz: filas = docentes, columnas = preguntas
     const docentesMap = new Map();
@@ -3988,6 +4054,236 @@ function _setupDocentesWorkbook(ws, titulo, headers) {
     cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
   });
 }
+
+/**
+ * Escribe una hoja con uno o varios bloques de tabla.
+ * Cada bloque es { titulo, headers, filas, anchos }. `filas` son arrays de
+ * valores ya formateados.
+ */
+function _hojaConBloques(wb, nombre, tituloHoja, bloques) {
+  const ws = wb.addWorksheet(nombre);
+  const ancho = Math.max(...bloques.map(b => b.headers.length), 1);
+
+  ws.mergeCells(1, 1, 1, ancho);
+  ws.getCell(1, 1).value = tituloHoja;
+  ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+  ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+  ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 24;
+  ws.mergeCells(2, 1, 2, ancho);
+  ws.getCell(2, 1).value = `Generado: ${new Date().toLocaleString('es-PE')} · CEPREUNA — Docentes Stats`;
+  ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF666666' } };
+  ws.getCell(2, 1).alignment = { horizontal: 'center' };
+
+  const borde = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+  let fila = 4;
+
+  for (const b of bloques) {
+    if (b.titulo) {
+      ws.mergeCells(fila, 1, fila, ancho);
+      const c = ws.getCell(fila, 1);
+      c.value = b.titulo;
+      c.font = { bold: true, size: 11, color: { argb: 'FF003366' } };
+      fila += 1;
+    }
+    const cab = ws.getRow(fila);
+    cab.values = b.headers;
+    cab.eachCell((cell) => {
+      cell.font = { bold: true, size: 10 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = borde;
+    });
+    fila += 1;
+
+    for (const valores of b.filas) {
+      const r = ws.getRow(fila);
+      r.values = valores;
+      r.eachCell((cell) => {
+        cell.border = borde;
+        cell.alignment = { horizontal: typeof cell.value === 'number' ? 'right' : 'left' };
+      });
+      fila += 1;
+    }
+    fila += 1;  // una fila en blanco entre bloques
+  }
+
+  ws.columns = (bloques[0].anchos || []).map(w => ({ width: w }));
+  return ws;
+}
+
+// Pide el dashboard al propio servidor reutilizando la sesion de quien descarga.
+// Asi el Excel sale de exactamente los mismos numeros que la pantalla —incluida
+// la cache— y no hay una segunda copia de 450 lineas de SQL que se desincronice.
+function _pedirDashboard(req) {
+  return new Promise((resolve, reject) => {
+    const qs = req.originalUrl.includes('?') ? '?' + req.originalUrl.split('?')[1] : '';
+    const pet = http.get({
+      host: '127.0.0.1',
+      port: req.socket.localPort,
+      path: '/api/stats/docentes-stats/dashboard' + qs,
+      headers: { Authorization: req.headers.authorization || '' },
+      timeout: 300000,
+    }, (r) => {
+      let cuerpo = '';
+      r.setEncoding('utf8');
+      r.on('data', (t) => { cuerpo += t; });
+      r.on('end', () => {
+        if (r.statusCode !== 200) return reject(new Error(`el dashboard respondio ${r.statusCode}`));
+        try { resolve(JSON.parse(cuerpo)); } catch (e) { reject(e); }
+      });
+    });
+    pet.on('error', reject);
+    pet.on('timeout', () => { pet.destroy(new Error('el dashboard tardo demasiado')); });
+  });
+}
+
+// ---- Export: el dashboard completo en un solo archivo ----
+// Una hoja por bloque de la pantalla, para armar el informe del ciclo sin tener
+// que descargar cada seccion por separado. Respeta los filtros de la vista.
+app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (req, res) => {
+  try {
+    const d = await _pedirDashboard(req);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'CEPREUNA Stats';
+
+    const n = (v) => (v == null || v === '' ? '' : Number(v));
+    const f = d.filtros_aplicados || {};
+    const pc = d.participacion_ciclo || {};
+    const k = d.kpis || {};
+
+    // 1) Resumen
+    _hojaConBloques(wb, 'Resumen', `Calificación docente · ciclo ${PERIODO_CODIGO || ''}`, [
+      { titulo: 'Participación del ciclo', headers: ['Indicador', 'Valor'],
+        anchos: [58, 18],
+        filas: [
+          ['Estudiantes inscritos en el ciclo', n(pc.total_inscritos)],
+          ['Calificaron al menos a un docente', n(pc.calificaron)],
+          ['No calificaron', n(pc.no_calificaron)],
+          ['Participación (%)', pc.total_inscritos ? Number((100 * pc.calificaron / pc.total_inscritos).toFixed(1)) : ''],
+        ] },
+      { titulo: 'Cobertura de quienes participaron', headers: ['Indicador', 'Valor'],
+        filas: [
+          ['Alumnos que calificaron (universo)', n(k.total_alumnos)],
+          ['Calificaron a todos sus docentes', n(k.completos)],
+          ['Calificaron a algunos', n(k.parciales)],
+          ['No calificaron a ninguno', n(k.sin_calificar)],
+          ['Sin docentes que calificar', n(k.sin_grupo)],
+          ['Cobertura promedio (%)', n(k.cobertura_global_pct)],
+        ] },
+      { titulo: 'Volumen de la encuesta', headers: ['Indicador', 'Valor'],
+        filas: [
+          ['Calificaciones registradas', n(k.total_calificaciones_docente)],
+          ['Respuestas a criterios', n(k.total_respuestas_criterios)],
+          ['Docentes evaluados', n(k.docentes_evaluados)],
+        ] },
+      { titulo: 'Puntaje corregido y confianza', headers: ['Indicador', 'Valor'],
+        filas: [
+          ['Media institucional (C)', n(d.bayes && d.bayes.C)],
+          ['Peso del promedio institucional (m)', n(d.bayes && d.bayes.m)],
+          ['Umbral de muestra robusta', n(d.umbral_robusta)],
+          ['Docentes con muestra robusta', n(d.robustez_conteo && d.robustez_conteo.robustos)],
+          ['Docentes con muestra referencial', n(d.robustez_conteo && d.robustez_conteo.referenciales)],
+          ['Docentes con muestra insuficiente', n(d.robustez_conteo && d.robustez_conteo.insuficientes)],
+          ['Fórmula', (d.bayes && d.bayes.formula) || ''],
+        ] },
+      { titulo: 'Alcance de este archivo', headers: ['Indicador', 'Valor'],
+        filas: [
+          ['Filtro de sede', f.sede || 'todas'],
+          ['Filtro de área', f.area || 'todas'],
+          ['Filtro de turno', f.turno || 'todos'],
+          [`Solo calificaciones válidas (asistencia ≥ ${d.umbral_asistencia != null ? d.umbral_asistencia : 80}%)`,
+           d.solo_validas ? 'sí' : 'no'],
+        ] },
+    ]);
+
+    // 2) Rankings por dimensión
+    const dim = (titulo, etiquetaCol, filas) => ({
+      titulo,
+      headers: ['Puesto', etiquetaCol, 'Promedio', 'Calificaciones', 'Docentes', 'Áreas'],
+      anchos: [8, 46, 11, 15, 10, 36],
+      filas: (filas || []).map((r, i) => [i + 1, r.etiqueta, n(r.promedio), n(r.participantes), n(r.docentes), r.areas || '']),
+    });
+    _hojaConBloques(wb, 'Rankings', 'Resultados por curso, área, turno y sede', [
+      dim('Por curso', 'Curso', d.ranking_por_curso),
+      dim('Por área', 'Área', d.ranking_por_area),
+      dim('Por turno', 'Turno', d.ranking_por_turno),
+      dim('Por sede', 'Sede', d.ranking_por_sede),
+    ]);
+
+    // 3) Preguntas de la encuesta
+    _hojaConBloques(wb, 'Preguntas', 'Resultado por pregunta y por modalidad', [
+      { titulo: 'Promedio por pregunta',
+        headers: ['#', 'Pregunta', 'Promedio', 'Respuestas', 'Aprobatorias (4-5)', 'Críticas (1-2)', '% críticas'],
+        anchos: [5, 88, 11, 12, 18, 15, 11],
+        filas: (d.por_pregunta || []).map((r, i) => [i + 1, r.pregunta, n(r.promedio), n(r.respuestas),
+          n(r.aprobatorias), n(r.criticas),
+          r.respuestas ? Number((100 * r.criticas / r.respuestas).toFixed(1)) : '']) },
+      { titulo: 'Por modalidad',
+        headers: ['Modalidad', 'Docentes', 'Cargas', 'Calificaciones', 'Promedio'],
+        filas: (d.por_modalidad || []).map(r => [r.modalidad, n(r.docentes), n(r.cargas), n(r.calificaciones), n(r.promedio)]) },
+    ]);
+
+    // 4) Cumplimiento
+    _hojaConBloques(wb, 'Cumplimiento', 'Cumplimiento de la encuesta', [
+      { titulo: 'Cuántos de sus docentes calificó cada alumno',
+        headers: ['Tramo de cobertura', 'Alumnos'],
+        anchos: [34, 16, 16],
+        filas: (d.distribucion_cumplimiento || []).map(r => [r.rango, n(r.alumnos)]) },
+      { titulo: 'Cobertura por sede (sobre todos los inscritos de la sede)',
+        headers: ['Sede', 'Inscritos', 'Cobertura (%)'],
+        filas: (d.cobertura_por_sede || []).map(r => [r.sede, n(r.alumnos), n(r.pct)]) },
+      { titulo: 'Reparto de docentes por nivel de promedio',
+        headers: ['Rango', 'Docentes'],
+        filas: (d.distribucion_promedios || []).map(r => [r.rango, n(r.docentes)]) },
+    ]);
+
+    // 5 y 6) Docentes
+    const colsDoc = ['Puesto', 'Docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo', 'Calificaciones', 'Asignaciones', 'Confianza'];
+    const anchosDoc = [8, 42, 12, 12, 18, 15, 15, 13, 13];
+    const filaDoc = (r, i) => [i + 1, r.docente, r.dni || '', r.vinculo || '', n(r.score), n(r.promedio_crudo),
+                               n(r.participantes), n(r.asignaciones), r.robustez || ''];
+    _hojaConBloques(wb, 'Mejores docentes', 'Docentes mejor evaluados', [
+      { headers: colsDoc, anchos: anchosDoc, filas: (d.top_docentes || []).map(filaDoc) }]);
+    _hojaConBloques(wb, 'Más bajos', 'Docentes con el puntaje corregido más bajo', [
+      { headers: colsDoc, anchos: anchosDoc, filas: (d.bottom_docentes || []).map(filaDoc) }]);
+
+    // 7) Intervenciones
+    _hojaConBloques(wb, 'A intervenir', 'Lista priorizada por impacto (cuánto baja la media × alumnos afectados)', [
+      { headers: ['Puesto', 'Docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo', 'Calificaciones', 'Cursos', 'Grupos', 'Impacto'],
+        anchos: [8, 42, 12, 12, 18, 15, 15, 9, 9, 11],
+        filas: (d.intervenciones || []).map((r, i) => [i + 1, r.docente, r.dni || '', r.vinculo || '',
+          n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.cursos), n(r.grupos), n(r.impacto)]) }]);
+
+    // 8) Grupos en riesgo
+    _hojaConBloques(wb, 'Grupos en riesgo', 'Grupos con menor cumplimiento de la encuesta', [
+      { headers: ['Grupo', 'Área', 'Turno', 'Sede', 'Alumnos', 'Cobertura (%)'],
+        anchos: [12, 16, 12, 22, 11, 15],
+        filas: (d.grupos_riesgo || []).map(r => [r.grupo, r.area, r.turno, r.sede, n(r.alumnos), n(r.cobertura_pct)]) }]);
+
+    // 9) Dispersión y avance
+    _hojaConBloques(wb, 'Dispersión', 'Dispersión entre docentes del mismo curso y avance diario', [
+      { titulo: 'Cursos donde más se diferencian los docentes entre sí',
+        headers: ['Curso', 'Docentes', 'Promedio', 'Desviación', 'Rango', 'Mínimo', 'Máximo'],
+        anchos: [46, 11, 11, 12, 10, 10, 10],
+        filas: (d.varianza_cursos || []).map(r => [r.curso, n(r.docentes), n(r.promedio), n(r.desviacion),
+          n(r.rango), n(r.minimo), n(r.maximo)]) },
+      { titulo: 'Respuestas por día',
+        headers: ['Día', 'Calificaciones', 'Respuestas'],
+        filas: (d.evolucion || []).map(r => [r.dia, n(r.calificaciones), n(r.respuestas)]) },
+    ]);
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="docentes-dashboard-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    console.error('Error export dashboard:', e);
+    res.status(500).json({ error: 'Error al generar el Excel', message: e.message });
+  }
+});
 
 // ---- Export: Lista priorizada de intervenciones (con filtros opcionales) ----
 app.get('/api/stats/docentes-stats/export/intervenciones.xlsx', requireAdmin, async (req, res) => {
@@ -4061,8 +4357,9 @@ app.get('/api/stats/docentes-stats/export/intervenciones.xlsx', requireAdmin, as
 
 // ---- Export: Ranking de docentes en un curso ----
 app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req, res) => {
-  const curso = String(req.query.curso || '').trim();
-  if (curso.length < 2) return res.status(400).json({ error: 'Parámetro "curso" requerido' });
+  const sel = resolverCursos(req.query);
+  if (sel.error) return res.status(400).json({ error: sel.error });
+  const { etiqueta: curso, cursos } = sel;
   let conn;
   try {
     conn = await pool.getConnection();
@@ -4071,9 +4368,9 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
       FROM (SELECT * FROM calificacion_docentes WHERE periodos_id = ${PERIODO_ACTUAL}) cd
       JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
       JOIN cursos c ON c.id = ca.cursos_id
-      WHERE cd.participantes > 0 AND c.denominacion = ?
+      WHERE cd.participantes > 0 AND c.denominacion IN (?)
       GROUP BY cd.docentes_id
-    `, [curso]);
+    `, [cursos]);
     if (!perDoc.length) { conn.release(); return res.status(404).json({ error: 'Curso sin datos' }); }
     const proms = perDoc.map(r => Number(r.prom_doc));
     const ns = perDoc.map(r => Number(r.n)).sort((a, b) => a - b);
@@ -4092,7 +4389,7 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
         JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
         JOIN cursos c ON c.id = ca.cursos_id
         JOIN criterios cr ON cr.id = cdd.criterios_id
-        WHERE c.denominacion = ? AND cr.tipo='1' AND cr.estado='1'
+        WHERE c.denominacion IN (?) AND cr.tipo='1' AND cr.estado='1'
         GROUP BY cd.docentes_id
       )
       SELECT CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
@@ -4109,10 +4406,10 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
       JOIN cursos c ON c.id = ca.cursos_id
       JOIN docentes d ON d.id = cd.docentes_id
       LEFT JOIN detalles det ON det.docentes_id = d.id
-      WHERE cd.participantes > 0 AND c.denominacion = ?
+      WHERE cd.participantes > 0 AND c.denominacion IN (?)
       GROUP BY d.id, det.top5, det.criticas, det.total_resp
       ORDER BY score DESC, participantes DESC
-    `, [curso, M, C, M, curso]);
+    `, [cursos, M, C, M, cursos]);
     conn.release();
 
     const ExcelJS = require('exceljs');
@@ -4120,7 +4417,9 @@ app.get('/api/stats/docentes-stats/export/curso.xlsx', requireAdmin, async (req,
     wb.creator = 'CEPREUNA Stats';
     const ws = wb.addWorksheet('Ranking');
     const headers = ['#', 'Docente', 'DNI', 'Vínculo', 'Score', 'Promedio crudo', '% Top (5)', '% Crítica (1-2)', 'Calificaciones', 'Grupos'];
-    _setupDocentesWorkbook(ws, `Ranking de docentes · ${curso}`, headers);
+    _setupDocentesWorkbook(ws, sel.esMateria
+      ? `Ranking de docentes · ${curso} (incluye ${cursos.join(', ')})`
+      : `Ranking de docentes · ${curso}`, headers);
     rows.forEach((r, i) => {
       const row = ws.getRow(5 + i);
       row.values = [i + 1, r.docente, r.dni, r.vinculo, Number(r.score), Number(r.promedio_crudo), r.pct_top == null ? '' : Number(r.pct_top), r.pct_critica == null ? '' : Number(r.pct_critica), Number(r.participantes), Number(r.grupos)];

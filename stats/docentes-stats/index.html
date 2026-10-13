@@ -127,6 +127,9 @@
                     <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100">Calificación docente — Informe ejecutivo</h2>
                 </div>
                 <div class="flex items-center gap-3">
+                    <button id="informeBtn" class="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-1.5 font-semibold" title="Todo el informe en un solo Excel, respetando los filtros aplicados">
+                        <span class="material-symbols-outlined text-base">download</span><span class="hidden sm:inline">Informe completo</span>
+                    </button>
                     <button id="padronBtn" class="text-xs px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center gap-1.5 font-semibold" title="Padrón completo de docentes en Excel">
                         <span class="material-symbols-outlined text-base">table_view</span><span class="hidden sm:inline">Padrón Excel</span>
                     </button>
@@ -373,7 +376,7 @@
                                 </button>
                             </div>
                         </div>
-                        <p class="text-[11px] text-slate-400 mb-3">Puntaje corregido <b>local al curso</b> — los docentes se comparan contra la media del propio curso, no contra la institucional. El menú está agrupado por área porque la malla cambia entre ellas: <b>Aritmética</b> y <b>Álgebra</b> (Ingenierías) son <b>Matemática I</b> en Biomédicas y Sociales, así que un mismo docente puede aparecer en ambos listados.</p>
+                        <p class="text-[11px] text-slate-400 mb-3">Puntaje corregido <b>local al curso</b> — los docentes se comparan contra la media del propio curso, no contra la institucional. La malla cambia entre áreas: <b>Aritmética</b> y <b>Álgebra</b> (Ingenierías) son <b>Matemática I</b> en Biomédicas y Sociales. Elige una <b>materia</b> para comparar juntos a todos los docentes del mismo contenido, o un <b>curso registrado</b> para ver solo el de su área.</p>
                         <div id="cursoEmpty" class="text-center py-10 text-slate-400 text-xs">
                             <span class="material-symbols-outlined text-4xl text-slate-300 dark:text-slate-700">menu_book</span>
                             <p class="mt-2">Selecciona un curso del menú para ver el ranking de sus docentes.</p>
@@ -931,26 +934,49 @@
             document.getElementById('insightCurso').innerHTML =
                 `El curso mejor evaluado es <b>${esc(m.etiqueta)}</b> con <b>${m.promedio}</b>, y el peor es <b>${esc(p.etiqueta)}</b> con <b>${p.promedio}</b>. Diferencia de <b>${(m.promedio - p.promedio).toFixed(2)} puntos</b> entre el mejor y el peor curso.`;
 
-            // Selector de curso agrupado por área. La malla no es la misma en las
-            // tres áreas —Aritmética y Álgebra en Ingenierías equivalen a
-            // Matemática I en Biomédicas y Sociales—, así que sin el área el menú
-            // parece traer cursos duplicados.
+            // Menú del selector. Primero las materias unificadas, que juntan los
+            // cursos equivalentes de distintas áreas —Aritmética y Álgebra en
+            // Ingenierías son Matemática I en Biomédicas y Sociales—, y después
+            // los cursos tal como están registrados, agrupados por área.
+            // El valor lleva prefijo: "m:" materia, "c:" curso registrado.
             const sel = document.getElementById('selectCurso');
+            const ordenados = [...rows].sort((a, b) => a.etiqueta.localeCompare(b.etiqueta, 'es'));
+
+            const materias = [...new Set(ordenados.map(r => r.materia).filter(Boolean))]
+                .sort((a, b) => a.localeCompare(b, 'es'));
+            const bloqueMaterias = materias.length
+                ? `<optgroup label="Materias — cursos equivalentes juntos">` +
+                  materias.map(m => {
+                      const parte = ordenados.filter(r => r.materia === m).map(r => r.etiqueta);
+                      return `<option value="m:${esc(m)}" title="${esc(parte.join(' + '))}">${esc(m)} (${parte.length} cursos)</option>`;
+                  }).join('') + '</optgroup>'
+                : '';
+
             const porArea = new Map();
-            [...rows].sort((a, b) => a.etiqueta.localeCompare(b.etiqueta, 'es'))
-                .forEach(r => {
-                    const k = r.areas || 'Sin área';
-                    if (!porArea.has(k)) porArea.set(k, []);
-                    porArea.get(k).push(r.etiqueta);
-                });
+            ordenados.forEach(r => {
+                const k = r.areas || 'Sin área';
+                if (!porArea.has(k)) porArea.set(k, []);
+                porArea.get(k).push(r.etiqueta);
+            });
             // Primero los cursos comunes a más áreas, luego los propios de un área.
             const grupos = [...porArea.entries()]
                 .sort((a, b) => b[0].split('·').length - a[0].split('·').length || a[0].localeCompare(b[0], 'es'));
-            sel.innerHTML = '<option value="">Selecciona un curso…</option>' +
+
+            sel.innerHTML = '<option value="">Selecciona un curso o materia…</option>' +
+                bloqueMaterias +
                 grupos.map(([area, cursos]) =>
-                    `<optgroup label="${esc(area)}">` +
-                    cursos.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('') +
+                    `<optgroup label="Cursos registrados · ${esc(area)}">` +
+                    cursos.map(c => `<option value="c:${esc(c)}">${esc(c)}</option>`).join('') +
                     '</optgroup>').join('');
+        }
+
+        // El selector devuelve "m:<materia>" o "c:<curso>". Se traduce al
+        // parámetro que esperan los endpoints.
+        function paramCurso(valor) {
+            if (!valor) return '';
+            const esMateria = valor.startsWith('m:');
+            const nombre = valor.slice(2);
+            return (esMateria ? 'materia=' : 'curso=') + encodeURIComponent(nombre);
         }
 
         async function cargarRankingCurso(curso) {
@@ -959,7 +985,7 @@
             if (!curso) { empty.classList.remove('hidden'); content.classList.add('hidden'); return; }
             try {
                 const sv = document.getElementById('switchValidas').checked ? '&solo_validas=1' : '';
-                const r = await fetch('/api/stats/docentes-stats/curso?curso=' + encodeURIComponent(curso) + sv, { headers: { Authorization: 'Bearer ' + TOKEN } });
+                const r = await fetch('/api/stats/docentes-stats/curso?' + paramCurso(curso) + sv, { headers: { Authorization: 'Bearer ' + TOKEN } });
                 if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
                 if (!r.ok) { alert('Error al cargar el ranking del curso.'); return; }
                 const d = await r.json();
@@ -970,7 +996,11 @@
         function pintarRankingCurso(d) {
             document.getElementById('cursoEmpty').classList.add('hidden');
             document.getElementById('cursoContent').classList.remove('hidden');
-            document.getElementById('cursoNombre').textContent = d.curso;
+            // Si es una materia, se dice de que cursos sale: el lector tiene que
+            // poder ver que se agrupo sin fiarse del nombre.
+            document.getElementById('cursoNombre').textContent = d.es_materia
+                ? `${d.curso} — agrupa ${d.cursos.join(' + ')}`
+                : d.curso;
             document.getElementById('cursoC').textContent = d.bayes?.C ?? '—';
             document.getElementById('cursoNDocentes').textContent = fmt(d.total_docentes);
             document.getElementById('cursoNTotal').textContent = fmt(d.total_calificaciones);
@@ -1020,7 +1050,7 @@
         async function cargarHeatmap(curso) {
             try {
                 const sv = document.getElementById('switchValidas').checked ? '&solo_validas=1' : '';
-                const r = await fetch('/api/stats/docentes-stats/heatmap?curso=' + encodeURIComponent(curso) + sv, { headers: { Authorization: 'Bearer ' + TOKEN } });
+                const r = await fetch('/api/stats/docentes-stats/heatmap?' + paramCurso(curso) + sv, { headers: { Authorization: 'Bearer ' + TOKEN } });
                 if (r.status === 401) { localStorage.removeItem('stats_session'); window.location.href = '/stats/login'; return; }
                 if (!r.ok) { alert('Error al cargar heatmap.'); return; }
                 pintarHeatmap(await r.json());
@@ -1395,6 +1425,23 @@
             } catch (e) { console.error(e); alert('Error de red al descargar.'); }
         }
 
+        // Informe completo: el mismo Excel que la pantalla, con los filtros puestos.
+        // Puede tardar unos segundos la primera vez, asi que el boton avisa.
+        document.getElementById('informeBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('informeBtn');
+            const orig = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">progress_activity</span><span class="hidden sm:inline">Generando…</span>';
+            const sv = document.getElementById('switchValidas').checked ? 'solo_validas=1' : '';
+            const qs = getFiltrosParams();
+            if (sv) qs.set('solo_validas', '1');
+            const cola = qs.toString();
+            try {
+                await descargarConToken('/api/stats/docentes-stats/export/dashboard.xlsx' + (cola ? '?' + cola : ''),
+                                        'informe-docentes.xlsx');
+            } finally { btn.innerHTML = orig; btn.disabled = false; }
+        });
+
         document.getElementById('exportIntervenciones').addEventListener('click', e => {
             e.preventDefault();
             descargarConToken('/api/stats/docentes-stats/export/intervenciones.xlsx' + getFiltrosQueryString(), 'intervenciones.xlsx');
@@ -1412,7 +1459,7 @@
             const curso = document.getElementById('selectCurso').value;
             if (!curso) return;
             const sv = document.getElementById('switchValidas').checked ? '&solo_validas=1' : '';
-            descargarConToken('/api/stats/docentes-stats/export/curso.xlsx?curso=' + encodeURIComponent(curso) + sv, 'ranking-curso.xlsx');
+            descargarConToken('/api/stats/docentes-stats/export/curso.xlsx?' + paramCurso(curso) + sv, 'ranking-curso.xlsx');
         });
 
         // ---------- FILTROS GLOBALES: catalogos + persistencia URL ----------
