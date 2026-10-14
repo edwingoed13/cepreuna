@@ -4306,12 +4306,14 @@ async function _docentesPorAreaYCurso(soloValidas, F) {
 
   const porGrupo = [];
   const mejores = [];
-  for (const [, docs] of grupos) {
+  const listas = new Map();   // clave del par -> docentes ordenados
+  for (const [clave, docs] of grupos) {
     const { C, M } = _bayesLocal(docs);
     const puntuados = docs.map(x => ({
       area: x.area,
       curso: x.curso,
       materia: MATERIA_DE_CURSO[x.curso] || '',
+      docente_id: x.docente_id,
       docente: x.docente,
       dni: x.dni || '',
       vinculo: x.vinculo || '',
@@ -4328,7 +4330,51 @@ async function _docentesPorAreaYCurso(soloValidas, F) {
 
     puntuados.forEach((x, i) => { x.puesto = i + 1; });
     porGrupo.push(...puntuados);
-    mejores.push(puntuados[0]);
+    listas.set(clave, puntuados);
+  }
+
+  // Un mismo docente no debe figurar como ganador de dos pares: se queda en el
+  // par donde su puntaje es mas alto y el otro pasa al siguiente de su lista.
+  // Se recorren todas las parejas (par, docente) de mayor a menor puntaje y se
+  // toma la primera cuyo par y cuyo docente esten libres, lo que deja cada par
+  // con su mejor candidato disponible.
+  const candidatos = [];
+  for (const [clave, lista] of listas) {
+    lista.forEach((d) => candidatos.push({ clave, d }));
+  }
+  candidatos.sort((a, b) => b.d.score - a.d.score || b.d.participantes - a.d.participantes);
+
+  const parOcupado = new Set();
+  const dondeQuedo = new Map();   // docente_id -> { area, curso }
+  const elegido = new Map();      // clave del par -> fila elegida
+  for (const c of candidatos) {
+    if (parOcupado.has(c.clave) || dondeQuedo.has(c.d.docente_id)) continue;
+    parOcupado.add(c.clave);
+    dondeQuedo.set(c.d.docente_id, { area: c.d.area, curso: c.d.curso });
+    elegido.set(c.clave, c.d);
+  }
+
+  for (const [clave, lista] of listas) {
+    let fila = elegido.get(clave);
+    let sinSuplente = false;
+    // Solo pasaria si todos los docentes del par figuran ya en otro: hoy no
+    // ocurre —el par mas pequeno tiene 17—, pero conviene no callarlo.
+    if (!fila) { fila = lista[0]; sinSuplente = true; }
+
+    let nota = '';
+    if (sinSuplente) {
+      nota = 'Repetido: todos los docentes de este curso figuran ya en otro';
+    } else if (fila.puesto > 1) {
+      // Se dice quien iba delante y donde quedo, para que el puesto se entienda
+      // sin tener que cruzar las hojas a mano.
+      const delante = lista.slice(0, fila.puesto - 1).map((x) => {
+        const d = dondeQuedo.get(x.docente_id);
+        return `${x.docente}${d ? ` (figura en ${d.area} · ${d.curso})` : ''}`;
+      });
+      nota = `${fila.puesto}.º mejor del grupo — por delante: ${delante.join('; ')}`;
+    }
+
+    mejores.push({ ...fila, nota });
   }
 
   const porAreaCurso = (a, b) =>
@@ -4509,13 +4555,16 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
       'El docente mejor calificado de cada curso, en cada área' + (hayFiltro ? ' — con los filtros aplicados' : ''), [
       { titulo: 'La malla cambia entre áreas, así que cada una tiene su propio cuadro de docentes. ' +
                 'El puntaje se compara contra quienes dictan ese curso en esa misma área, por eso no es ' +
-                'comparable de un área a otra; para eso está el promedio crudo, que no depende del grupo',
+                'comparable de un área a otra; para eso está el promedio crudo, que no depende del grupo. ' +
+                'Ningún docente figura dos veces: se queda donde su puntaje es más alto y el otro curso ' +
+                'pasa al siguiente de su lista, con el puesto y el motivo anotados',
         headers: ['Área', 'Curso', 'Materia equivalente', 'Docentes del área en ese curso', 'Media del grupo',
-                  'Mejor docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo',
-                  'Calificaciones', 'Grupos', 'Confianza'],
-        anchos: [16, 44, 38, 16, 13, 42, 12, 12, 18, 15, 14, 9, 13],
+                  'Docente', 'Puesto en su área y curso', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo',
+                  'Calificaciones', 'Grupos', 'Confianza', 'Por qué no es el 1.º'],
+        anchos: [16, 44, 38, 16, 13, 42, 14, 12, 12, 18, 15, 14, 9, 13, 76],
         filas: porArea.mejores.map(r => [r.area, r.curso, r.materia, n(r.docentes_del_grupo), n(r.media_grupo),
-          r.docente, r.dni, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.grupos), r.robustez]) },
+          r.docente, n(r.puesto), r.dni, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes),
+          n(r.grupos), r.robustez, r.nota || '']) },
     ]);
 
     // 2.1c) La lista completa detras de la hoja anterior
