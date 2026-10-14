@@ -4248,6 +4248,98 @@ async function _mejorDocentePorCurso(soloValidas, F) {
 }
 
 /**
+ * Docentes por AREA y CURSO. La malla cambia entre areas, asi que el mismo
+ * curso se dicta en varias y cada una tiene su propio cuadro de docentes:
+ * un coordinador de area necesita ver los suyos, no el agregado.
+ *
+ * El puntaje corregido es local a cada par (area, curso): se compara a cada
+ * docente contra los que dictan ESE curso en ESA area, que es el grupo que se
+ * esta ordenando. Por eso el puntaje no es comparable de un area a otra; para
+ * eso esta el promedio crudo, que no depende del grupo.
+ *
+ * Devuelve { porGrupo, mejores }: la lista completa ordenada por area y curso,
+ * y una fila por par con su mejor calificado.
+ */
+async function _docentesPorAreaYCurso(soloValidas, F) {
+  const CD_CTE = cdSourceCTE(soloValidas);
+
+  // Un solo juego de alias, igual que en los rankings por dimension.
+  const cond = [];
+  const valores = [];
+  if (F.aplicados.area)  { cond.push('ga_dim.areas_id = ?');  valores.push(F.aplicados.area); }
+  if (F.aplicados.turno) { cond.push('ga_dim.turnos_id = ?'); valores.push(F.aplicados.turno); }
+  if (F.aplicados.sede)  { cond.push('lo_dim.sedes_id = ?');  valores.push(F.aplicados.sede); }
+
+  // areas con JOIN interno: una carga sin grupo asignado no pertenece a ningun
+  // area y no debe aparecer como fila sin etiqueta.
+  const [filas] = await pool.query(`
+    WITH ${CD_CTE}
+    SELECT a_dim.denominacion AS area,
+           c.denominacion AS curso,
+           d.id AS docente_id,
+           CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
+           d.nro_documento AS dni,
+           CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
+           AVG(cd.promedio) AS prom_doc,
+           SUM(cd.participantes) AS n,
+           COUNT(DISTINCT cd.carga_academicas_id) AS grupos
+    FROM cd_src cd
+    JOIN carga_academicas ca ON ca.id = cd.carga_academicas_id AND ca.tipo='1'
+    JOIN cursos c ON c.id = ca.cursos_id
+    JOIN docentes d ON d.id = cd.docentes_id
+    JOIN grupo_aulas ga_dim ON ga_dim.id = ca.grupo_aulas_id
+    JOIN areas a_dim ON a_dim.id = ga_dim.areas_id
+    LEFT JOIN aulas   au_dim ON au_dim.id = ga_dim.aulas_id
+    LEFT JOIN locales lo_dim ON lo_dim.id = au_dim.locales_id
+    WHERE cd.participantes > 0
+      ${cond.length ? 'AND ' + cond.join(' AND ') : ''}
+    GROUP BY a_dim.id, a_dim.denominacion, c.denominacion, d.id
+  `, valores);
+
+  // Agrupar por (area, curso) y puntuar dentro de cada grupo.
+  const grupos = new Map();
+  for (const f of filas) {
+    const clave = f.area + '\u0000' + f.curso;
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave).push(f);
+  }
+
+  const porGrupo = [];
+  const mejores = [];
+  for (const [, docs] of grupos) {
+    const { C, M } = _bayesLocal(docs);
+    const puntuados = docs.map(x => ({
+      area: x.area,
+      curso: x.curso,
+      materia: MATERIA_DE_CURSO[x.curso] || '',
+      docente: x.docente,
+      dni: x.dni || '',
+      vinculo: x.vinculo || '',
+      score: _scoreCorregido(Number(x.n), Number(x.prom_doc), C, M),
+      promedio_crudo: Number(Number(x.prom_doc).toFixed(2)),
+      participantes: Number(x.n),
+      grupos: Number(x.grupos),
+      // Mismos cortes que el panel por curso: dentro de un curso las muestras
+      // son mas pequenas que en el conjunto de la institucion.
+      robustez: Number(x.n) >= 30 ? 'robusta' : Number(x.n) >= 15 ? 'referencial' : 'insuficiente',
+      docentes_del_grupo: docs.length,
+      media_grupo: C,
+    })).sort((a, b) => b.score - a.score || b.participantes - a.participantes);
+
+    puntuados.forEach((x, i) => { x.puesto = i + 1; });
+    porGrupo.push(...puntuados);
+    mejores.push(puntuados[0]);
+  }
+
+  const porAreaCurso = (a, b) =>
+    String(a.area).localeCompare(String(b.area), 'es') ||
+    String(a.curso).localeCompare(String(b.curso), 'es') ||
+    a.puesto - b.puesto;
+
+  return { porGrupo: porGrupo.sort(porAreaCurso), mejores: mejores.sort(porAreaCurso) };
+}
+
+/**
  * Ranking de TODOS los docentes con el puntaje corregido institucional, el mismo
  * que usa el top/bottom de la pantalla. C, m y el umbral de robustez llegan del
  * dashboard para que la pantalla y el informe no puedan discrepar.
@@ -4298,8 +4390,9 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
 
     // Las dos hojas de ranking que no vienen en el dashboard: el mejor de cada
     // curso y la lista completa de docentes. Se piden en paralelo.
-    const [mejorPorCurso, rankingGeneral] = await Promise.all([
+    const [mejorPorCurso, porArea, rankingGeneral] = await Promise.all([
       _mejorDocentePorCurso(soloValidas, F),
+      _docentesPorAreaYCurso(soloValidas, F),
       _rankingGeneralDocentes(soloValidas, F,
         Number(d.bayes && d.bayes.C) || 4.3,
         Number(d.bayes && d.bayes.m) || 20,
@@ -4409,6 +4502,31 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
         anchos: [44, 32, 38, 13, 13, 42, 12, 12, 18, 15, 14, 9, 13],
         filas: mejorPorCurso.map(r => [r.curso, r.areas, r.materia, n(r.docentes_evaluados), n(r.media_curso),
           r.docente, r.dni, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.grupos), r.robustez]) },
+    ]);
+
+    // 2.1b) Mejor docente de cada curso en cada area
+    _hojaConBloques(wb, 'Mejor por área y curso',
+      'El docente mejor calificado de cada curso, en cada área' + (hayFiltro ? ' — con los filtros aplicados' : ''), [
+      { titulo: 'La malla cambia entre áreas, así que cada una tiene su propio cuadro de docentes. ' +
+                'El puntaje se compara contra quienes dictan ese curso en esa misma área, por eso no es ' +
+                'comparable de un área a otra; para eso está el promedio crudo, que no depende del grupo',
+        headers: ['Área', 'Curso', 'Materia equivalente', 'Docentes del área en ese curso', 'Media del grupo',
+                  'Mejor docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo',
+                  'Calificaciones', 'Grupos', 'Confianza'],
+        anchos: [16, 44, 38, 16, 13, 42, 12, 12, 18, 15, 14, 9, 13],
+        filas: porArea.mejores.map(r => [r.area, r.curso, r.materia, n(r.docentes_del_grupo), n(r.media_grupo),
+          r.docente, r.dni, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.grupos), r.robustez]) },
+    ]);
+
+    // 2.1c) La lista completa detras de la hoja anterior
+    _hojaConBloques(wb, 'Docentes por área y curso',
+      'Todos los docentes de cada curso, área por área' + (hayFiltro ? ' — con los filtros aplicados' : ''), [
+      { titulo: 'Ordenado por área, curso y puesto dentro del curso en esa área',
+        headers: ['Área', 'Curso', 'Puesto', 'Docente', 'DNI', 'Vínculo', 'Puntaje corregido',
+                  'Promedio crudo', 'Calificaciones', 'Grupos', 'Confianza'],
+        anchos: [16, 44, 8, 42, 12, 12, 18, 15, 14, 9, 13],
+        filas: porArea.porGrupo.map(r => [r.area, r.curso, n(r.puesto), r.docente, r.dni, r.vinculo,
+          n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.grupos), r.robustez]) },
     ]);
 
     // 2.2) Ranking general de todos los docentes
