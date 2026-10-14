@@ -4189,6 +4189,7 @@ async function _mejorDocentePorCurso(soloValidas, F) {
            d.id AS docente_id,
            CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
            d.nro_documento AS dni,
+           TRIM(COALESCE(d.celular, '')) AS celular,
            CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
            AVG(cd.promedio) AS prom_doc,
            SUM(cd.participantes) AS n,
@@ -4233,6 +4234,7 @@ async function _mejorDocentePorCurso(soloValidas, F) {
       media_curso: C,
       docente: g.docente,
       dni: g.dni || '',
+      celular: g.celular || '',
       vinculo: g.vinculo || '',
       score: g.score,
       promedio_crudo: Number(Number(g.prom_doc).toFixed(2)),
@@ -4279,6 +4281,7 @@ async function _docentesPorAreaYCurso(soloValidas, F) {
            d.id AS docente_id,
            CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
            d.nro_documento AS dni,
+           TRIM(COALESCE(d.celular, '')) AS celular,
            CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
            AVG(cd.promedio) AS prom_doc,
            SUM(cd.participantes) AS n,
@@ -4316,6 +4319,7 @@ async function _docentesPorAreaYCurso(soloValidas, F) {
       docente_id: x.docente_id,
       docente: x.docente,
       dni: x.dni || '',
+      celular: x.celular || '',
       vinculo: x.vinculo || '',
       score: _scoreCorregido(Number(x.n), Number(x.prom_doc), C, M),
       promedio_crudo: Number(Number(x.prom_doc).toFixed(2)),
@@ -4401,6 +4405,7 @@ async function _rankingGeneralDocentes(soloValidas, F, C, M, umbralRobusta) {
     SELECT d.id,
            CONCAT_WS(' ', d.paterno, d.materno, d.nombres) AS docente,
            d.nro_documento AS dni,
+           TRIM(COALESCE(d.celular, '')) AS celular,
            CASE d.condicion WHEN '2' THEN 'UNAP' WHEN '1' THEN 'Particular' ELSE '—' END AS vinculo,
            d.profesion,
            ROUND(AVG(cd.promedio), 2) AS promedio_crudo,
@@ -4436,14 +4441,23 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
 
     // Las dos hojas de ranking que no vienen en el dashboard: el mejor de cada
     // curso y la lista completa de docentes. Se piden en paralelo.
-    const [mejorPorCurso, porArea, rankingGeneral] = await Promise.all([
+    const [mejorPorCurso, porArea, rankingGeneral, celulares] = await Promise.all([
       _mejorDocentePorCurso(soloValidas, F),
       _docentesPorAreaYCurso(soloValidas, F),
       _rankingGeneralDocentes(soloValidas, F,
         Number(d.bayes && d.bayes.C) || 4.3,
         Number(d.bayes && d.bayes.m) || 20,
         Number(d.umbral_robusta) || 50),
+      // Las hojas que salen del JSON del dashboard no traen el celular, pero si
+      // el id del docente: se busca aqui una sola vez.
+      pool.query(`
+        SELECT d.id, TRIM(COALESCE(d.celular, '')) AS celular
+        FROM docentes d
+        WHERE d.id IN (SELECT DISTINCT docentes_id FROM calificacion_docentes
+                        WHERE periodos_id = ${PERIODO_ACTUAL} AND estado='1')
+      `).then(([filas]) => new Map(filas.map((x) => [Number(x.id), x.celular]))),
     ]);
+    const cel = (id) => celulares.get(Number(id)) || '';
 
     // El dashboard devuelve los filtros como ids; en un informe hay que leer
     // "Puno", no "3".
@@ -4543,11 +4557,12 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
       'El docente mejor calificado de cada curso' + (hayFiltro ? ' — con los filtros aplicados' : ''), [
       { titulo: 'Puntaje corregido local a cada curso: se compara contra la media del propio curso, no contra la institucional',
         headers: ['Curso', 'Áreas', 'Materia equivalente', 'Docentes evaluados', 'Media del curso',
-                  'Mejor docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo',
+                  'Mejor docente', 'DNI', 'Celular', 'Vínculo', 'Puntaje corregido', 'Promedio crudo',
                   'Calificaciones', 'Grupos', 'Confianza'],
-        anchos: [44, 32, 38, 13, 13, 42, 12, 12, 18, 15, 14, 9, 13],
+        anchos: [44, 32, 38, 13, 13, 42, 12, 13, 12, 18, 15, 14, 9, 13],
         filas: mejorPorCurso.map(r => [r.curso, r.areas, r.materia, n(r.docentes_evaluados), n(r.media_curso),
-          r.docente, r.dni, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.grupos), r.robustez]) },
+          r.docente, r.dni, r.celular, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes),
+          n(r.grupos), r.robustez]) },
     ]);
 
     // 2.1b) Mejor docente de cada curso en cada area
@@ -4559,22 +4574,22 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
                 'Ningún docente figura dos veces: se queda donde su puntaje es más alto y el otro curso ' +
                 'pasa al siguiente de su lista, con el puesto y el motivo anotados',
         headers: ['Área', 'Curso', 'Materia equivalente', 'Docentes del área en ese curso', 'Media del grupo',
-                  'Docente', 'Puesto en su área y curso', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo',
-                  'Calificaciones', 'Grupos', 'Confianza', 'Por qué no es el 1.º'],
-        anchos: [16, 44, 38, 16, 13, 42, 14, 12, 12, 18, 15, 14, 9, 13, 76],
+                  'Docente', 'Puesto en su área y curso', 'DNI', 'Celular', 'Vínculo', 'Puntaje corregido',
+                  'Promedio crudo', 'Calificaciones', 'Grupos', 'Confianza', 'Por qué no es el 1.º'],
+        anchos: [16, 44, 38, 16, 13, 42, 14, 12, 13, 12, 18, 15, 14, 9, 13, 76],
         filas: porArea.mejores.map(r => [r.area, r.curso, r.materia, n(r.docentes_del_grupo), n(r.media_grupo),
-          r.docente, n(r.puesto), r.dni, r.vinculo, n(r.score), n(r.promedio_crudo), n(r.participantes),
-          n(r.grupos), r.robustez, r.nota || '']) },
+          r.docente, n(r.puesto), r.dni, r.celular, r.vinculo, n(r.score), n(r.promedio_crudo),
+          n(r.participantes), n(r.grupos), r.robustez, r.nota || '']) },
     ]);
 
     // 2.1c) La lista completa detras de la hoja anterior
     _hojaConBloques(wb, 'Docentes por área y curso',
       'Todos los docentes de cada curso, área por área' + (hayFiltro ? ' — con los filtros aplicados' : ''), [
       { titulo: 'Ordenado por área, curso y puesto dentro del curso en esa área',
-        headers: ['Área', 'Curso', 'Puesto', 'Docente', 'DNI', 'Vínculo', 'Puntaje corregido',
+        headers: ['Área', 'Curso', 'Puesto', 'Docente', 'DNI', 'Celular', 'Vínculo', 'Puntaje corregido',
                   'Promedio crudo', 'Calificaciones', 'Grupos', 'Confianza'],
-        anchos: [16, 44, 8, 42, 12, 12, 18, 15, 14, 9, 13],
-        filas: porArea.porGrupo.map(r => [r.area, r.curso, n(r.puesto), r.docente, r.dni, r.vinculo,
+        anchos: [16, 44, 8, 42, 12, 13, 12, 18, 15, 14, 9, 13],
+        filas: porArea.porGrupo.map(r => [r.area, r.curso, n(r.puesto), r.docente, r.dni, r.celular, r.vinculo,
           n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.grupos), r.robustez]) },
     ]);
 
@@ -4584,12 +4599,13 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
       { titulo: 'Puntaje corregido institucional (C = ' + (d.bayes && d.bayes.C) + ', m = ' + (d.bayes && d.bayes.m) +
                 '). Entran todos los docentes evaluados; la columna de confianza indica de quiénes se puede concluir algo ' +
                 '(robusta ≥ ' + (d.umbral_robusta) + ' evaluadores · referencial ≥ 30 · por debajo, insuficiente)',
-        headers: ['Puesto', 'Docente', 'DNI', 'Vínculo', 'Profesión', 'Puntaje corregido', 'Promedio crudo',
-                  'Calificaciones', 'Asignaciones', 'Cursos', 'Grupos', 'Confianza', 'Cursos que dicta'],
-        anchos: [8, 42, 12, 12, 34, 18, 15, 14, 13, 9, 9, 13, 60],
-        filas: rankingGeneral.map((r, i) => [i + 1, r.docente, r.dni || '', r.vinculo || '', r.profesion || '',
-          n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.asignaciones), n(r.cursos), n(r.grupos),
-          r.robustez, r.lista_cursos || '']) },
+        headers: ['Puesto', 'Docente', 'DNI', 'Celular', 'Vínculo', 'Profesión', 'Puntaje corregido',
+                  'Promedio crudo', 'Calificaciones', 'Asignaciones', 'Cursos', 'Grupos', 'Confianza',
+                  'Cursos que dicta'],
+        anchos: [8, 42, 12, 13, 12, 34, 18, 15, 14, 13, 9, 9, 13, 60],
+        filas: rankingGeneral.map((r, i) => [i + 1, r.docente, r.dni || '', r.celular || '', r.vinculo || '',
+          r.profesion || '', n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.asignaciones),
+          n(r.cursos), n(r.grupos), r.robustez, r.lista_cursos || '']) },
     ]);
 
     // 3) Preguntas de la encuesta
@@ -4620,10 +4636,10 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
     ]);
 
     // 5 y 6) Docentes
-    const colsDoc = ['Puesto', 'Docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo', 'Calificaciones', 'Asignaciones', 'Confianza'];
-    const anchosDoc = [8, 42, 12, 12, 18, 15, 15, 13, 13];
-    const filaDoc = (r, i) => [i + 1, r.docente, r.dni || '', r.vinculo || '', n(r.score), n(r.promedio_crudo),
-                               n(r.participantes), n(r.asignaciones), r.robustez || ''];
+    const colsDoc = ['Puesto', 'Docente', 'DNI', 'Celular', 'Vínculo', 'Puntaje corregido', 'Promedio crudo', 'Calificaciones', 'Asignaciones', 'Confianza'];
+    const anchosDoc = [8, 42, 12, 13, 12, 18, 15, 15, 13, 13];
+    const filaDoc = (r, i) => [i + 1, r.docente, r.dni || '', cel(r.id), r.vinculo || '', n(r.score),
+                               n(r.promedio_crudo), n(r.participantes), n(r.asignaciones), r.robustez || ''];
     _hojaConBloques(wb, 'Mejores docentes', 'Docentes mejor evaluados', [
       { headers: colsDoc, anchos: anchosDoc, filas: (d.top_docentes || []).map(filaDoc) }]);
     _hojaConBloques(wb, 'Más bajos', 'Docentes con el puntaje corregido más bajo', [
@@ -4631,9 +4647,9 @@ app.get('/api/stats/docentes-stats/export/dashboard.xlsx', requireAdmin, async (
 
     // 7) Intervenciones
     _hojaConBloques(wb, 'A intervenir', 'Lista priorizada por impacto (cuánto baja la media × alumnos afectados)', [
-      { headers: ['Puesto', 'Docente', 'DNI', 'Vínculo', 'Puntaje corregido', 'Promedio crudo', 'Calificaciones', 'Cursos', 'Grupos', 'Impacto'],
-        anchos: [8, 42, 12, 12, 18, 15, 15, 9, 9, 11],
-        filas: (d.intervenciones || []).map((r, i) => [i + 1, r.docente, r.dni || '', r.vinculo || '',
+      { headers: ['Puesto', 'Docente', 'DNI', 'Celular', 'Vínculo', 'Puntaje corregido', 'Promedio crudo', 'Calificaciones', 'Cursos', 'Grupos', 'Impacto'],
+        anchos: [8, 42, 12, 13, 12, 18, 15, 15, 9, 9, 11],
+        filas: (d.intervenciones || []).map((r, i) => [i + 1, r.docente, r.dni || '', cel(r.id), r.vinculo || '',
           n(r.score), n(r.promedio_crudo), n(r.participantes), n(r.cursos), n(r.grupos), n(r.impacto)]) }]);
 
     // 8) Grupos en riesgo
